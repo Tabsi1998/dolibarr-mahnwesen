@@ -18,7 +18,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-      - run: ./scripts/check-module.sh
+      - run: bash scripts/check-module.sh
 
   dolibarr-api:
     runs-on: ubuntu-latest
@@ -27,14 +27,14 @@ jobs:
         dolibarr: ['21.0', '22.0', '23.0']
     steps:
       - uses: actions/checkout@v4
-      - run: ./scripts/check-dolibarr-api.sh ${{ matrix.dolibarr }}
+      - run: bash scripts/check-dolibarr-api.sh ${{ matrix.dolibarr }}
 
   build-package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: ./scripts/check-module.sh
-      - run: ./scripts/build-release.sh
+      - run: bash scripts/check-module.sh
+      - run: bash scripts/build-release.sh
       - uses: actions/upload-artifact@v4
         with:
           name: mahnwesen-installable-${{ github.sha }}
