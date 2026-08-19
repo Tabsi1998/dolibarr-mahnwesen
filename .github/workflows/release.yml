@@ -1,0 +1,37 @@
+name: Release ZIP
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+      - name: Validate module
+        run: ./scripts/check-module.sh
+      - name: Build installable ZIP
+        run: ./scripts/build-release.sh
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          PRERELEASE=()
+          if [[ "$TAG" == *-* ]]; then PRERELEASE=(--prerelease); fi
+          gh release create "$TAG" dist/mahnwesen-*.zip \
+            --title "Mahnwesen $TAG" \
+            --generate-notes \
+            "${PRERELEASE[@]}"
