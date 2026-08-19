@@ -1,0 +1,31 @@
+name: Bootstrap repository import
+
+on:
+  push:
+    branches:
+      - bootstrap/import
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    if: ${{ !contains(github.event.head_commit.message, 'import reconstructed project baseline') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: bootstrap/import
+          fetch-depth: 0
+      - name: Restore repository tree
+        shell: bash
+        run: |
+          cat .bootstrap/p000 .bootstrap/p001 .bootstrap/q002 .bootstrap/q003 .bootstrap/q004 .bootstrap/q005 .bootstrap/q006 .bootstrap/q007 .bootstrap/q008 .bootstrap/q009 | base64 -d > /tmp/repo.tar.gz
+          tar -xzf /tmp/repo.tar.gz -C .
+          rm -rf .bootstrap
+          rm -f .github/workflows/bootstrap-import.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: import reconstructed project baseline"
+          git push origin bootstrap/import
