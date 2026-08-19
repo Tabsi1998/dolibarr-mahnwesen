@@ -14,14 +14,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
+
       - name: Validate module
         run: bash scripts/check-module.sh
+
       - name: Build installable ZIP
         run: bash scripts/build-release.sh
-      - name: Publish GitHub release
+
+      - name: Read module version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(awk -F"'" '/\$this->version[[:space:]]*=/ {print $2; exit}' core/modules/modMahnwesen.class.php)"
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "zip=dist/mahnwesen-$VERSION.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mahnwesen-${{ steps.version.outputs.version }}
+          path: ${{ steps.version.outputs.zip }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish tagged stable/prerelease
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
@@ -29,9 +51,24 @@ jobs:
         run: |
           set -euo pipefail
           TAG="$GITHUB_REF_NAME"
-          PRERELEASE=()
-          if [[ "$TAG" == *-* ]]; then PRERELEASE=(--prerelease); fi
-          gh release create "$TAG" dist/mahnwesen-*.zip \
+          EXTRA=()
+          if [[ "$TAG" == *-* ]]; then EXTRA=(--prerelease); fi
+          gh release create "$TAG" "${{ steps.version.outputs.zip }}" \
             --title "Mahnwesen $TAG" \
             --generate-notes \
-            "${PRERELEASE[@]}"
+            "${EXTRA[@]}"
+
+      - name: Publish manual test release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}-test.${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" "${{ steps.version.outputs.zip }}" \
+            --target "$GITHUB_SHA" \
+            --title "Mahnwesen ${VERSION} Test ${GITHUB_RUN_NUMBER}" \
+            --notes "Automatisch erzeugter Test-Build aus main. Vor Produktivbetrieb zuerst in Dolibarr prüfen." \
+            --prerelease
