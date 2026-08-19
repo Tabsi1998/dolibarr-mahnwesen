@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '0.5.3';
+        $this->version = '0.5.4';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -241,10 +241,10 @@ class modMahnwesen extends DolibarrModules
     }
 
     /**
-     * Disable module without deleting business data.
+     * Disable module.
      *
      * @param string $options Options
-     * @return int 1 on success, <=0 on failure
+     * @return int
      */
     public function remove($options = '')
     {
