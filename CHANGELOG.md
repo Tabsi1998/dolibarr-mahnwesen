@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.5.4 (release candidate)
+
+- Cleaned the dunning PDF total area: one full-width closing rule and a borderless, right-aligned total replace the previous visually half-open amount box.
+- Kept generated notices in the Sponge-style one-page layout where content permits.
+- Release ZIP version now follows module version `0.5.4`.
+
+## 0.5.3
+
+- Completed the repository source baseline used for the first GitHub-managed module build.
+- Added main-branch CI, Dolibarr compatibility checks and automatic installable ZIP artifacts.
+- Added tag-driven GitHub release ZIP generation.
+
 ## 0.5.2 (test build / intended `v0.5.2-rc.1`)
 
 - Kept normal Sponge-style dunning letters on one page by reserving footer space and disabling TCPDF auto page-break while drawing the standard footer.
@@ -9,8 +21,6 @@
 - Polished the email composer to more closely match Dolibarr's regular invoice send form, including a centered native-template selector with an explicit Apply action, narrower labels, full-width HTML editor and normal Cancel action.
 - Improved sender-profile labels so the company/profile name is shown together with the email address.
 - Removed the duplicate visible dunning-history section when Dolibarr Agenda is enabled; the immutable history remains in module tables and is visible in the invoice Agenda.
-
-
 - Reworked dunning PDF generation to follow Dolibarr's Sponge invoice visual structure instead of the former independent/Cyan-inspired layout.
 - Final dunning PDFs can be generated directly from the invoice tab and are stored in the invoice document directory without replacing the invoice main document.
 - Added immutable `document_generated` history entries mirrored to the invoice Agenda.
@@ -28,7 +38,6 @@
 - Redesigned the dunning composer around Dolibarr's normal email-send layout: template selection, sender profiles, recipient, CC/BCC, subject, attachments, HTML editor, PDF preview and explicit send confirmation.
 - Added pre-send revalidation of workflow stage and remaining amount so stale email/PDF content is never sent after the invoice state changed.
 - Mirrored immutable Mahnwesen history idempotently into the invoice's normal Dolibarr Events/Agenda via `ActionComm`; the module history remains the workflow source of truth.
-
 
 ## 0.4.2
 
