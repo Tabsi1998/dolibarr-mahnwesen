@@ -1,0 +1,303 @@
+<?php
+/* Mahnwesen setup for Dolibarr */
+if (!defined('CSRFCHECK_WITH_TOKEN')) {
+    define('CSRFCHECK_WITH_TOKEN', '1');
+}
+
+$res = 0;
+if (!$res && !empty($_SERVER['CONTEXT_DOCUMENT_ROOT'])) {
+    $res = @include $_SERVER['CONTEXT_DOCUMENT_ROOT'].'/main.inc.php';
+}
+$tmp = empty($_SERVER['SCRIPT_FILENAME']) ? '' : $_SERVER['SCRIPT_FILENAME'];
+$tmp2 = realpath(__FILE__);
+$i = strlen($tmp) - 1;
+$j = strlen($tmp2) - 1;
+while ($i > 0 && $j > 0 && isset($tmp[$i], $tmp2[$j]) && $tmp[$i] === $tmp2[$j]) { $i--; $j--; }
+if (!$res && $i > 0 && file_exists(substr($tmp, 0, $i + 1).'/main.inc.php')) {
+    $res = @include substr($tmp, 0, $i + 1).'/main.inc.php';
+}
+if (!$res && $i > 0 && file_exists(dirname(substr($tmp, 0, $i + 1)).'/main.inc.php')) {
+    $res = @include dirname(substr($tmp, 0, $i + 1)).'/main.inc.php';
+}
+if (!$res && file_exists('../../main.inc.php')) { $res = @include '../../main.inc.php'; }
+if (!$res && file_exists('../../../main.inc.php')) { $res = @include '../../../main.inc.php'; }
+if (!$res && file_exists('../../../../main.inc.php')) { $res = @include '../../../../main.inc.php'; }
+if (!$res) { die('Include of main fails'); }
+
+require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
+require_once dol_buildpath('/mahnwesen/class/dunningmanager.class.php', 0);
+require_once dol_buildpath('/mahnwesen/class/dunningnotice.class.php', 0);
+
+$langs->loadLangs(array('admin', 'mails', 'mahnwesen@mahnwesen'));
+if (!$user->admin) { accessforbidden(); }
+if (!isModEnabled('mahnwesen')) { accessforbidden(); }
+
+// Self-heal the two module parts that are required for native email-template
+// integration. This also repairs installations that upgraded while the module
+// stayed enabled. The next request will reload the persisted values normally.
+$hookConst = getDolGlobalString('MAIN_MODULE_MAHNWESEN_HOOKS');
+if (strpos((string) $hookConst, 'emailtemplates') === false) {
+    dolibarr_set_const($db, 'MAIN_MODULE_MAHNWESEN_HOOKS', 'emailtemplates', 'chaine', 0, '', $conf->entity);
+}
+dolibarr_set_const($db, 'MAIN_MODULE_MAHNWESEN_JS', json_encode(array('/mahnwesen/js/mahnwesen-emailtemplates.js')), 'chaine', 0, '', $conf->entity);
+if (!isset($conf->modules_parts['hooks']) || !is_array($conf->modules_parts['hooks'])) { $conf->modules_parts['hooks'] = array(); }
+$conf->modules_parts['hooks']['mahnwesen'] = 'emailtemplates';
+
+$manager = new DunningManager($db);
+$notice = new DunningNoticeService($db, $manager);
+$manager->ensureRuleRows($user);
+// Do not create templates merely by opening the setup page. Starter templates
+// are created once during module activation. We only remove byte-identical
+// module-owned duplicates left by older test builds; user/core templates are
+// never touched.
+$notice->cleanupExactDuplicateModuleTemplates();
+
+$tab = GETPOST('tab', 'aZ09');
+if (!in_array($tab, array('general', 'stages', 'templates', 'automation'), true)) { $tab = 'general'; }
+$action = GETPOST('action', 'aZ09');
+
+function mw4_set_const($db, $name, $value, $entity)
+{
+    return dolibarr_set_const($db, $name, (string) $value, 'chaine', 0, '', $entity) > 0;
+}
+
+function mw4_redirect($tab)
+{
+    header('Location: '.$_SERVER['PHP_SELF'].'?tab='.urlencode($tab));
+    exit;
+}
+
+if ($action === 'save_general') {
+    $minAmount = (float) price2num(GETPOST('min_amount', 'alpha'));
+    $maxScan = GETPOSTINT('max_scan');
+    $includeDeposits = GETPOSTINT('include_deposits') > 0 ? 1 : 0;
+    $errors = array();
+    if ($minAmount < 0) { $errors[] = $langs->trans('MinAmountInvalid'); }
+    if ($maxScan < 1 || $maxScan > 5000) { $errors[] = $langs->trans('MaxScanInvalid'); }
+    if (empty($errors)) {
+        $db->begin();
+        $ok = mw4_set_const($db, 'MAHNWESEN_MIN_AMOUNT', $minAmount, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_MAX_SCAN', $maxScan, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_INCLUDE_DEPOSITS', $includeDeposits, $conf->entity);
+        if ($ok) { $db->commit(); setEventMessages($langs->trans('SetupSaved'), null, 'mesgs'); }
+        else { $db->rollback(); setEventMessages($langs->trans('Error'), null, 'errors'); }
+        mw4_redirect('general');
+    }
+    setEventMessages('', $errors, 'errors');
+    $tab = 'general';
+}
+
+if ($action === 'save_stages') {
+    $days = array(); $businessFees = array(); $privateStageFees = array(); $send = array(); $errors = array();
+    for ($level = 1; $level <= 4; $level++) {
+        $days[$level] = GETPOSTINT('stage_days_'.$level);
+        $businessFees[$level] = (float) price2num(GETPOST('stage_business_fee_'.$level, 'alpha'));
+        $privateStageFees[$level] = (float) price2num(GETPOST('stage_private_fee_'.$level, 'alpha'));
+        $send[$level] = GETPOSTINT('stage_auto_send_'.$level) > 0 ? 1 : 0;
+        if ($days[$level] < 0 || $businessFees[$level] < 0 || $privateStageFees[$level] < 0) {
+            $errors[] = $langs->trans('MahnwesenStageValuesInvalid', $level);
+        }
+    }
+    if (!($days[1] < $days[2] && $days[2] < $days[3] && $days[3] < $days[4])) {
+        $errors[] = $langs->trans('StageDaysMustBeAscending');
+    }
+    $unknownFees = GETPOSTINT('unknown_fees_allowed') > 0 ? 1 : 0;
+    if (empty($errors)) {
+        $db->begin();
+        $ok = true;
+        for ($level = 1; $level <= 4; $level++) {
+            if (!$manager->saveRule($level, $days[$level], $businessFees[$level], $send[$level], 'native:auto', $user)) { $ok = false; break; }
+            if (!mw4_set_const($db, 'MAHNWESEN_PRIVATE_FEE_'.$level, $privateStageFees[$level], $conf->entity)) { $ok = false; break; }
+        }
+        if ($ok) { $ok = mw4_set_const($db, 'MAHNWESEN_UNKNOWN_FEES_ALLOWED', $unknownFees, $conf->entity); }
+        if ($ok) { $db->commit(); setEventMessages($langs->trans('SetupSaved'), null, 'mesgs'); }
+        else { $db->rollback(); setEventMessages($manager->error ?: $langs->trans('Error'), null, 'errors'); }
+        mw4_redirect('stages');
+    }
+    setEventMessages('', $errors, 'errors');
+    $tab = 'stages';
+}
+
+if ($action === 'save_automation') {
+    $fromEmail = trim(GETPOST('from_email', 'email'));
+    $manual = GETPOSTINT('manual_send_enabled') > 0 ? 1 : 0;
+    $auto = GETPOSTINT('auto_send_enabled') > 0 ? 1 : 0;
+    $max = GETPOSTINT('auto_send_max');
+    $policy = GETPOST('recipient_policy', 'aZ09');
+    $attach = GETPOSTINT('attach_invoice_default') > 0 ? 1 : 0;
+    $errors = array();
+    if ($fromEmail !== '' && !filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) { $errors[] = $langs->trans('SenderEmailInvalid'); }
+    if ($max < 1 || $max > 100) { $errors[] = $langs->trans('MahnwesenAutoSendMaxInvalid'); }
+    if (!in_array($policy, array('single_billing', 'first_billing'), true)) { $errors[] = $langs->trans('MahnwesenRecipientPolicyInvalid'); }
+    if ($auto && !GETPOSTINT('auto_send_confirm')) { $errors[] = $langs->trans('MahnwesenAutoSendConfirmationRequired'); }
+    if (empty($errors)) {
+        $db->begin();
+        $ok = mw4_set_const($db, 'MAHNWESEN_FROM_EMAIL', $fromEmail, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_MANUAL_SEND_ENABLED', $manual, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_AUTO_SEND_ENABLED', $auto, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_AUTO_SEND_MAX', $max, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_AUTO_RECIPIENT_POLICY', $policy, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_ATTACH_INVOICE_DEFAULT', $attach, $conf->entity);
+        if ($ok) { $db->commit(); setEventMessages($langs->trans('SetupSaved'), null, 'mesgs'); }
+        else { $db->rollback(); setEventMessages($langs->trans('Error'), null, 'errors'); }
+        mw4_redirect('automation');
+    }
+    setEventMessages('', $errors, 'errors');
+    $tab = 'automation';
+}
+
+$rules = $manager->getRules(true);
+$nativeTemplates = $notice->getNativeTemplates();
+$minAmount = getDolGlobalString('MAHNWESEN_MIN_AMOUNT', '1.00');
+$maxScan = getDolGlobalInt('MAHNWESEN_MAX_SCAN', 500);
+$includeDeposits = getDolGlobalInt('MAHNWESEN_INCLUDE_DEPOSITS', 0);
+$unknownFees = getDolGlobalInt('MAHNWESEN_UNKNOWN_FEES_ALLOWED', 0);
+$fromEmail = getDolGlobalString('MAHNWESEN_FROM_EMAIL');
+$manual = getDolGlobalInt('MAHNWESEN_MANUAL_SEND_ENABLED', 0);
+$auto = getDolGlobalInt('MAHNWESEN_AUTO_SEND_ENABLED', 0);
+$autoMax = getDolGlobalInt('MAHNWESEN_AUTO_SEND_MAX', 10);
+$policy = getDolGlobalString('MAHNWESEN_AUTO_RECIPIENT_POLICY', 'single_billing');
+$attachDefault = getDolGlobalInt('MAHNWESEN_ATTACH_INVOICE_DEFAULT', 1);
+
+llxHeader('', $langs->trans('MahnwesenSetup'), '', '', 0, 0, '', '', '', 'mod-mahnwesen page-admin');
+$linkback = '<a href="'.DOL_URL_ROOT.'/admin/modules.php?restore_lastsearch_values=1">'.$langs->trans('BackToModuleList').'</a>';
+print load_fiche_titre($langs->trans('MahnwesenSetup'), $linkback, 'title_setup');
+
+$head = array(
+    array($_SERVER['PHP_SELF'].'?tab=general', $langs->trans('MahnwesenTabGeneral'), 'general'),
+    array($_SERVER['PHP_SELF'].'?tab=stages', $langs->trans('MahnwesenTabStagesFees'), 'stages'),
+    array($_SERVER['PHP_SELF'].'?tab=templates', $langs->trans('MahnwesenTabTemplates'), 'templates'),
+    array($_SERVER['PHP_SELF'].'?tab=automation', $langs->trans('MahnwesenTabAutomation'), 'automation'),
+);
+print dol_get_fiche_head($head, $tab, $langs->trans('MahnwesenSetup'), -1, 'bill');
+
+if ($tab === 'general') {
+    print '<div class="info">'.$langs->trans('MahnwesenGeneralIntro').'</div><br>';
+    print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=general">';
+    print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="save_general">';
+    print '<table class="border centpercent tableforfield">';
+    print '<tr><td class="titlefield">'.$langs->trans('MinimumOpenAmount').'</td><td><input class="width100" name="min_amount" value="'.dol_escape_htmltag((string) $minAmount).'"></td><td>'.$langs->trans('MinimumOpenAmountHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('MaximumScan').'</td><td><input type="number" min="1" max="5000" class="width100" name="max_scan" value="'.((int) $maxScan).'"></td><td>'.$langs->trans('MaximumScanHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('IncludeDepositInvoices').'</td><td><input type="checkbox" name="include_deposits" value="1"'.($includeDeposits ? ' checked' : '').'></td><td>'.$langs->trans('IncludeDepositInvoicesHelp').'</td></tr>';
+    print '</table><div class="center"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button></div></form>';
+}
+
+if ($tab === 'stages') {
+    print '<div class="info">'.$langs->trans('MahnwesenFeesSimpleIntro').'</div><br>';
+    print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=stages">';
+    print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="save_stages">';
+    print '<div class="div-table-responsive"><table class="noborder centpercent">';
+    print '<tr class="liste_titre">';
+    print '<th>'.$langs->trans('DunningStage').'</th>';
+    print '<th>'.$langs->trans('MahnwesenDaysAfterDue').'</th>';
+    print '<th>'.$langs->trans('MahnwesenPrivatePersonFee').'</th>';
+    print '<th>'.$langs->trans('MahnwesenBusinessFee').'</th>';
+    print '<th>'.$langs->trans('MahnwesenAutoSendAtStage').'</th>';
+    print '</tr>';
+    for ($level = 1; $level <= 4; $level++) {
+        $rule = $rules[$level];
+        $privateFee = $manager->getPrivateFeeForLevel($level);
+        print '<tr class="oddeven"><td><strong>'.$langs->trans($manager->getStageLabelKey($level)).'</strong></td>';
+        print '<td><input class="width75" type="number" min="0" name="stage_days_'.$level.'" value="'.((int) $rule['days_after_due']).'"> '.$langs->trans('Days').'</td>';
+        print '<td><input class="width100" type="text" name="stage_private_fee_'.$level.'" value="'.dol_escape_htmltag(price($privateFee, 0, $langs, 0, -1, -1, $conf->currency)).'"> '.$conf->currency.'</td>';
+        print '<td><input class="width100" type="text" name="stage_business_fee_'.$level.'" value="'.dol_escape_htmltag(price($rule['fee_amount'], 0, $langs, 0, -1, -1, $conf->currency)).'"> '.$conf->currency.'</td>';
+        print '<td><input type="checkbox" name="stage_auto_send_'.$level.'" value="1"'.(!empty($rule['send_email']) ? ' checked' : '').'> '.$langs->trans('MahnwesenAutoSendAtStageHelp').'</td></tr>';
+    }
+    print '</table></div><br>';
+    print '<div class="info">'.$langs->trans('MahnwesenFeePresetExplanation').'</div>';
+    print '<table class="border centpercent tableforfield margintoponly">';
+    print '<tr><td class="titlefield">'.$langs->trans('MahnwesenUnknownFees').'</td><td><input type="checkbox" name="unknown_fees_allowed" value="1"'.($unknownFees ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenUnknownFeesHelpV041').'</td></tr>';
+    print '</table>';
+    print '<div class="warning margintoponly">'.$langs->trans('MahnwesenPrivateFeeLegalHelp').'</div>';
+    print '<div class="warning margintoponly">'.$langs->trans('MahnwesenFeeNoInvoiceMutation').'</div>';
+    print '<div class="center"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button></div></form>';
+}
+
+if ($tab === 'templates') {
+    print '<div class="info">'.$langs->trans('MahnwesenNativeTemplateIntroV042').'</div><br>';
+    print '<div class="info">'.$langs->trans('MahnwesenNativeTemplateOnlyInfo').'</div><br>';
+
+    $runtimeHook = false;
+    if (!empty($conf->modules_parts['hooks']['mahnwesen'])) {
+        $h = $conf->modules_parts['hooks']['mahnwesen'];
+        $runtimeHook = (is_array($h) ? in_array('emailtemplates', $h, true) : strpos((string) $h, 'emailtemplates') !== false);
+    }
+    print '<table class="border centpercent tableforfield">';
+    print '<tr><td class="titlefieldmiddle">'.$langs->trans('MahnwesenNativeTemplateLocation').'</td><td><strong>'.$langs->trans('MahnwesenNativeTemplatePath').'</strong></td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenTemplateHookStatus').'</td><td>'.($runtimeHook ? '<span class="badge badge-status4">'.$langs->trans('MahnwesenHookReady').'</span>' : '<span class="badge badge-status1">'.$langs->trans('MahnwesenHookRepairPending').'</span>').'</td></tr>';
+    print '</table><br>';
+
+    $typeLabels = array(
+        1 => 'EmailTemplateTypePaymentReminder',
+        2 => 'EmailTemplateTypeDunning1',
+        3 => 'EmailTemplateTypeDunning2',
+        4 => 'EmailTemplateTypeDunning3',
+    );
+    print '<div class="div-table-responsive"><table class="noborder centpercent">';
+    print '<tr class="liste_titre"><th>'.$langs->trans('DunningStage').'</th><th>'.$langs->trans('MahnwesenDolibarrTemplateType').'</th><th>'.$langs->trans('MahnwesenTemplateUsed').'</th><th>'.$langs->trans('MahnwesenTemplateState').'</th></tr>';
+    for ($level = 1; $level <= 4; $level++) {
+        $type = $notice->getTemplateTypeForLevel($level);
+        $stageTemplates = $notice->getNativeTemplates($level);
+        $selectedTemplate = $notice->getTemplate($level, $langs->defaultlang, $user);
+        $selectedName = ($selectedTemplate !== false && !empty($selectedTemplate['label'])) ? (string) $selectedTemplate['label'] : '-';
+        $extraCount = max(0, count($stageTemplates) - ($selectedName !== '-' ? 1 : 0));
+        print '<tr class="oddeven">';
+        print '<td><strong>'.$langs->trans($manager->getStageLabelKey($level)).'</strong></td>';
+        print '<td>'.$langs->trans($typeLabels[$level]).'<br><span class="opacitymedium"><code>'.dol_escape_htmltag($type).'</code></span></td>';
+        print '<td>'.dol_escape_htmltag($selectedName); 
+        if ($extraCount > 0) { print '<br><span class="opacitymedium">'.$langs->trans('MahnwesenTemplateAdditionalCount', $extraCount).'</span>'; }
+        print '</td>';
+        print '<td>'.(!empty($stageTemplates) ? '<span class="badge badge-status4">'.$langs->trans('MahnwesenTemplateReady').'</span>' : '<span class="badge badge-status1">'.$langs->trans('MahnwesenTemplateMissing').'</span>').'</td>';
+        print '</tr>';
+    }
+    print '</table></div><br>';
+
+    $tokenRows = array(
+        '__MAHNWESEN_STAGE__' => 'MahnwesenTokenStageDesc',
+        '__MAHNWESEN_OPEN_AMOUNT__' => 'MahnwesenTokenOpenAmountDesc',
+        '__MAHNWESEN_FEE__' => 'MahnwesenTokenFeeDesc',
+        '__MAHNWESEN_TOTAL__' => 'MahnwesenTokenTotalDesc',
+        '__MAHNWESEN_CUSTOMER_CLASS__' => 'MahnwesenTokenCustomerClassDesc',
+        '__MAHNWESEN_NEXT_STAGE_DATE__' => 'MahnwesenTokenNextStageDesc',
+        '__MAHNWESEN_FEE_PARAGRAPH__' => 'MahnwesenTokenFeeParagraphDesc',
+        '{INVOICE_REF}' => 'MahnwesenTokenInvoiceRefDesc',
+        '{CUSTOMER_NAME}' => 'MahnwesenTokenCustomerNameDesc',
+        '{INVOICE_DATE}' => 'MahnwesenTokenInvoiceDateDesc',
+        '{DUE_DATE}' => 'MahnwesenTokenDueDateDesc',
+        '{TODAY}' => 'MahnwesenTokenTodayDesc',
+        '{COMPANY_NAME}' => 'MahnwesenTokenCompanyNameDesc',
+    );
+    print load_fiche_titre($langs->trans('MahnwesenTemplateVariables').' '.img_picto($langs->trans('MahnwesenTemplateVariablesTooltip'), 'info'), '', 'info');
+    print '<div class="opacitymedium marginbottomonly">'.$langs->trans('MahnwesenTemplateVariablesIntro').'</div>';
+    print '<div class="div-table-responsive"><table class="noborder centpercent">';
+    print '<tr class="liste_titre"><th>'.$langs->trans('Variable').'</th><th>'.$langs->trans('Description').'</th></tr>';
+    foreach ($tokenRows as $token => $descKey) {
+        print '<tr class="oddeven"><td><code>'.dol_escape_htmltag($token).'</code></td><td>'.$langs->trans($descKey).'</td></tr>';
+    }
+    print '</table></div>';
+    print '<div class="info margintoponly">'.$langs->trans('MahnwesenTemplateNativeVariablesNote').'</div>';
+}
+
+if ($tab === 'automation') {
+    print '<div class="'.($auto ? 'warning' : 'info').'">'.$langs->trans($auto ? 'MahnwesenAutomationEnabledInfo' : 'MahnwesenAutomationDisabledInfo').'</div><br>';
+    print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=automation">';
+    print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="save_automation">';
+    print '<table class="border centpercent tableforfield">';
+    print '<tr><td class="titlefield">'.$langs->trans('NoticeSenderEmail').'</td><td><input class="minwidth300" type="email" name="from_email" value="'.dol_escape_htmltag($fromEmail).'"></td><td>'.$langs->trans('NoticeSenderEmailHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('EnableManualSend').'</td><td><input type="checkbox" name="manual_send_enabled" value="1"'.($manual ? ' checked' : '').'></td><td>'.$langs->trans('EnableManualSendHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenAttachInvoiceDefault').'</td><td><input type="checkbox" name="attach_invoice_default" value="1"'.($attachDefault ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenAttachInvoiceDefaultHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenRecipientPolicy').'</td><td><select name="recipient_policy">';
+    print '<option value="single_billing"'.($policy === 'single_billing' ? ' selected' : '').'>'.$langs->trans('MahnwesenRecipientPolicySingle').'</option>';
+    print '<option value="first_billing"'.($policy === 'first_billing' ? ' selected' : '').'>'.$langs->trans('MahnwesenRecipientPolicyFirst').'</option>';
+    print '</select></td><td>'.$langs->trans('MahnwesenRecipientPolicyHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenAutoSendMax').'</td><td><input class="width75" type="number" min="1" max="100" name="auto_send_max" value="'.((int) $autoMax).'"></td><td>'.$langs->trans('MahnwesenAutoSendMaxHelp').'</td></tr>';
+    print '<tr><td><strong>'.$langs->trans('MahnwesenEnableAutoSend').'</strong></td><td><input type="checkbox" name="auto_send_enabled" value="1"'.($auto ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenEnableAutoSendHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenAutoSendConfirmation').'</td><td><input type="checkbox" name="auto_send_confirm" value="1"></td><td><strong>'.$langs->trans('MahnwesenAutoSendConfirmationHelp').'</strong></td></tr>';
+    print '</table>';
+    print '<div class="warning margintoponly">'.$langs->trans('MahnwesenAutomationSafetyHelp').'</div>';
+    print '<div class="center"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button></div></form>';
+}
+
+print dol_get_fiche_end();
+llxFooter();
+$db->close();
