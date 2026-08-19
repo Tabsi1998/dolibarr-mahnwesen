@@ -114,16 +114,17 @@ trait DunningNoticeServiceMethods4
                 $pdf->SetXY($marginLeft + $descW + 1.5, $y + 1.4);
                 $pdf->Cell($amountW - 3, 4, $this->formatMoney($breakdown['fee'], $outputlangs), 0, 0, 'R');
             }
-            // Total row, right-aligned like Sponge's total area.
+            // Total area: keep it visually attached to the amount table, but
+            // avoid the previous half-open box where only the right-hand amount
+            // cell had borders. Sponge uses a clean subtotal/total treatment, so
+            // draw one full-width top rule and keep label + amount borderless.
             $y += $rowH;
             $pdf->SetFont('', 'B', $defaultFontSize);
+            $pdf->Line($marginLeft, $y, $pageWidth - $marginRight, $y);
             $pdf->SetXY($marginLeft + $descW - 45, $y + 1.4);
             $pdf->Cell(43, 4, $outputlangs->transnoentities('Total'), 0, 0, 'R');
             $pdf->SetXY($marginLeft + $descW + 1.5, $y + 1.4);
             $pdf->Cell($amountW - 3, 4, $this->formatMoney($breakdown['total'], $outputlangs), 0, 0, 'R');
-            $pdf->Line($marginLeft + $descW, $y, $pageWidth - $marginRight, $y);
-            $pdf->Line($marginLeft + $descW, $y + $rowH, $pageWidth - $marginRight, $y + $rowH);
-            $pdf->Line($pageWidth - $marginRight, $y, $pageWidth - $marginRight, $y + $rowH);
 
             // Printed letter body. The dedicated PDF cleanup removes email-only
             // signature graphics and supports an explicit PDF end marker.
