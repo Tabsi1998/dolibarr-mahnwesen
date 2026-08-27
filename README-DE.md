@@ -2,7 +2,7 @@
 
 Custom-Modul für ein kontrolliertes Mahnwesen bei überfälligen Kundenrechnungen in Dolibarr.
 
-> **Status:** technisch gehärtete Entwicklungslinie `0.6.x`. Dolibarr 22 wurde praktisch getestet. Die CI lädt und prüft die echten Dolibarr-21/22/23-APIs; vollständige Installationstests auf 21 und 23 bleiben Release-Voraussetzung.
+> **Status:** erstes stabiles Release `1.0.0`. Dolibarr 22 wurde praktisch getestet; die CI prüft die tatsächlich verwendeten Dolibarr-21/22/23-Mail-, Rechnungs- und FormMail-APIs. Der konkrete Produktivbetrieb bleibt vor Ort per Staging-Smoke-Test zu bestätigen.
 
 ## Ziele
 
@@ -12,7 +12,7 @@ Custom-Modul für ein kontrolliertes Mahnwesen bei überfälligen Kundenrechnung
 - Mahnspesen getrennt für Privatpersonen und Unternehmen
 - native Dolibarr-E-Mail-Vorlagen mit HTML-Editor
 - Mahn-PDF im Sponge-nahen Dolibarr-Stil
-- kontrollierter manueller und später automatischer Versand
+- kontrollierter manueller und automatischer Versand
 - Pause unbefristet oder bis zu einem Datum
 - Schutz vor Doppelversand
 - möglichst breite Kompatibilität über mehrere Dolibarr-Hauptversionen
@@ -54,12 +54,16 @@ Der aktuelle Entwicklungsstand ergänzt auf der Rechnung eine klare Hauptaktion,
 - `2. Mahnung vorbereiten`
 - `3. Mahnung vorbereiten`
 
-Die Mahn-E-Mail-Maske orientiert sich am normalen Dolibarr-Rechnungsversand: Empfänger, Absender, Betreff, HTML-Inhalt, Mahn-PDF und optional Rechnungs-PDF werden direkt kontrollierbar angezeigt, bevor versendet wird.
+Die Mahn-E-Mail-Maske verwendet Dolibarrs native `FormMail`-Komponente: Vorlagenauswahl, Absenderprofile, Empfänger, CC/BCC, Betreff, Zustellbestätigung und HTML-Editor verhalten sich wie in Dolibarrs normaler Versandmaske. Das verpflichtende Mahn-PDF, die optionale Rechnungs-PDF und zusätzliche Uploads werden angezeigt; eine gemeinsame E-Mail-/PDF-Vorschau steht vor dem Versand bereit.
 
 
 ## Ereignisse / Agenda
 
-Der Mahnverlauf bleibt unveränderlich in den eigenen Mahnwesen-Tabellen gespeichert und wird zusätzlich in **Ereignisse/Agenda** der jeweiligen Kundenrechnung gespiegelt. Dadurch sieht man Mahnfall-Anlage, Pause/Fortsetzung, interne Bearbeitung und Versandereignisse dort, wo Dolibarr auch andere Rechnungsereignisse anzeigt. Die Spiegelung ist idempotent; wiederholte Synchronisierung erzeugt keine doppelten Agenda-Einträge.
+Der Mahnverlauf bleibt unveränderlich in den eigenen Mahnwesen-Tabellen gespeichert und wird zusätzlich in **Ereignisse/Agenda** der jeweiligen Kundenrechnung gespiegelt. Die zentrale Historienseite zeigt Fallereignisse, Automatikläufe, Versandversuche, Message-IDs, Anhänge und deren SHA-256-Nachweise sowie das Spesen-Nebenbuch.
+
+## Automatischer Versand
+
+Der tägliche Dolibarr-Cronjob synchronisiert Fälle und beendet fällige Pausen. Der tatsächliche Versand ist standardmäßig **AUS** und benötigt zusätzlich die Freigabe je Mahnstufe. Konfigurierbar sind Laufmaximum, Fehlversuche je Fall/Stufe, Empfängerregel und ein Kundenlimit pro Lauf. Der Trockenlauf prüft denselben Workflow ohne E-Mail oder Falländerung. Jeder Lauf wird dauerhaft protokolliert; unklare SMTP-Ergebnisse sperren Wiederholungen bis zur manuellen Klärung.
 
 ## E-Mail-Vorlagen
 
@@ -83,7 +87,7 @@ git clone https://github.com/Tabsi1998/dolibarr-mahnwesen.git htdocs/custom/mahn
 
 Release-ZIPs verwenden das Format `mahnwesen-x.y.z.zip` mit dem Ordner `mahnwesen/` als ZIP-Wurzel.
 
-Nach dem Upgrade auf `0.6.x` das Modul einmal deaktivieren und wieder aktivieren. Dadurch werden die neuen Tabellen für Versandversuche, Pausen und das Spesen-Nebenbuch angelegt; Mahnfälle und Historie bleiben erhalten. Die Automatik erst nach einem Staging-Smoke-Test aktivieren.
+Nach dem Upgrade auf `1.0.0` das Modul einmal deaktivieren und wieder aktivieren. Dadurch werden auch die Tabellen für vollständige Anhangsnachweise und Automatikläufe angelegt; Mahnfälle und Historie bleiben erhalten. Die Automatik erst nach einem Staging-Smoke-Test aktivieren.
 
 ## Kompatibilität
 

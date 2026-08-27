@@ -2,7 +2,7 @@
 
 This roadmap distinguishes implemented behavior from planned workflow hardening. Items are intentionally not presented as finished until they are tested.
 
-## Current baseline - 0.4.x
+## Stable baseline - 1.0.0
 
 - [x] overdue customer-invoice scanner
 - [x] remaining-balance calculation using Dolibarr invoice APIs
@@ -20,7 +20,7 @@ This roadmap distinguishes implemented behavior from planned workflow hardening.
 - [x] duplicate/pending send reservation concept
 - [x] automatic-send configuration foundation
 
-## Hardened workflow baseline - 0.6.x
+## Hardened workflow
 
 ### Strict stage sequence
 
@@ -29,7 +29,7 @@ This roadmap distinguishes implemented behavior from planned workflow hardening.
 - [x] never auto-advance past an unsent required stage
 - [x] preserve configured spacing after a late previous-stage send
 - [x] allow an authorized explicit `waive/skip` action with mandatory reason
-- [x] log sent / failed / pending decisions immutably; waiver/skip audit remains planned
+- [x] log sent / failed / pending and waiver/skip decisions immutably
 - [x] make manual and automatic sending use the exact same eligibility service
 
 Example:
@@ -48,12 +48,15 @@ Example:
 
 ### Dolibarr-like send preview
 
+- [x] use Dolibarr's native `FormMail` renderer
 - [x] recipient selector / resolved BILLING contact
 - [x] sender profile selection using Dolibarr email sender profiles
 - [x] subject
 - [x] rendered HTML body
 - [x] generated dunning PDF preview
 - [x] optional invoice PDF attachment preview
+- [x] additional attachment upload, immutable snapshot and SHA-256 evidence
+- [x] combined rendered email and embedded PDF preview
 - [x] explicit send confirmation
 - [x] post-send history record and invoice Agenda projection
 
@@ -67,6 +70,8 @@ Example:
 - [x] no automatic send while paused
 - [x] auto-resume dated pauses before eligibility evaluation
 - [x] dry-run / simulation report for automatic decisions
+- [x] persistent cron and dry-run history
+- [x] configurable retry and per-customer/run limits
 
 ## Compatibility and quality
 
@@ -77,7 +82,7 @@ Example:
 - [x] add dependency-free policy tests and static security contracts
 - [ ] add database migration tests
 - [ ] add full Dolibarr container/database integration tests
-- [ ] add mail rendering snapshot tests
+- [ ] add browser-level mail rendering snapshot tests
 - [ ] add PDF smoke tests
 
 ## Later ideas

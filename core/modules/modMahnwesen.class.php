@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '0.6.0';
+        $this->version = '1.0.0';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -50,7 +50,7 @@ class modMahnwesen extends DolibarrModules
             'models' => 0,
             'printing' => 0,
             'theme' => 0,
-            'css' => array(),
+            'css' => array('/mahnwesen/css/mahnwesen.css'),
             'js' => array('/mahnwesen/js/mahnwesen-emailtemplates.js'),
             // Dolibarr 21+ accepts the simple string-list form for hook contexts.
             // Using the direct form avoids an activation-format ambiguity seen
@@ -99,6 +99,10 @@ class modMahnwesen extends DolibarrModules
             19 => array('MAHNWESEN_PRIVATE_FEE_3', 'chaine', '0.00', 'Private-person fee at second dunning notice', 0, 'current', 0),
             20 => array('MAHNWESEN_PRIVATE_FEE_4', 'chaine', '0.00', 'Private-person fee at third dunning notice', 0, 'current', 0),
             21 => array('MAHNWESEN_ALLOW_LANGUAGE_FALLBACK', 'chaine', '0', 'Allow explicit cross-language template fallback', 0, 'current', 0),
+            22 => array('MAHNWESEN_AUTO_RETRY_MAX', 'chaine', '3', 'Maximum failed automatic attempts per case and stage', 0, 'current', 0),
+            23 => array('MAHNWESEN_AUTO_MAX_PER_CUSTOMER', 'chaine', '1', 'Maximum automatic delivery attempts per customer and cron run', 0, 'current', 0),
+            24 => array('MAHNWESEN_MAX_EXTRA_ATTACHMENTS', 'chaine', '5', 'Maximum manually uploaded email attachments', 0, 'current', 0),
+            25 => array('MAHNWESEN_MAX_EXTRA_ATTACHMENT_MB', 'chaine', '10', 'Maximum size of one manually uploaded attachment', 0, 'current', 0),
         );
 
         // Daily worker. Case synchronization and timed pause release are safe

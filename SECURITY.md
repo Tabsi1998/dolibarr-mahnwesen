@@ -16,6 +16,10 @@ Dunning emails are externally visible and effectively irreversible. The module t
 - atomic amount/stage/cooldown/recipient revalidation under a case lock
 - attempt reservation before PDF generation and the mailer call
 - unique per-attempt PDF plus attachment SHA-256 hashes
+- immutable snapshots and SHA-256 evidence for every additional attachment
+- configurable per-run, per-customer and per-stage failure limits
+- persistent cron/dry-run audit records
+- entity-scoped overlap lock for automatic cron delivery
 - append-only audit history and a separate recovery queue
 - ambiguous SMTP outcomes block retries until operator resolution
 - foreign-currency invoices are blocked instead of mixing currencies
@@ -24,7 +28,7 @@ Dunning emails are externally visible and effectively irreversible. The module t
 
 ## Supported security line
 
-Security fixes are applied to the current `0.6.x` development/release line. Older
+Security fixes are applied to the current `1.0.x` release line. Older
 test builds should be upgraded before enabling any mail delivery.
 
 ## Reporting a security problem

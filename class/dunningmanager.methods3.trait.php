@@ -405,6 +405,57 @@ trait DunningManagerMethods3
         return true;
     }
 
+    /** Persist one exact attachment snapshot for an attempt. */
+    public function addNoticeAttemptFile($attemptId, $role, $displayName, $path, $mime = '')
+    {
+        global $conf;
+        $role = in_array($role, array('dunning', 'invoice', 'additional'), true) ? $role : 'additional';
+        if ((int) $attemptId <= 0 || !is_file($path) || !is_readable($path)) { $this->error = 'Attachment snapshot is unavailable.'; return false; }
+        $hash = hash_file('sha256', $path);
+        $size = filesize($path);
+        if ($hash === false || $size === false) { $this->error = 'Unable to hash attachment snapshot.'; return false; }
+        $sqlCheck = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE rowid = '.((int) $attemptId).' AND entity = '.((int) $conf->entity)." AND status = 'reserved'".$this->db->plimit(1);
+        $resCheck = $this->db->query($sqlCheck); $attempt = $resCheck ? $this->db->fetch_object($resCheck) : false; if ($resCheck) { $this->db->free($resCheck); }
+        if (!$attempt) { $this->error = 'Reserved attempt not found for attachment snapshot.'; return false; }
+        $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_attempt_file (entity, fk_attempt, file_role, display_name, snapshot_path, sha256, mime_type, size_bytes, date_creation) VALUES (';
+        $sql .= ((int) $conf->entity).', '.((int) $attemptId).", '".$this->db->escape($role)."', '".$this->db->escape((string) $displayName)."', '".$this->db->escape((string) $path)."', '".$this->db->escape((string) $hash)."', '".$this->db->escape((string) $mime)."', ".((int) $size).", '".$this->db->escape($this->db->idate(dol_now()))."')";
+        if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); return false; }
+        return true;
+    }
+
+    /** Return immutable attachment metadata for one attempt in the active entity. */
+    public function getNoticeAttemptFiles($attemptId)
+    {
+        global $conf;
+        $rows = array();
+        $sql = 'SELECT rowid, file_role, display_name, snapshot_path, sha256, mime_type, size_bytes, date_creation FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt_file WHERE entity = '.((int) $conf->entity).' AND fk_attempt = '.((int) $attemptId).' ORDER BY rowid';
+        $res = $this->db->query($sql);
+        if (!$res) { $this->error = $this->db->lasterror(); return false; }
+        while ($o = $this->db->fetch_object($res)) { $rows[] = (array) $o; }
+        $this->db->free($res);
+        return $rows;
+    }
+
+    /** Return attachment metadata grouped by attempt id in one bounded query. */
+    public function getNoticeAttemptFilesMap($attemptIds)
+    {
+        global $conf;
+        $ids = array();
+        foreach ((array) $attemptIds as $attemptId) { if ((int) $attemptId > 0) { $ids[(int) $attemptId] = (int) $attemptId; } }
+        if (empty($ids)) { return array(); }
+        $map = array();
+        $sql = 'SELECT rowid, fk_attempt, file_role, display_name, snapshot_path, sha256, mime_type, size_bytes, date_creation FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt_file WHERE entity = '.((int) $conf->entity).' AND fk_attempt IN ('.implode(',', array_values($ids)).') ORDER BY fk_attempt, rowid';
+        $res = $this->db->query($sql);
+        if (!$res) { $this->error = $this->db->lasterror(); return false; }
+        while ($o = $this->db->fetch_object($res)) {
+            $attemptId = (int) $o->fk_attempt;
+            if (!isset($map[$attemptId])) { $map[$attemptId] = array(); }
+            $map[$attemptId][] = (array) $o;
+        }
+        $this->db->free($res);
+        return $map;
+    }
+
     /** Mark the exact point at which an SMTP outcome may become ambiguous. */
     public function markNoticeAttemptSending($attemptId)
     {
@@ -496,7 +547,7 @@ trait DunningManagerMethods3
     {
         global $conf;
         $rows = array();
-        $sql = 'SELECT rowid, fk_case, fk_facture, level, mode, status, recipient, sender, subject, amount_invoice, amount_fee, amount_total, currency_code, pdf_path, pdf_sha256, error_message, reserved_at, sent_at, resolved_at FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE entity = '.((int) $conf->entity).' ORDER BY reserved_at DESC, rowid DESC'.$this->db->plimit(max(1, min(1000, (int) $limit)));
+        $sql = 'SELECT rowid, fk_case, fk_facture, level, mode, status, recipient, sender, cc, bcc, subject, body_html, amount_invoice, amount_fee, amount_total, currency_code, fk_email_template, template_lang, pdf_path, pdf_sha256, invoice_pdf_path, invoice_pdf_sha256, mail_message_id, error_message, reserved_at, sent_at, resolved_at FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE entity = '.((int) $conf->entity).' ORDER BY reserved_at DESC, rowid DESC'.$this->db->plimit(max(1, min(1000, (int) $limit)));
         $res = $this->db->query($sql);
         if (!$res) { $this->error = $this->db->lasterror(); return false; }
         while ($o = $this->db->fetch_object($res)) { $rows[] = (array) $o; }
@@ -508,7 +559,7 @@ trait DunningManagerMethods3
     public function getNoticeAttempt($attemptId)
     {
         global $conf;
-        $sql = 'SELECT rowid, fk_case, fk_facture, level, mode, status, recipient, sender, subject, amount_invoice, amount_fee, amount_total, currency_code, pdf_path, pdf_sha256, error_message, reserved_at, sent_at, resolved_at FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE entity = '.((int) $conf->entity).' AND rowid = '.((int) $attemptId).$this->db->plimit(1);
+        $sql = 'SELECT rowid, fk_case, fk_facture, level, mode, status, recipient, sender, cc, bcc, subject, body_html, amount_invoice, amount_fee, amount_total, currency_code, fk_email_template, template_lang, pdf_path, pdf_sha256, invoice_pdf_path, invoice_pdf_sha256, mail_message_id, error_message, reserved_at, sent_at, resolved_at FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE entity = '.((int) $conf->entity).' AND rowid = '.((int) $attemptId).$this->db->plimit(1);
         $res = $this->db->query($sql);
         if (!$res) { $this->error = $this->db->lasterror(); return false; }
         $o = $this->db->fetch_object($res); $this->db->free($res);

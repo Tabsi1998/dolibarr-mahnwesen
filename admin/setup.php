@@ -136,12 +136,20 @@ if ($action === 'save_automation') {
     $manual = GETPOSTINT('manual_send_enabled') > 0 ? 1 : 0;
     $auto = GETPOSTINT('auto_send_enabled') > 0 ? 1 : 0;
     $max = GETPOSTINT('auto_send_max');
+    $retryMax = GETPOSTINT('auto_retry_max');
+    $maxPerCustomer = GETPOSTINT('auto_max_per_customer');
+    $extraAttachmentMax = GETPOSTINT('max_extra_attachments');
+    $extraAttachmentMb = GETPOSTINT('max_extra_attachment_mb');
     $policy = GETPOST('recipient_policy', 'aZ09');
     $attach = GETPOSTINT('attach_invoice_default') > 0 ? 1 : 0;
     $allowLanguageFallback = GETPOSTINT('allow_language_fallback') > 0 ? 1 : 0;
     $errors = array();
     if ($fromEmail !== '' && !filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) { $errors[] = $langs->trans('SenderEmailInvalid'); }
     if ($max < 1 || $max > 100) { $errors[] = $langs->trans('MahnwesenAutoSendMaxInvalid'); }
+    if ($retryMax < 1 || $retryMax > 10) { $errors[] = $langs->trans('MahnwesenAutoRetryMaxInvalid'); }
+    if ($maxPerCustomer < 1 || $maxPerCustomer > 20) { $errors[] = $langs->trans('MahnwesenAutoPerCustomerInvalid'); }
+    if ($extraAttachmentMax < 0 || $extraAttachmentMax > 20) { $errors[] = $langs->trans('MahnwesenExtraAttachmentMaxInvalid'); }
+    if ($extraAttachmentMb < 1 || $extraAttachmentMb > 100) { $errors[] = $langs->trans('MahnwesenExtraAttachmentMbInvalid'); }
     if (!in_array($policy, array('single_billing', 'first_billing'), true)) { $errors[] = $langs->trans('MahnwesenRecipientPolicyInvalid'); }
     if ($auto && !GETPOSTINT('auto_send_confirm')) { $errors[] = $langs->trans('MahnwesenAutoSendConfirmationRequired'); }
     if (empty($errors)) {
@@ -150,6 +158,10 @@ if ($action === 'save_automation') {
             && mw4_set_const($db, 'MAHNWESEN_MANUAL_SEND_ENABLED', $manual, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_AUTO_SEND_ENABLED', $auto, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_AUTO_SEND_MAX', $max, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_AUTO_RETRY_MAX', $retryMax, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_AUTO_MAX_PER_CUSTOMER', $maxPerCustomer, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_MAX_EXTRA_ATTACHMENTS', $extraAttachmentMax, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_MAX_EXTRA_ATTACHMENT_MB', $extraAttachmentMb, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_AUTO_RECIPIENT_POLICY', $policy, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_ATTACH_INVOICE_DEFAULT', $attach, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_ALLOW_LANGUAGE_FALLBACK', $allowLanguageFallback, $conf->entity);
@@ -172,6 +184,10 @@ $fromEmail = getDolGlobalString('MAHNWESEN_FROM_EMAIL');
 $manual = getDolGlobalInt('MAHNWESEN_MANUAL_SEND_ENABLED', 0);
 $auto = getDolGlobalInt('MAHNWESEN_AUTO_SEND_ENABLED', 0);
 $autoMax = getDolGlobalInt('MAHNWESEN_AUTO_SEND_MAX', 10);
+$autoRetryMax = getDolGlobalInt('MAHNWESEN_AUTO_RETRY_MAX', 3);
+$autoMaxPerCustomer = getDolGlobalInt('MAHNWESEN_AUTO_MAX_PER_CUSTOMER', 1);
+$extraAttachmentMax = getDolGlobalInt('MAHNWESEN_MAX_EXTRA_ATTACHMENTS', 5);
+$extraAttachmentMb = getDolGlobalInt('MAHNWESEN_MAX_EXTRA_ATTACHMENT_MB', 10);
 $policy = getDolGlobalString('MAHNWESEN_AUTO_RECIPIENT_POLICY', 'single_billing');
 $attachDefault = getDolGlobalInt('MAHNWESEN_ATTACH_INVOICE_DEFAULT', 1);
 $allowLanguageFallback = getDolGlobalInt('MAHNWESEN_ALLOW_LANGUAGE_FALLBACK', 0);
@@ -313,6 +329,10 @@ if ($tab === 'automation') {
     print '</select></td><td>'.$langs->trans('MahnwesenRecipientPolicyHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('MahnwesenLanguageFallback').'</td><td><input type="checkbox" name="allow_language_fallback" value="1"'.($allowLanguageFallback ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenLanguageFallbackHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('MahnwesenAutoSendMax').'</td><td><input class="width75" type="number" min="1" max="100" name="auto_send_max" value="'.((int) $autoMax).'"></td><td>'.$langs->trans('MahnwesenAutoSendMaxHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenAutoRetryMax').'</td><td><input class="width75" type="number" min="1" max="10" name="auto_retry_max" value="'.((int) $autoRetryMax).'"></td><td>'.$langs->trans('MahnwesenAutoRetryMaxHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenAutoPerCustomer').'</td><td><input class="width75" type="number" min="1" max="20" name="auto_max_per_customer" value="'.((int) $autoMaxPerCustomer).'"></td><td>'.$langs->trans('MahnwesenAutoPerCustomerHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenExtraAttachmentMax').'</td><td><input class="width75" type="number" min="0" max="20" name="max_extra_attachments" value="'.((int) $extraAttachmentMax).'"></td><td>'.$langs->trans('MahnwesenExtraAttachmentMaxHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenExtraAttachmentMb').'</td><td><input class="width75" type="number" min="1" max="100" name="max_extra_attachment_mb" value="'.((int) $extraAttachmentMb).'"></td><td>'.$langs->trans('MahnwesenExtraAttachmentMbHelp').'</td></tr>';
     print '<tr><td><strong>'.$langs->trans('MahnwesenEnableAutoSend').'</strong></td><td><input type="checkbox" name="auto_send_enabled" value="1"'.($auto ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenEnableAutoSendHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('MahnwesenAutoSendConfirmation').'</td><td><input type="checkbox" name="auto_send_confirm" value="1"></td><td><strong>'.$langs->trans('MahnwesenAutoSendConfirmationHelp').'</strong></td></tr>';
     print '</table>';

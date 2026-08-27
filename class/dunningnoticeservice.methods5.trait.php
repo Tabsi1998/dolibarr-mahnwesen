@@ -4,7 +4,7 @@ trait DunningNoticeServiceMethods5
 {
 
     /** @return string */
-    protected function asHtml($text)
+    public function asHtml($text)
     {
         $text = (string) $text;
         if (preg_match('/<\s*(p|div|table|br|ul|ol|h[1-6]|strong|span|a)\b/i', $text)) {

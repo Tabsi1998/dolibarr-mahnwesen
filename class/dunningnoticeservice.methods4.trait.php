@@ -178,11 +178,12 @@ trait DunningNoticeServiceMethods4
      *
      * @return array|false
      */
-    public function sendNotice($invoice, $case, $level, $recipient, $subject, $body, $attachInvoice, $user, $mode = 'manual', $templateFrom = '', $lang = '', $cc = '', $bcc = '', $templateId = 0)
+    public function sendNotice($invoice, $case, $level, $recipient, $subject, $body, $attachInvoice, $user, $mode = 'manual', $templateFrom = '', $lang = '', $cc = '', $bcc = '', $templateId = 0, $extraAttachments = array(), $deliveryReceipt = false)
     {
         $this->error = '';
         $this->errors = array();
         $mode = ($mode === 'automatic') ? 'automatic' : 'manual';
+        $subject = trim(dol_string_nohtmltag((string) $subject));
 
         if ($mode === 'automatic' && !$this->isAutomaticSendEnabled()) {
             $this->error = 'Automatic dunning email sending is disabled.';
@@ -231,6 +232,30 @@ trait DunningNoticeServiceMethods4
             $this->error = 'Subject and message must not be empty.';
             return false;
         }
+        $bodyHtml = (string) $this->asHtml($body);
+        if (preg_match('/[\r\n]/', (string) $subject) || strlen((string) $subject) > 255) {
+            $this->error = 'The email subject is invalid or longer than 255 bytes.';
+            return false;
+        }
+        if (strlen($bodyHtml) > 60000) {
+            $this->error = 'The email message is too large for the immutable delivery snapshot.';
+            return false;
+        }
+        if (!is_array($extraAttachments)) { $extraAttachments = array(); }
+        $maxExtraFiles = max(0, min(20, getDolGlobalInt('MAHNWESEN_MAX_EXTRA_ATTACHMENTS', 5)));
+        $maxExtraBytes = max(1, min(100, getDolGlobalInt('MAHNWESEN_MAX_EXTRA_ATTACHMENT_MB', 10))) * 1024 * 1024;
+        if (count($extraAttachments) > $maxExtraFiles) { $this->error = 'Too many additional attachments.'; return false; }
+        $checkedExtraAttachments = array();
+        foreach ($extraAttachments as $extra) {
+            $path = isset($extra['path']) ? (string) $extra['path'] : '';
+            $name = dol_sanitizeFileName(isset($extra['name']) ? (string) $extra['name'] : basename($path));
+            $size = ($path !== '' && is_file($path)) ? filesize($path) : false;
+            if ($path === '' || $name === '' || !is_readable($path) || $size === false || $size <= 0 || $size > $maxExtraBytes) { $this->error = 'An additional attachment is unavailable or exceeds the configured size limit.'; return false; }
+            $mime = isset($extra['mime']) ? trim((string) $extra['mime']) : '';
+            if (!preg_match('#^[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*$#i', $mime)) { $mime = dol_mimetype($name); }
+            if ($mime === '') { $mime = 'application/octet-stream'; }
+            $checkedExtraAttachments[] = array('path' => $path, 'name' => $name, 'mime' => $mime);
+        }
 
         $breakdown = $this->manager->getAmountBreakdown($invoice, $case, $level);
         $historyMessage = 'Subject: '.$subject."\nFrom: ".$from;
@@ -257,7 +282,7 @@ trait DunningNoticeServiceMethods4
                 'cc' => $cc,
                 'bcc' => $bcc,
                 'subject' => (string) $subject,
-                'body_html' => (string) $this->asHtml($body),
+                'body_html' => $bodyHtml,
                 'fee' => (float) $breakdown['fee'],
                 'total' => (float) $breakdown['total'],
                 'template_id' => (int) $templateId,
@@ -292,6 +317,11 @@ trait DunningNoticeServiceMethods4
         $files = array($pdfInfo['fullpath']);
         $mimes = array('application/pdf');
         $names = array($pdfInfo['filename']);
+        if (!$this->manager->addNoticeAttemptFile($attemptId, 'dunning', $pdfInfo['filename'], $pdfInfo['fullpath'], 'application/pdf')) {
+            $this->error = 'Unable to persist the dunning attachment audit: '.$this->manager->error;
+            $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
+            return false;
+        }
         $invoicePdf = '';
         if ($attachInvoice) {
             $sourceInvoicePdf = $this->getInvoicePdfPath($freshInvoice);
@@ -312,6 +342,27 @@ trait DunningNoticeServiceMethods4
             $files[] = $invoicePdf;
             $mimes[] = 'application/pdf';
             $names[] = basename($sourceInvoicePdf);
+            if (!$this->manager->addNoticeAttemptFile($attemptId, 'invoice', basename($sourceInvoicePdf), $invoicePdf, 'application/pdf')) {
+                $this->error = 'Unable to persist the invoice attachment audit: '.$this->manager->error;
+                $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
+                return false;
+            }
+        }
+        foreach ($checkedExtraAttachments as $index => $extra) {
+            $snapshot = dirname($pdfInfo['fullpath']).'/'.dol_sanitizeFileName($freshInvoice->ref).'_Attachment_A'.$attemptId.'_'.($index + 1).'_'.$extra['name'];
+            if (!@copy($extra['path'], $snapshot) || !is_readable($snapshot) || filesize($snapshot) <= 0) {
+                $this->error = 'Unable to create an immutable snapshot of an additional attachment.';
+                $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
+                return false;
+            }
+            $files[] = $snapshot;
+            $mimes[] = $extra['mime'];
+            $names[] = $extra['name'];
+            if (!$this->manager->addNoticeAttemptFile($attemptId, 'additional', $extra['name'], $snapshot, $extra['mime'])) {
+                $this->error = 'Unable to persist an additional attachment audit: '.$this->manager->error;
+                $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
+                return false;
+            }
         }
         if (!$this->manager->updateNoticeAttemptArtifacts($attemptId, $pdfInfo, $invoicePdf)) {
             $this->error = 'Unable to persist attachment hashes: '.$this->manager->error;
@@ -334,6 +385,7 @@ trait DunningNoticeServiceMethods4
         }
         $historyMessage .= "\nPDF: ".$pdfInfo['relative']."\nPDF SHA-256: ".hash_file('sha256', $pdfInfo['fullpath']);
         if ($invoicePdf !== '') { $historyMessage .= "\nInvoice PDF: ".basename($invoicePdf)."\nInvoice PDF SHA-256: ".hash_file('sha256', $invoicePdf); }
+        $historyMessage .= "\nAdditional attachments: ".count($checkedExtraAttachments)."\nDelivery receipt: ".($deliveryReceipt ? 'requested' : 'not requested');
         if (!$this->manager->markNoticeAttemptSending($attemptId)) {
             $this->error = 'Unable to mark the attempt as sending: '.$this->manager->error;
             $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
@@ -346,13 +398,13 @@ trait DunningNoticeServiceMethods4
                 (string) $subject,
                 (string) $recipient,
                 $from,
-                (string) $this->asHtml($body),
+                $bodyHtml,
                 $files,
                 $mimes,
                 $names,
                 $cc,
                 $bcc,
-                0,
+                $deliveryReceipt ? 1 : 0,
                 1,
                 '',
                 '',

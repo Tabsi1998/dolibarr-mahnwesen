@@ -469,4 +469,17 @@ trait DunningManagerMethods1
         $this->db->free($resql);
         return $rows;
     }
+
+    /** Return the recent immutable workflow history for the active entity. */
+    public function getRecentHistory($limit = 300)
+    {
+        global $conf;
+        $rows = array();
+        $sql = 'SELECT rowid, fk_case, fk_facture, action, level, amount_snapshot, mode, result, recipient, message, date_creation, fk_user_create FROM '.MAIN_DB_PREFIX.'mahnwesen_history WHERE entity = '.((int) $conf->entity).' ORDER BY date_creation DESC, rowid DESC'.$this->db->plimit(max(1, min(1000, (int) $limit)));
+        $res = $this->db->query($sql);
+        if (!$res) { $this->error = $this->db->lasterror(); return false; }
+        while ($o = $this->db->fetch_object($res)) { $rows[] = (array) $o; }
+        $this->db->free($res);
+        return $rows;
+    }
 }

@@ -2,7 +2,7 @@
 
 A custom Dolibarr module for controlled dunning workflows on overdue customer invoices.
 
-> **Status:** hardened `0.6.x` development line. Dolibarr 22 has been runtime-tested. CI downloads and verifies the real Dolibarr 21/22/23 source APIs; full installation smoke tests on 21 and 23 remain release gates.
+> **Status:** first stable release `1.0.0`. Dolibarr 22 has been runtime-tested; CI checks the actual Dolibarr 21/22/23 mail, invoice and FormMail APIs used by the module. A staging smoke test remains required for each production environment.
 
 ## Goals
 
@@ -34,7 +34,7 @@ All thresholds are configurable.
 
 ## Sequential workflow rule
 
-Time alone does not skip a required stage. The current development branch uses this sequential escalation model:
+Time alone does not skip a required stage. The stable workflow uses this sequential escalation model:
 
 `Payment reminder -> 1st dunning notice -> 2nd dunning notice -> 3rd dunning notice`
 
@@ -45,15 +45,17 @@ See [docs/WORKFLOW.md](docs/WORKFLOW.md) and [ROADMAP.md](ROADMAP.md).
 
 ## Invoice integration
 
-The current development branch adds a context-sensitive action to the normal customer-invoice card, for example `Prepare payment reminder` or `Prepare 1st dunning notice`. The action is based on the **next required sequential workflow stage**, not merely the highest time-eligible stage.
+The module adds a context-sensitive action to the normal customer-invoice card, for example `Prepare payment reminder` or `Prepare 1st dunning notice`. The action is based on the **next required sequential workflow stage**, not merely the highest time-eligible stage.
 
-The dunning composer follows Dolibarr's normal mail workflow: template selection, sender profile, recipient, CC/BCC, subject, HTML body, generated dunning PDF, optional invoice PDF, preview and explicit send confirmation. Immediately before an irreversible send, the case is synchronized and the required stage and remaining balance are revalidated.
+The dunning composer uses Dolibarr's native `FormMail` component for templates, sender profiles, recipient, CC/BCC, subject, delivery receipt and HTML editing. It adds the mandatory dunning PDF, optional invoice PDF, uploaded files and a combined email/document preview. Immediately before an irreversible send, the case, recipient, stage, amounts and attachments are revalidated.
 
 ## Events / Agenda
 
 `llx_mahnwesen_history` remains the append-only workflow source of truth. Mutable delivery state lives separately in `llx_mahnwesen_attempt`; PDF/body/recipient/amount snapshots and SHA-256 hashes make a delivery auditable. Ambiguous SMTP outcomes block retries until an operator resolves them on the **Delivery attempts** page.
 
 Dunning fees are tracked in a module-owned subledger after a successful notice. They do not modify the Dolibarr invoice or create an accounting entry and must be marked paid or waived explicitly.
+
+Every cron and dry run is stored in an automation-run history. Automatic sending is off by default and requires both the global and per-stage switches. Per-run, per-customer and per-stage failure limits constrain delivery; ambiguous SMTP outcomes require operator resolution before any retry.
 
 ## Email templates
 
@@ -71,7 +73,7 @@ git clone https://github.com/Tabsi1998/dolibarr-mahnwesen.git htdocs/custom/mahn
 
 For a release ZIP, upload `mahnwesen-x.y.z.zip` through Dolibarr's external module installer.
 
-After upgrading to `0.6.x`, disable and re-enable the module once. This creates the new attempt, pause and fee-ledger tables; existing cases/history are retained. Keep automatic sending disabled until a staging smoke test has completed.
+After upgrading to `1.0.0`, disable and re-enable the module once. This also creates attachment-evidence and automation-run tables; existing cases/history are retained. Keep automatic sending disabled until a staging smoke test has completed.
 
 ## Compatibility
 

@@ -52,6 +52,31 @@ if ($action === 'settle_fee' && $feeId > 0) {
 
 $attempts = $manager->getNoticeAttempts(300);
 if ($attempts === false) { setEventMessages($langs->trans('MahnwesenAttemptsUnavailable'), null, 'errors'); $attempts = array(); }
+$attemptFileMap = $manager->getNoticeAttemptFilesMap(array_column($attempts, 'rowid'));
+if ($attemptFileMap === false) { $attemptFileMap = array(); }
+$invoiceCache = array();
+$visibleSocCache = array();
+
+function mw_attempts_get_invoice($db, $invoiceId, &$cache)
+{
+    $invoiceId = (int) $invoiceId;
+    if (!array_key_exists($invoiceId, $cache)) {
+        $invoice = new Facture($db);
+        $cache[$invoiceId] = $invoice->fetch($invoiceId) > 0 ? $invoice : false;
+    }
+    return $cache[$invoiceId];
+}
+
+function mw_attempts_can_view_invoice($db, $user, $invoice, &$socCache)
+{
+    if ($user->hasRight('societe', 'client', 'voir')) { return true; }
+    $socid = (int) $invoice->socid;
+    if (!array_key_exists($socid, $socCache)) {
+        $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'societe_commerciaux WHERE fk_soc = '.$socid.' AND fk_user = '.((int) $user->id).$db->plimit(1);
+        $res = $db->query($sql); $socCache[$socid] = $res && (bool) $db->fetch_object($res); if ($res) { $db->free($res); }
+    }
+    return !empty($socCache[$socid]);
+}
 
 llxHeader('', $langs->trans('MahnwesenSendAttempts'), '', '', 0, 0, '', '', '', 'mod-mahnwesen page-attempts');
 print load_fiche_titre($langs->trans('MahnwesenSendAttempts'), '', 'email');
@@ -59,14 +84,10 @@ print '<div class="info">'.$langs->trans('MahnwesenAttemptsHelp').'</div><br>';
 print '<div class="div-table-responsive"><table class="tagtable liste centpercent">';
 print '<tr class="liste_titre"><th>ID</th><th>'.$langs->trans('Invoice').'</th><th>'.$langs->trans('DunningStage').'</th><th>'.$langs->trans('Date').'</th><th>'.$langs->trans('NoticeRecipient').'</th><th class="right">'.$langs->trans('Amount').'</th><th>'.$langs->trans('Status').'</th><th>'.$langs->trans('Action').'</th></tr>';
 foreach ($attempts as $attempt) {
-    $invoice = new Facture($db);
-    if ($invoice->fetch((int) $attempt['fk_facture']) <= 0) { continue; }
+    $invoice = mw_attempts_get_invoice($db, (int) $attempt['fk_facture'], $invoiceCache);
+    if (!$invoice) { continue; }
     // Apply the same customer/sales-representative scope as the invoice card.
-    if (!$user->hasRight('societe', 'client', 'voir')) {
-        $sqlAccess = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'societe_commerciaux WHERE fk_soc = '.((int) $invoice->socid).' AND fk_user = '.((int) $user->id).$db->plimit(1);
-        $resAccess = $db->query($sqlAccess); $allowed = $resAccess && $db->fetch_object($resAccess); if ($resAccess) { $db->free($resAccess); }
-        if (!$allowed) { continue; }
-    }
+    if (!mw_attempts_can_view_invoice($db, $user, $invoice, $visibleSocCache)) { continue; }
     $invoiceUrl = dol_buildpath('/compta/facture/card.php?facid='.(int) $invoice->id, 1);
     print '<tr class="oddeven"><td>'.((int) $attempt['rowid']).'</td><td><a href="'.dol_escape_htmltag($invoiceUrl).'">'.dol_escape_htmltag($invoice->ref).'</a></td>';
     print '<td>'.$langs->trans($manager->getStageLabelKey((int) $attempt['level'])).'</td><td>'.dol_print_date($db->jdate($attempt['reserved_at']), 'dayhour').'</td>';
@@ -83,6 +104,30 @@ foreach ($attempts as $attempt) {
         print '<button class="button" type="submit">'.$langs->trans('Confirm').'</button></form>';
     } else { print '-'; }
     print '</td></tr>';
+    $attemptFiles = isset($attemptFileMap[(int) $attempt['rowid']]) ? $attemptFileMap[(int) $attempt['rowid']] : array();
+    print '<tr class="oddeven"><td></td><td colspan="7"><details><summary>'.$langs->trans('MahnwesenAttemptDetails').'</summary>';
+    print '<table class="border centpercent tableforfield margintoponly">';
+    print '<tr><td class="titlefield">'.$langs->trans('From').'</td><td>'.dol_escape_htmltag((string) $attempt['sender']).'</td></tr>';
+    print '<tr><td>'.$langs->trans('Subject').'</td><td>'.dol_escape_htmltag((string) $attempt['subject']).'</td></tr>';
+    print '<tr><td>'.$langs->trans('Message').'</td><td><details><summary>'.$langs->trans('Show').'</summary><pre class="small">'.dol_escape_htmltag((string) $attempt['body_html']).'</pre></details></td></tr>';
+    if (!empty($attempt['cc'])) { print '<tr><td>CC</td><td>'.dol_escape_htmltag((string) $attempt['cc']).'</td></tr>'; }
+    if (!empty($attempt['bcc'])) { print '<tr><td>BCC</td><td>'.dol_escape_htmltag((string) $attempt['bcc']).'</td></tr>'; }
+    print '<tr><td>'.$langs->trans('MahnwesenTemplateAudit').'</td><td>#'.((int) $attempt['fk_email_template']).' / '.dol_escape_htmltag((string) $attempt['template_lang']).' / '.dol_escape_htmltag((string) $attempt['mode']).'</td></tr>';
+    if (!empty($attempt['mail_message_id'])) { print '<tr><td>Message-ID</td><td><code>'.dol_escape_htmltag((string) $attempt['mail_message_id']).'</code></td></tr>'; }
+    if (!empty($attempt['pdf_sha256'])) { print '<tr><td>'.$langs->trans('MahnwesenDunningPdfHash').'</td><td><code>'.dol_escape_htmltag((string) $attempt['pdf_sha256']).'</code></td></tr>'; }
+    if (!empty($attempt['invoice_pdf_sha256'])) { print '<tr><td>'.$langs->trans('MahnwesenInvoicePdfHash').'</td><td><code>'.dol_escape_htmltag((string) $attempt['invoice_pdf_sha256']).'</code></td></tr>'; }
+    if (!empty($attempt['error_message'])) { print '<tr><td>'.$langs->trans('Error').'</td><td>'.nl2br(dol_escape_htmltag((string) $attempt['error_message'])).'</td></tr>'; }
+    print '</table>';
+    if (is_array($attemptFiles) && !empty($attemptFiles)) {
+        print '<div class="div-table-responsive margintoponly"><table class="noborder centpercent"><tr class="liste_titre"><th>'.$langs->trans('MahnwesenAttachmentRole').'</th><th>'.$langs->trans('File').'</th><th class="right">'.$langs->trans('Size').'</th><th>SHA-256</th></tr>';
+        $roleKey = array('dunning' => 'MahnwesenAttachmentRoleDunning', 'invoice' => 'MahnwesenAttachmentRoleInvoice', 'additional' => 'MahnwesenAttachmentRoleAdditional');
+        foreach ($attemptFiles as $attemptFile) {
+            $role = isset($roleKey[$attemptFile['file_role']]) ? $langs->trans($roleKey[$attemptFile['file_role']]) : (string) $attemptFile['file_role'];
+            print '<tr class="oddeven"><td>'.dol_escape_htmltag($role).'</td><td>'.dol_escape_htmltag((string) $attemptFile['display_name']).'</td><td class="right">'.dol_print_size((int) $attemptFile['size_bytes']).'</td><td><code>'.dol_escape_htmltag((string) $attemptFile['sha256']).'</code></td></tr>';
+        }
+        print '</table></div>';
+    }
+    print '</details></td></tr>';
 }
 print '</table></div>';
 
@@ -92,17 +137,39 @@ print '<div class="info">'.$langs->trans('MahnwesenFeeLedgerHelp').'</div><br>';
 print '<div class="div-table-responsive"><table class="tagtable liste centpercent">';
 print '<tr class="liste_titre"><th>ID</th><th>'.$langs->trans('Invoice').'</th><th>'.$langs->trans('DunningStage').'</th><th>'.$langs->trans('Date').'</th><th class="right">'.$langs->trans('Amount').'</th><th>'.$langs->trans('Status').'</th><th>'.$langs->trans('Action').'</th></tr>';
 foreach ((array) $fees as $fee) {
-    $invoice = new Facture($db); if ($invoice->fetch((int) $fee['fk_facture']) <= 0) { continue; }
-    if (!$user->hasRight('societe', 'client', 'voir')) {
-        $sqlAccess = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'societe_commerciaux WHERE fk_soc = '.((int) $invoice->socid).' AND fk_user = '.((int) $user->id).$db->plimit(1);
-        $resAccess = $db->query($sqlAccess); $allowed = $resAccess && $db->fetch_object($resAccess); if ($resAccess) { $db->free($resAccess); } if (!$allowed) { continue; }
-    }
+    $invoice = mw_attempts_get_invoice($db, (int) $fee['fk_facture'], $invoiceCache); if (!$invoice) { continue; }
+    if (!mw_attempts_can_view_invoice($db, $user, $invoice, $visibleSocCache)) { continue; }
     print '<tr class="oddeven"><td>'.((int) $fee['rowid']).'</td><td>'.$invoice->getNomUrl(1).'</td><td>'.$langs->trans($manager->getStageLabelKey((int) $fee['level'])).'</td><td>'.dol_print_date($db->jdate($fee['date_creation']), 'dayhour').'</td><td class="right">'.price((float) $fee['amount'], 0, $langs, 1, -1, -1, $fee['currency_code']).'</td><td>'.dol_escape_htmltag($fee['status']).'</td><td>';
     if ($fee['status'] === 'open') {
         print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'"><input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="settle_fee"><input type="hidden" name="fee_id" value="'.((int) $fee['rowid']).'">';
         print '<select name="fee_status"><option value="paid">'.$langs->trans('MahnwesenFeePaid').'</option><option value="waived">'.$langs->trans('MahnwesenFeeWaived').'</option></select> <input type="text" required name="reason" maxlength="255" placeholder="'.dol_escape_htmltag($langs->trans('Reason')).'"> <button class="button" type="submit">'.$langs->trans('Confirm').'</button></form>';
     } else { print dol_escape_htmltag($fee['settlement_reason']); }
     print '</td></tr>';
+}
+print '</table></div>';
+
+$runs = $manager->getAutomationRuns(100);
+print '<br>'.load_fiche_titre($langs->trans('MahnwesenAutomationHistory'), '', 'technic');
+print '<div class="info">'.$langs->trans('MahnwesenAutomationHistoryHelp').'</div><br>';
+print '<div class="div-table-responsive"><table class="tagtable liste centpercent">';
+print '<tr class="liste_titre"><th>ID</th><th>'.$langs->trans('Date').'</th><th>'.$langs->trans('Mode').'</th><th>'.$langs->trans('Status').'</th><th class="right">'.$langs->trans('MahnwesenScanned').'</th><th class="right">'.$langs->trans('MahnwesenSynchronized').'</th><th class="right">'.$langs->trans('MahnwesenAttempted').'</th><th class="right">'.$langs->trans('MahnwesenSent').'</th><th class="right">'.$langs->trans('MahnwesenSkipped').'</th><th class="right">'.$langs->trans('MahnwesenFailed').'</th></tr>';
+foreach ((array) $runs as $run) {
+    print '<tr class="oddeven"><td>'.((int) $run['rowid']).'</td><td>'.dol_print_date($db->jdate($run['started_at']), 'dayhour').'</td><td>'.dol_escape_htmltag((string) $run['mode']).'</td><td>'.dol_escape_htmltag((string) $run['status']).'</td><td class="right">'.((int) $run['scanned']).'</td><td class="right">'.((int) $run['synchronized']).'</td><td class="right">'.((int) $run['attempted']).'</td><td class="right">'.((int) $run['sent']).'</td><td class="right">'.((int) $run['skipped']).'</td><td class="right">'.((int) $run['failed']).'</td></tr>';
+    if (!empty($run['summary'])) { print '<tr class="oddeven"><td></td><td colspan="9" class="opacitymedium">'.dol_escape_htmltag((string) $run['summary']).'</td></tr>'; }
+}
+print '</table></div>';
+
+$history = $manager->getRecentHistory(300);
+print '<br>'.load_fiche_titre($langs->trans('MahnwesenCompleteHistory'), '', 'history');
+print '<div class="info">'.$langs->trans('MahnwesenCompleteHistoryHelp').'</div><br>';
+print '<div class="div-table-responsive"><table class="tagtable liste centpercent">';
+print '<tr class="liste_titre"><th>ID</th><th>'.$langs->trans('Date').'</th><th>'.$langs->trans('Invoice').'</th><th>'.$langs->trans('Action').'</th><th>'.$langs->trans('DunningStage').'</th><th>'.$langs->trans('Mode').'</th><th>'.$langs->trans('MahnwesenHistoryResult').'</th><th>'.$langs->trans('NoticeRecipient').'</th><th>'.$langs->trans('Details').'</th></tr>';
+foreach ((array) $history as $event) {
+    $historyInvoiceId = (int) $event['fk_facture'];
+    $historyInvoice = mw_attempts_get_invoice($db, $historyInvoiceId, $invoiceCache);
+    if (!$historyInvoice) { continue; }
+    if (!mw_attempts_can_view_invoice($db, $user, $historyInvoice, $visibleSocCache)) { continue; }
+    print '<tr class="oddeven"><td>'.((int) $event['rowid']).'</td><td>'.dol_print_date($db->jdate($event['date_creation']), 'dayhour').'</td><td>'.$historyInvoice->getNomUrl(1).'</td><td>'.$langs->trans($manager->getHistoryActionLabelKey((string) $event['action'])).'</td><td>'.((int) $event['level'] > 0 ? $langs->trans($manager->getStageLabelKey((int) $event['level'])) : '-').'</td><td>'.dol_escape_htmltag((string) $event['mode']).'</td><td>'.dol_escape_htmltag((string) $event['result']).'</td><td>'.dol_escape_htmltag((string) $event['recipient']).'</td><td><details><summary>'.$langs->trans('Show').'</summary>'.nl2br(dol_escape_htmltag((string) $event['message'])).'</details></td></tr>';
 }
 print '</table></div>';
 llxFooter();

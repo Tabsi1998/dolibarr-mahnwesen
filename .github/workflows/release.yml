@@ -34,6 +34,7 @@ jobs:
           test -n "$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "zip=dist/mahnwesen-$VERSION.zip" >> "$GITHUB_OUTPUT"
+          echo "checksum=dist/mahnwesen-$VERSION.zip.sha256" >> "$GITHUB_OUTPUT"
 
       - name: Verify tag matches module version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -65,7 +66,7 @@ jobs:
           TAG="$GITHUB_REF_NAME"
           EXTRA=()
           if [[ "$TAG" == *-* ]]; then EXTRA=(--prerelease); fi
-          gh release create "$TAG" "${{ steps.version.outputs.zip }}" \
+          gh release create "$TAG" "${{ steps.version.outputs.zip }}" "${{ steps.version.outputs.checksum }}" \
             --title "Mahnwesen $TAG" \
             --generate-notes \
             "${EXTRA[@]}"
@@ -79,7 +80,7 @@ jobs:
           set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
           TAG="v${VERSION}-test.${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" "${{ steps.version.outputs.zip }}" \
+          gh release create "$TAG" "${{ steps.version.outputs.zip }}" "${{ steps.version.outputs.checksum }}" \
             --target "$GITHUB_SHA" \
             --title "Mahnwesen ${VERSION} Test ${GITHUB_RUN_NUMBER}" \
             --notes "Automatisch erzeugter Test-Build aus main. Vor Produktivbetrieb zuerst in Dolibarr prüfen." \

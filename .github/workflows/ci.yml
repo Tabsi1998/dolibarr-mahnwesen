@@ -38,5 +38,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mahnwesen-installable-${{ github.sha }}
-          path: dist/mahnwesen-*.zip
+          path: |
+            dist/mahnwesen-*.zip
+            dist/mahnwesen-*.zip.sha256
           if-no-files-found: error

@@ -43,6 +43,10 @@ echo "Invoice write guard: OK"
 
 grep -q "restrictedArea(\$user, 'facture'" invoice.php
 grep -q "restrictedArea(\$user, 'facture'" notice.php
-grep -q "JSON_HEX_TAG" notice.php
+grep -q "new FormMail" notice.php
+grep -q "get_form('addfile', 'remove_extra')" notice.php
+grep -q "GETPOST('message', 'restricthtml')" notice.php
+grep -q "resolveNativeSender" notice.php
 grep -q "status IN ('reserved', 'sending', 'ambiguous')" class/dunningmanager.methods3.trait.php
+grep -q "addNoticeAttemptFile" class/dunningnoticeservice.methods4.trait.php
 echo "Security contracts: OK"

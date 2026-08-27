@@ -197,6 +197,18 @@ trait DunningManagerMethods5
         return max(1, min(100, $this->getIntSetting('MAHNWESEN_AUTO_SEND_MAX', 10)));
     }
 
+    /** Maximum failed automatic attempts before operator intervention. */
+    public function getAutomaticRetryMax()
+    {
+        return max(1, min(10, $this->getIntSetting('MAHNWESEN_AUTO_RETRY_MAX', 3)));
+    }
+
+    /** Maximum automatic emails for one customer in a single run. */
+    public function getAutomaticMaxPerCustomer()
+    {
+        return max(1, min(20, $this->getIntSetting('MAHNWESEN_AUTO_MAX_PER_CUSTOMER', 1)));
+    }
+
     /** @return string */
     public function getAutomaticRecipientPolicy()
     {
@@ -225,6 +237,61 @@ trait DunningManagerMethods5
         if (!$res) { return PHP_INT_MAX; }
         $o = $this->db->fetch_object($res); $this->db->free($res);
         return $o ? (int) $o->cnt : 0;
+    }
+
+    /** Start a persistent automation-run audit row. */
+    public function beginAutomationRun($mode, $user)
+    {
+        global $conf;
+        $mode = in_array($mode, array('cron', 'dry_run', 'manual'), true) ? $mode : 'cron';
+        $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
+        // A nullable unique lock prevents overlapping cron deliveries. A lock
+        // left behind by a hard process crash is expired after six hours.
+        if ($mode === 'cron') {
+            $stale = $this->db->idate(dol_now() - 21600);
+            $now = $this->db->idate(dol_now());
+            $sqlStale = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_run SET status = 'failed', finished_at = '".$this->db->escape($now)."', run_lock = NULL, summary = 'Expired stale automation lock after six hours.' WHERE entity = ".((int) $conf->entity)." AND status = 'running' AND run_lock = 'automatic' AND started_at < '".$this->db->escape($stale)."'";
+            if (!$this->db->query($sqlStale)) { $this->error = $this->db->lasterror(); return false; }
+        }
+        $lockValue = $mode === 'cron' ? "'automatic'" : 'NULL';
+        $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_run (entity, mode, status, run_lock, started_at, fk_user) VALUES ('.((int) $conf->entity).", '".$this->db->escape($mode)."', 'running', ".$lockValue.", '".$this->db->escape($this->db->idate(dol_now()))."', ".$uid.')';
+        if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); return false; }
+        $id = (int) $this->db->last_insert_id(MAIN_DB_PREFIX.'mahnwesen_run');
+        if ($id <= 0) { $this->error = 'Unable to obtain the automation run id.'; return false; }
+        return $id;
+    }
+
+    /** Finish one automation audit row with bounded counters. */
+    public function finishAutomationRun($runId, $status, $counters, $summary)
+    {
+        global $conf;
+        if ((int) $runId <= 0) { return false; }
+        $status = in_array($status, array('success', 'warning', 'failed'), true) ? $status : 'failed';
+        $summary = (string) $summary;
+        if (strlen($summary) > 60000) {
+            $summary = substr($summary, 0, 60000);
+            while ($summary !== '' && !preg_match('//u', $summary)) { $summary = substr($summary, 0, -1); }
+        }
+        $keys = array('scanned', 'synchronized', 'attempted', 'sent', 'skipped', 'failed');
+        $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_run SET status = '".$this->db->escape($status)."', run_lock = NULL, finished_at = '".$this->db->escape($this->db->idate(dol_now()))."'";
+        foreach ($keys as $key) { $sql .= ', '.$key.' = '.max(0, (int) (isset($counters[$key]) ? $counters[$key] : 0)); }
+        $sql .= ", summary = '".$this->db->escape($summary)."' WHERE rowid = ".((int) $runId).' AND entity = '.((int) $conf->entity)." AND status = 'running'";
+        if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); return false; }
+        $sqlCheck = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_run WHERE rowid = '.((int) $runId).' AND entity = '.((int) $conf->entity)." AND status = '".$this->db->escape($status)."' AND run_lock IS NULL".$this->db->plimit(1);
+        $resCheck = $this->db->query($sqlCheck); $finished = $resCheck ? $this->db->fetch_object($resCheck) : false; if ($resCheck) { $this->db->free($resCheck); }
+        if (!$finished) { $this->error = 'Automation run could not be finalized.'; return false; }
+        return true;
+    }
+
+    /** Return recent cron/dry-run history for the active entity. */
+    public function getAutomationRuns($limit = 100)
+    {
+        global $conf;
+        $rows = array();
+        $sql = 'SELECT rowid, mode, status, started_at, finished_at, scanned, synchronized, attempted, sent, skipped, failed, summary, fk_user FROM '.MAIN_DB_PREFIX.'mahnwesen_run WHERE entity = '.((int) $conf->entity).' ORDER BY started_at DESC, rowid DESC'.$this->db->plimit(max(1, min(500, (int) $limit)));
+        $res = $this->db->query($sql); if (!$res) { $this->error = $this->db->lasterror(); return false; }
+        while ($o = $this->db->fetch_object($res)) { $rows[] = (array) $o; }
+        $this->db->free($res); return $rows;
     }
 
     /**
@@ -299,34 +366,60 @@ trait DunningManagerMethods5
             $actor->id = 0;
         }
 
+        $counters = array('scanned' => 0, 'synchronized' => 0, 'attempted' => 0, 'sent' => 0, 'skipped' => 0, 'failed' => 0);
+        $runId = $this->beginAutomationRun('cron', $actor);
+        if ($runId === false) {
+            return 1;
+        }
+
         if (!$this->ensureRuleRows($actor)) {
+            $this->finishAutomationRun($runId, 'failed', $counters, 'Unable to initialize workflow rules: '.$this->error);
             return 1;
         }
         $resumed = $this->resumeExpiredPauses($actor);
         if ($resumed === false) {
+            $this->finishAutomationRun($runId, 'failed', $counters, 'Unable to resume expired pauses: '.$this->error);
+            return 1;
+        }
+        if (!empty($this->errors)) {
+            $this->output = 'One or more expired pauses could not be resumed. Automatic delivery was stopped: '.implode(' | ', $this->errors);
+            $this->finishAutomationRun($runId, 'failed', $counters, $this->output);
             return 1;
         }
         $sync = $this->syncCases($actor, $this->getMaxScan());
         if ($sync === false) {
+            $this->finishAutomationRun($runId, 'failed', $counters, 'Unable to synchronize cases: '.$this->error);
+            return 1;
+        }
+        $counters['synchronized'] = (int) $sync['created'] + (int) $sync['updated'] + (int) $sync['level_changed'] + (int) $sync['reopened'] + (int) $sync['closed'] + (int) $sync['unchanged'];
+        if (!empty($sync['errors']) || !empty($this->errors)) {
+            $counters['failed'] = max((int) $sync['errors'], count($this->errors));
+            $this->output = 'Case synchronization contained errors. Automatic delivery was stopped: '.implode(' | ', $this->errors);
+            $this->finishAutomationRun($runId, 'failed', $counters, $this->output);
             return 1;
         }
 
         if (!$this->isAutomaticSendEnabled()) {
             $this->output = 'Daily Mahnwesen workflow: resumed '.$resumed.' dated pause(s); synchronized cases: created '.$sync['created'].', level '.$sync['level_changed'].', updated '.$sync['updated'].', closed '.$sync['closed'].'. Automatic email sending is OFF.';
-            return 0;
+            return $this->finishAutomationRun($runId, 'success', $counters, $this->output) ? 0 : 1;
         }
 
         require_once dol_buildpath('/mahnwesen/class/dunningnotice.class.php', 0);
         $service = new DunningNoticeService($this->db, $this);
         $rows = $this->scanDueInvoices($this->getMaxScan());
         if ($rows === false) {
+            $this->finishAutomationRun($runId, 'failed', $counters, 'Unable to scan due invoices: '.$this->error);
             return 1;
         }
+        $counters['scanned'] = count($rows);
         $sent = 0;
         $attempted = 0;
         $skipped = 0;
         $failed = 0;
         $maxSend = $this->getAutomaticSendMax();
+        $maxRetry = $this->getAutomaticRetryMax();
+        $maxPerCustomer = $this->getAutomaticMaxPerCustomer();
+        $attemptedPerCustomer = array();
         foreach ($rows as $row) {
             if ($attempted >= $maxSend) {
                 break;
@@ -334,7 +427,7 @@ trait DunningManagerMethods5
             $calculatedLevel = (int) $row['stage'];
             if ($calculatedLevel <= 0) { continue; }
             $case = $this->getCaseByInvoice((int) $row['invoice_id']);
-            if (!$case || $case['status'] === 'closed' || !empty($case['paused'])) {
+            if (!$case || $case['status'] !== 'open' || !empty($case['paused'])) {
                 $skipped++;
                 continue;
             }
@@ -346,7 +439,7 @@ trait DunningManagerMethods5
             }
             $rule = $this->getRuleByLevel($level);
             if (empty($rule['send_email'])) { continue; }
-            if ($this->hasSuccessfulNoticeAtLevel((int) $case['id'], $level) || $this->hasPendingNoticeAtLevel((int) $case['id'], $level) || $this->getAutomaticFailureCount((int) $case['id'], $level) >= 3) {
+            if ($this->hasSuccessfulNoticeAtLevel((int) $case['id'], $level) || $this->hasPendingNoticeAtLevel((int) $case['id'], $level) || $this->getAutomaticFailureCount((int) $case['id'], $level) >= $maxRetry) {
                 $skipped++;
                 continue;
             }
@@ -357,6 +450,11 @@ trait DunningManagerMethods5
                 continue;
             }
             $invoice->fetch_thirdparty();
+            $customerId = isset($invoice->socid) ? (int) $invoice->socid : 0;
+            if ($customerId > 0 && !empty($attemptedPerCustomer[$customerId]) && $attemptedPerCustomer[$customerId] >= $maxPerCustomer) {
+                $skipped++;
+                continue;
+            }
             $recipientOption = $service->getAutomaticRecipientOption($invoice, $this->getAutomaticRecipientPolicy());
             if ($recipientOption === false) {
                 $skipped++;
@@ -376,6 +474,9 @@ trait DunningManagerMethods5
                 ? ((string) ($template['joinfiles'] ?? '') === '1')
                 : (getDolGlobalInt('MAHNWESEN_ATTACH_INVOICE_DEFAULT', 1) > 0);
             $attempted++;
+            if ($customerId > 0) {
+                $attemptedPerCustomer[$customerId] = isset($attemptedPerCustomer[$customerId]) ? $attemptedPerCustomer[$customerId] + 1 : 1;
+            }
             $result = $service->sendNotice($invoice, $case, $level, $recipient, $subject, $body, $attachInvoice, $actor, 'automatic', isset($template['email_from']) ? $template['email_from'] : '', isset($template['lang']) ? $template['lang'] : $customerLang, '', '', !empty($template['source_id']) ? (int) $template['source_id'] : 0);
             if ($result === false) {
                 $failed++;
@@ -385,9 +486,14 @@ trait DunningManagerMethods5
             }
         }
 
-        $this->output = 'Daily Mahnwesen workflow: resumed '.$resumed.' pause(s); synchronized cases: created '.$sync['created'].', level '.$sync['level_changed'].', updated '.$sync['updated'].', closed '.$sync['closed'].'; automatic attempts '.$attempted.', sent '.$sent.', skipped '.$skipped.', failed '.$failed.' (attempt limit '.$maxSend.'). Invoices were not modified.';
+        $counters['attempted'] = $attempted;
+        $counters['sent'] = $sent;
+        $counters['skipped'] = $skipped;
+        $counters['failed'] = $failed;
+        $this->output = 'Daily Mahnwesen workflow: resumed '.$resumed.' pause(s); synchronized cases: created '.$sync['created'].', level '.$sync['level_changed'].', updated '.$sync['updated'].', closed '.$sync['closed'].'; automatic attempts '.$attempted.', sent '.$sent.', skipped '.$skipped.', failed '.$failed.' (attempt limit '.$maxSend.', retry limit '.$maxRetry.', per-customer limit '.$maxPerCustomer.'). Invoices were not modified.';
+        $runFinalized = $this->finishAutomationRun($runId, $failed ? 'warning' : 'success', $counters, $this->output);
         dol_syslog(__METHOD__.' '.$this->output, $failed ? LOG_WARNING : LOG_INFO);
-        return $failed ? 1 : 0;
+        return ($failed || !$runFinalized) ? 1 : 0;
     }
 
     /**

@@ -82,13 +82,13 @@ trait DunningNoticeServiceMethods1
     }
 
     /**
-     * Return public active native Mahnwesen templates. When a level is given,
-     * only the corresponding native Dolibarr template type is returned.
+     * Return public and current-user private native Mahnwesen templates. When
+     * a level is given, only that Dolibarr template type is returned.
      *
      * @param int $level 0=all, 1..4=one stage
      * @return array<int,array>
      */
-    public function getNativeTemplates($level = 0)
+    public function getNativeTemplates($level = 0, $user = null)
     {
         global $conf;
         $rows = array();
@@ -105,7 +105,8 @@ trait DunningNoticeServiceMethods1
         $sql = 'SELECT rowid, entity, module, type_template, lang, private, fk_user, label, position, defaultfortype, enabled, active, email_from, topic, joinfiles, content';
         $sql .= ' FROM '.MAIN_DB_PREFIX.'c_email_templates';
         $sql .= ' WHERE entity IN ('.getEntity('c_email_templates').')';
-        $sql .= ' AND type_template IN ('.implode(',', $quoted).') AND active = 1 AND private = 0';
+        $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
+        $sql .= ' AND type_template IN ('.implode(',', $quoted).') AND active = 1 AND (private = 0'.($uid > 0 ? ' OR fk_user = '.$uid : '').')';
         $sql .= ' ORDER BY defaultfortype DESC, position ASC, label ASC, lang ASC, rowid ASC';
         $res = $this->db->query($sql);
         if (!$res) {
@@ -135,22 +136,35 @@ trait DunningNoticeServiceMethods1
     }
 
     /**
-     * Load a public active native Mahnwesen email template by id and optionally
-     * require it to belong to the requested dunning level.
+     * Load an accessible active native Mahnwesen email template by id and
+     * optionally require it to belong to the requested dunning level.
      *
      * @param int $id Template id
      * @param int $level 0=any Mahnwesen type, 1..4=required stage type
      * @return array|false
      */
-    public function getNativeTemplateById($id, $level = 0)
+    public function getNativeTemplateById($id, $level = 0, $user = null)
     {
-        $templates = $this->getNativeTemplates((int) $level);
+        $templates = $this->getNativeTemplates((int) $level, $user);
         $id = (int) $id;
         if (!isset($templates[$id])) {
             $this->error = 'Selected Dolibarr email template is unavailable, inactive, private or not valid for this dunning stage.';
             return false;
         }
         return $templates[$id];
+    }
+
+    /** Return one native row in the normalized structure used for delivery. */
+    public function getTemplateById($id, $level, $lang, $user = null)
+    {
+        $native = $this->getNativeTemplateById($id, $level, $user);
+        if ($native === false) { return false; }
+        return array(
+            'subject' => (string) $native['topic'], 'body' => (string) $native['content'], 'source' => 'native',
+            'source_ref' => 'native:'.$native['id'], 'source_id' => (int) $native['id'], 'label' => (string) $native['label'],
+            'lang' => $native['lang'] !== '' ? (string) $native['lang'] : (string) $lang, 'email_from' => (string) $native['email_from'],
+            'joinfiles' => (string) $native['joinfiles'], 'type_template' => (string) $native['type_template'],
+        );
     }
 
     /**
@@ -162,9 +176,9 @@ trait DunningNoticeServiceMethods1
      * @param string $lang Customer language
      * @return array|false
      */
-    public function getDefaultNativeTemplateForLevel($level, $lang = 'de_DE')
+    public function getDefaultNativeTemplateForLevel($level, $lang = 'de_DE', $user = null)
     {
-        $templates = $this->getNativeTemplates($level);
+        $templates = $this->getNativeTemplates($level, $user);
         if (empty($templates)) {
             $this->error = 'No public active Dolibarr email template exists for type '.$this->getTemplateTypeForLevel($level).'.';
             return false;
@@ -312,11 +326,11 @@ trait DunningNoticeServiceMethods1
         if (strpos($source, 'native:') === 0 && $source !== 'native:auto') {
             $id = (int) substr($source, 7);
             if ($id > 0) {
-                $native = $this->getNativeTemplateById($id, $level);
+                $native = $this->getNativeTemplateById($id, $level, $user);
             }
         }
         if ($native === false) {
-            $native = $this->getDefaultNativeTemplateForLevel($level, $lang);
+            $native = $this->getDefaultNativeTemplateForLevel($level, $lang, $user);
         }
         if ($native === false) {
             return false;

@@ -40,6 +40,14 @@ Reserved/configuration-oriented rule storage.
 
 Operational delivery state and the immutable content/amount/recipient/artifact snapshot used for one mail attempt. Requested invoice attachments are copied to an attempt-specific file before SMTP so later invoice-PDF regeneration cannot change the audited bytes.
 
+### `llx_mahnwesen_attempt_file`
+
+One immutable metadata row per transmitted document, including role, display name, snapshot path, MIME type, size and SHA-256 hash.
+
+### `llx_mahnwesen_run`
+
+Persistent result and counters for every cron and automation dry run.
+
 ### `llx_mahnwesen_pause`
 
 Separate dated/indefinite pause lifecycle. Workflow due dates are no longer overloaded as pause deadlines.
@@ -67,6 +75,8 @@ Mahnwesen remains authoritative for:
 - dunning history
 - send reservations/outcomes
 - delivery snapshots and recovery decisions
+- exact per-attempt attachment evidence
+- automation run history and overlap lock
 - pause lifecycle and fee subledger
 - configured dunning behavior
 
@@ -81,7 +91,7 @@ The due-date calculation and the workflow transition are separate. `current_leve
 
 ## Native invoice integration
 
-The module uses Dolibarr's `invoicecard` hook for the context-sensitive dunning action. It does not modify `compta/facture/card.php`. The composer is module-owned but follows Dolibarr mail conventions and uses native email templates, sender profiles and `CMailFile`.
+The module uses Dolibarr's `invoicecard` hook for the context-sensitive dunning action. It does not modify `compta/facture/card.php`. The composer renders Dolibarr's native `FormMail` component while its controlled service retains reservation, revalidation and final `CMailFile` delivery ownership.
 
 ## Agenda projection
 

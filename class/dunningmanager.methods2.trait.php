@@ -95,8 +95,10 @@ trait DunningManagerMethods2
             'mahnwesen_case' => 'SELECT rowid, entity, fk_facture, current_level, paused, status, remaining_amount, last_notice_at, next_action_at, note_private, date_creation, tms, fk_user_create, fk_user_modif FROM '.MAIN_DB_PREFIX.'mahnwesen_case WHERE 1 = 0',
             'mahnwesen_history' => 'SELECT rowid, entity, fk_case, fk_facture, action, level, amount_snapshot, mode, result, recipient, message, date_creation, fk_user_create FROM '.MAIN_DB_PREFIX.'mahnwesen_history WHERE 1 = 0',
             'mahnwesen_attempt' => 'SELECT rowid, entity, fk_case, fk_facture, level, mode, status, recipient, sender, subject, amount_invoice, amount_fee, amount_total, currency_code, reserved_at FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE 1 = 0',
+            'mahnwesen_attempt_file' => 'SELECT rowid, entity, fk_attempt, file_role, display_name, snapshot_path, sha256, mime_type, size_bytes, date_creation FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt_file WHERE 1 = 0',
             'mahnwesen_fee' => 'SELECT rowid, entity, fk_case, fk_facture, fk_attempt, level, amount, currency_code, status, date_creation FROM '.MAIN_DB_PREFIX.'mahnwesen_fee WHERE 1 = 0',
             'mahnwesen_pause' => 'SELECT rowid, entity, fk_case, fk_facture, status, pause_until, reason, date_creation, date_end FROM '.MAIN_DB_PREFIX.'mahnwesen_pause WHERE 1 = 0',
+            'mahnwesen_run' => 'SELECT rowid, entity, mode, status, run_lock, started_at, finished_at, scanned, synchronized, attempted, sent, skipped, failed, summary, fk_user FROM '.MAIN_DB_PREFIX.'mahnwesen_run WHERE 1 = 0',
         );
 
         foreach ($checks as $table => $sql) {

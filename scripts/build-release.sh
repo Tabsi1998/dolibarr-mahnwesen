@@ -45,4 +45,7 @@ else
   exit 1
 fi
 unzip -t "$ZIPFILE" >/dev/null
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$OUTDIR" && sha256sum "$(basename "$ZIPFILE")" > "$(basename "$ZIPFILE").sha256")
+fi
 echo "$ZIPFILE"

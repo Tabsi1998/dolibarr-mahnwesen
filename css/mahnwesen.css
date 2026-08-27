@@ -1,0 +1,56 @@
+.page-notice .tableforemailform td:first-child {
+    min-width: 180px;
+}
+
+.page-notice .mahnwesen-fixed-document {
+    margin-bottom: 6px;
+}
+
+.page-attempts details pre {
+    max-height: 320px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.mahnwesen-preview-grid {
+    display: grid;
+    grid-template-columns: minmax(320px, 1fr) minmax(360px, 1fr);
+    gap: 18px;
+    align-items: stretch;
+}
+
+.mahnwesen-mail-preview,
+.mahnwesen-document-preview {
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid var(--colortextlink, #bbb);
+    border-radius: 4px;
+    background: var(--colorbackbody, #fff);
+}
+
+.mahnwesen-mail-preview > div:not(.mahnwesen-mail-body) {
+    margin-bottom: 6px;
+}
+
+.mahnwesen-mail-body {
+    min-height: 360px;
+    padding: 12px;
+    overflow-wrap: anywhere;
+    background: #fff;
+    color: #222;
+}
+
+.mahnwesen-document-preview iframe {
+    width: 100%;
+    min-height: 500px;
+    border: 0;
+    background: #fff;
+}
+
+@media (max-width: 900px) {
+    .mahnwesen-preview-grid {
+        grid-template-columns: 1fr;
+    }
+}

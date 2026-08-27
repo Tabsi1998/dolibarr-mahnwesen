@@ -22,6 +22,7 @@ if (!class_exists('Facture')) {
 
 require_once __DIR__.'/../class/dunningmanager.methods1.trait.php';
 require_once __DIR__.'/../class/dunningmanager.methods4.trait.php';
+require_once __DIR__.'/../class/dunningmanager.methods5.trait.php';
 require_once __DIR__.'/../class/dunningnoticeservice.methods1.trait.php';
 require_once __DIR__.'/../class/dunningnoticeservice.methods2.trait.php';
 
@@ -57,6 +58,15 @@ class RuleDefaultsFixture
 }
 $defaults = new RuleDefaultsFixture();
 mwAssert((float) $defaults->getDefaultRule(2)['fee_amount'] === 0.0, 'fees must default to zero');
+
+class AutomationDefaultsFixture
+{
+    use DunningManagerMethods5;
+    protected function getIntSetting($key, $default) { return $default; }
+}
+$automationDefaults = new AutomationDefaultsFixture();
+mwAssert($automationDefaults->getAutomaticRetryMax() === 3, 'automatic retries must have a safe default');
+mwAssert($automationDefaults->getAutomaticMaxPerCustomer() === 1, 'automatic delivery must default to one email per customer and run');
 
 class TemplatePolicyFixture
 {

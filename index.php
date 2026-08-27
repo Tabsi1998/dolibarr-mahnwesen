@@ -118,19 +118,28 @@ $diag = $manager->diagnostics;
 $dryRunRows = array();
 if ($action === 'dry_run') {
     $dryService = new DunningNoticeService($db, $manager);
+    $dryRetryMax = $manager->getAutomaticRetryMax();
+    $dryMaxPerCustomer = $manager->getAutomaticMaxPerCustomer();
+    $drySendMax = $manager->getAutomaticSendMax();
+    $dryReadyTotal = 0;
+    $dryReadyPerCustomer = array();
+    $dryRunId = $manager->beginAutomationRun('dry_run', $user);
+    if ($dryRunId === false) { setEventMessages($langs->trans('MahnwesenDryRunAuditFailed'), null, 'warnings'); }
     foreach ($rows as $row) {
         $decision = 'ready'; $detail = '';
+        $dryInvoice = null;
         $case = $manager->getCaseByInvoice((int) $row['invoice_id']);
         $workflow = $manager->getWorkflowState((int) $row['invoice_id']);
         $level = $workflow ? (int) $workflow['next_required_level'] : 0;
-        if (!$case) { $decision = 'blocked'; $detail = 'case_missing'; }
+        if ($dryReadyTotal >= $drySendMax) { $decision = 'blocked'; $detail = 'run_limit_reached'; }
+        elseif (!$case) { $decision = 'blocked'; $detail = 'case_missing'; }
         elseif ($case['status'] !== 'open') { $decision = 'blocked'; $detail = 'case_'.$case['status']; }
         elseif (!empty($case['paused'])) { $decision = 'blocked'; $detail = 'paused'; }
         elseif (!$workflow || empty($workflow['actionable']) || $level <= 0) { $decision = 'blocked'; $detail = 'not_due'; }
         elseif (empty($manager->getRuleByLevel($level)['send_email'])) { $decision = 'blocked'; $detail = 'stage_auto_disabled'; }
         elseif ($manager->hasSuccessfulNoticeAtLevel((int) $case['id'], $level)) { $decision = 'blocked'; $detail = 'already_sent'; }
         elseif ($manager->hasPendingNoticeAtLevel((int) $case['id'], $level)) { $decision = 'blocked'; $detail = 'attempt_pending'; }
-        elseif ($manager->getAutomaticFailureCount((int) $case['id'], $level) >= 3) { $decision = 'blocked'; $detail = 'retry_limit_reached'; }
+        elseif ($manager->getAutomaticFailureCount((int) $case['id'], $level) >= $dryRetryMax) { $decision = 'blocked'; $detail = 'retry_limit_reached'; }
         else {
             $dryInvoice = new Facture($db);
             if ($dryInvoice->fetch((int) $row['invoice_id']) <= 0) { $decision = 'blocked'; $detail = 'invoice_load_failed'; }
@@ -144,10 +153,23 @@ if ($action === 'dry_run') {
                     if ($dryTemplate === false) { $decision = 'blocked'; $detail = 'template_missing'; }
                     elseif ($dryService->getFromEmail((string) ($dryTemplate['email_from'] ?? '')) === '') { $decision = 'blocked'; $detail = 'sender_missing'; }
                     elseif ((string) ($dryTemplate['joinfiles'] ?? '') === '1' && $dryService->getInvoicePdfPath($dryInvoice) === '') { $decision = 'blocked'; $detail = 'invoice_pdf_missing'; }
+                    elseif ((int) $dryInvoice->socid > 0 && !empty($dryReadyPerCustomer[(int) $dryInvoice->socid]) && $dryReadyPerCustomer[(int) $dryInvoice->socid] >= $dryMaxPerCustomer) { $decision = 'blocked'; $detail = 'customer_run_limit_reached'; }
                 }
             }
         }
+        if ($decision === 'ready' && is_object($dryInvoice) && (int) $dryInvoice->socid > 0) {
+            $dryReadyPerCustomer[(int) $dryInvoice->socid] = isset($dryReadyPerCustomer[(int) $dryInvoice->socid]) ? $dryReadyPerCustomer[(int) $dryInvoice->socid] + 1 : 1;
+        }
+        if ($decision === 'ready') { $dryReadyTotal++; }
         $dryRunRows[] = array('row' => $row, 'level' => $level, 'decision' => $decision, 'detail' => $detail);
+    }
+    if ($dryRunId !== false) {
+        $dryReady = 0;
+        foreach ($dryRunRows as $dryResult) { if ($dryResult['decision'] === 'ready') { $dryReady++; } }
+        $dryCounters = array('scanned' => count($rows), 'synchronized' => 0, 'attempted' => 0, 'sent' => 0, 'skipped' => count($rows) - $dryReady, 'failed' => 0);
+        if (!$manager->finishAutomationRun($dryRunId, 'success', $dryCounters, 'Dry run: '.$dryReady.' ready, '.(count($rows) - $dryReady).' blocked. No state changed and no email sent.')) {
+            setEventMessages($langs->trans('MahnwesenDryRunAuditFailed'), null, 'warnings');
+        }
     }
 }
 

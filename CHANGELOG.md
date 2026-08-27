@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 1.0.0
+
+- Replaced the custom mail-form imitation with Dolibarr's native `FormMail` component for templates, sender profiles, recipients, CC/BCC, delivery receipts and HTML editing.
+- Added a combined rendered-email and embedded PDF preview plus mandatory, invoice and user-uploaded document controls.
+- Snapshotted every transmitted attachment and stored its role, name, MIME type, size and SHA-256 hash as delivery evidence.
+- Added persistent cron and dry-run history with scanned, synchronized, attempted, sent, skipped and failed counters.
+- Added configurable automatic retry, per-customer/run and manual attachment count/size limits.
+- Prevented overlapping cron deliveries with an expiring entity-scoped run lock.
+- Extended the operations page with full attempt metadata, document evidence, automation history and cross-invoice immutable workflow history.
+- Kept automatic delivery off by default and retained atomic balance, fee, stage, cooldown, recipient and duplicate revalidation before SMTP.
+- Added native FormMail/upload API contracts to the Dolibarr 21/22/23 compatibility checks.
+- Updated installation, upgrade, architecture, security and release documentation for the first stable line.
+
 ## 0.6.0
 
 - Enforced Dolibarr invoice read/restricted-area permissions and active-entity isolation.

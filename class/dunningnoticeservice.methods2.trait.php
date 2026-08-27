@@ -224,30 +224,94 @@ trait DunningNoticeServiceMethods2
     }
 
     /**
-     * Apply Dolibarr's standard email substitutions and Mahnwesen tokens.
-     * Both native __TOKEN__ syntax and the module's legacy {TOKEN} syntax are
-     * supported so existing templates keep working.
-     *
-     * @param string $text Template text/HTML
-     * @param Facture $invoice Invoice
-     * @param array $case Stored case
-     * @param int $level Stage
-     * @param string $lang Output language
-     * @return string
+     * Resolve a sender selector produced by Dolibarr's native FormMail widget.
+     * Every database-backed choice is revalidated for entity, activity and
+     * private ownership before the address reaches the send reservation.
      */
-    public function renderTemplate($text, $invoice, $case, $level, $lang = '')
+    public function resolveNativeSender($fromType, $templateId, $user, $fallback = '')
+    {
+        global $mysoc;
+        $fromType = trim((string) $fromType);
+        if ($fromType === '') { return $this->getFromEmail($fallback); }
+        if ($fromType === 'user') {
+            return (is_object($user) && !empty($user->email) && filter_var($user->email, FILTER_VALIDATE_EMAIL)) ? (string) $user->email : '';
+        }
+        if ($fromType === 'company') {
+            $email = is_object($mysoc) ? trim((string) $mysoc->email) : '';
+            return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
+        }
+        if ($fromType === 'robot' || $fromType === 'main_from') {
+            $email = trim(getDolGlobalString('MAIN_MAIL_EMAIL_FROM'));
+            return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
+        }
+        $matches = array();
+        if (preg_match('/^user_aliases_(\d+)$/', $fromType, $matches)) {
+            $aliases = is_object($user) ? explode(',', (string) $user->email_aliases) : array();
+            $email = isset($aliases[((int) $matches[1]) - 1]) ? trim($aliases[((int) $matches[1]) - 1]) : '';
+            if (preg_match('/<([^<>]+)>/', $email, $m)) { $email = trim($m[1]); }
+            return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
+        }
+        if (preg_match('/^global_aliases_(\d+)$/', $fromType, $matches)) {
+            $aliases = explode(',', getDolGlobalString('MAIN_INFO_SOCIETE_MAIL_ALIASES'));
+            $email = isset($aliases[((int) $matches[1]) - 1]) ? trim($aliases[((int) $matches[1]) - 1]) : '';
+            if (preg_match('/<([^<>]+)>/', $email, $m)) { $email = trim($m[1]); }
+            return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
+        }
+        if (preg_match('/^senderprofile_(\d+)(?:_\d+)?$/', $fromType, $matches)) {
+            $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
+            $sql = 'SELECT email FROM '.MAIN_DB_PREFIX.'c_email_senderprofile WHERE rowid = '.((int) $matches[1]).' AND active = 1 AND entity IN ('.getEntity('c_email_senderprofile').') AND (private = 0'.($uid > 0 ? ' OR private = '.$uid : '').')'.$this->db->plimit(1);
+            $res = $this->db->query($sql); $o = $res ? $this->db->fetch_object($res) : false; if ($res) { $this->db->free($res); }
+            $email = $o ? trim((string) $o->email) : '';
+            return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
+        }
+        if (preg_match('/^from_template_(\d+)$/', $fromType, $matches) && (int) $matches[1] === (int) $templateId) {
+            $template = $this->getNativeTemplateById((int) $templateId, 0, $user);
+            return $template !== false ? $this->getFromEmail((string) $template['email_from']) : '';
+        }
+        if ($fromType === 'special') { return $this->getFromEmail($fallback); }
+        return '';
+    }
+
+    /** Pick the native FormMail sender key for the configured address. */
+    public function getNativeSenderType($email, $user)
+    {
+        global $mysoc;
+        $email = strtolower(trim((string) $email));
+        if ($email === '') { return 'company'; }
+        if (is_object($user) && strtolower((string) $user->email) === $email) { return 'user'; }
+        if (is_object($mysoc) && strtolower((string) $mysoc->email) === $email) { return 'company'; }
+        if (strtolower(getDolGlobalString('MAIN_MAIL_EMAIL_FROM')) === $email) { return 'robot'; }
+        $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
+        $sql = 'SELECT rowid, email FROM '.MAIN_DB_PREFIX.'c_email_senderprofile WHERE active = 1 AND entity IN ('.getEntity('c_email_senderprofile').') AND (private = 0'.($uid > 0 ? ' OR private = '.$uid : '').') ORDER BY position, rowid';
+        $res = $this->db->query($sql);
+        if ($res) {
+            while ($o = $this->db->fetch_object($res)) {
+                if (strtolower(trim((string) $o->email)) === $email) { $this->db->free($res); return 'senderprofile_'.((int) $o->rowid).'_1'; }
+            }
+            $this->db->free($res);
+        }
+        return 'special';
+    }
+
+    /** Resolve one FormMail receiver value to the module's validated option. */
+    public function getRecipientOptionByFormValue($invoice, $value)
+    {
+        $value = (string) $value;
+        foreach ($this->getRecipientOptions($invoice) as $option) {
+            if (($option['source'] === 'thirdparty' && $value === 'thirdparty') || ($option['source'] === 'billing_contact' && (int) $value === (int) $option['contact_id'])) { return $option; }
+        }
+        return false;
+    }
+
+    /** Build the exact substitution set used by native FormMail and rendering. */
+    public function getTemplateSubstitutions($invoice, $case, $level, $lang = '')
     {
         global $conf, $langs, $mysoc;
-        if (empty($invoice->thirdparty)) {
-            $invoice->fetch_thirdparty();
-        }
-        if ($lang === '') {
-            $lang = (is_object($langs) ? $langs->defaultlang : 'de_DE');
-        }
+        if (empty($invoice->thirdparty)) { $invoice->fetch_thirdparty(); }
+        if ($lang === '') { $lang = is_object($langs) ? $langs->defaultlang : 'de_DE'; }
         $outputlangs = new Translate('', $conf);
         $outputlangs->setDefaultLang($lang);
         $outputlangs->loadLangs(array('main', 'bills', 'companies', 'mahnwesen@mahnwesen'));
-
         $breakdown = $this->manager->getAmountBreakdown($invoice, $case, $level);
         $openAmount = $this->formatMoney($breakdown['invoice'], $outputlangs);
         $feeAmount = $this->formatMoney($breakdown['fee'], $outputlangs);
@@ -263,39 +327,39 @@ trait DunningNoticeServiceMethods2
         }
         $feeParagraph = '';
         if ($breakdown['fee'] > 0.000001) {
-            $feeParagraph = (stripos($lang, 'de') === 0)
-                ? 'Zusätzlich werden Mahn-/Betreibungskosten in Höhe von <strong>'.$feeAmount.'</strong> berücksichtigt.'
-                : 'In addition, dunning/collection costs of <strong>'.$feeAmount.'</strong> are included.';
+            $feeParagraph = stripos($lang, 'de') === 0 ? 'Zusätzlich werden Mahn-/Betreibungskosten in Höhe von <strong>'.$feeAmount.'</strong> berücksichtigt.' : 'In addition, dunning/collection costs of <strong>'.$feeAmount.'</strong> are included.';
         }
-
-        // Native Dolibarr object substitutions such as __REF__, __THIRDPARTY_NAME__, ...
         $formmail = new FormMail($this->db);
         $formmail->setSubstitFromObject($invoice, $outputlangs);
-        $formmail->substit['__MAHNWESEN_STAGE__'] = $stageLabel;
-        $formmail->substit['__MAHNWESEN_OPEN_AMOUNT__'] = $openAmount;
-        $formmail->substit['__MAHNWESEN_FEE__'] = $feeAmount;
-        $formmail->substit['__MAHNWESEN_TOTAL__'] = $totalAmount;
-        $formmail->substit['__MAHNWESEN_CUSTOMER_CLASS__'] = $classLabel;
-        $formmail->substit['__MAHNWESEN_NEXT_STAGE_DATE__'] = $next;
-        $formmail->substit['__MAHNWESEN_FEE_PARAGRAPH__'] = $feeParagraph;
-        $rendered = make_substitutions((string) $text, $formmail->substit, $outputlangs);
-
-        $replacements = array(
-            '{INVOICE_REF}' => (string) $invoice->ref,
-            '{CUSTOMER_NAME}' => (!empty($invoice->thirdparty) ? (string) $invoice->thirdparty->name : ''),
-            '{INVOICE_DATE}' => dol_print_date($invoice->date, 'day', 'tzserver', $outputlangs),
-            '{DUE_DATE}' => dol_print_date($invoice->date_lim_reglement, 'day', 'tzserver', $outputlangs),
-            '{OPEN_AMOUNT}' => $openAmount,
-            '{DUNNING_FEE}' => $feeAmount,
-            '{DUNNING_TOTAL}' => $totalAmount,
-            '{CUSTOMER_CLASS}' => $classLabel,
-            '{DUNNING_STAGE}' => $stageLabel,
-            '{TODAY}' => dol_print_date(dol_now(), 'day', 'tzserver', $outputlangs),
-            '{COMPANY_NAME}' => (is_object($mysoc) ? (string) $mysoc->name : ''),
-            '{NEXT_STAGE_DATE}' => $next,
-            '{FEE_PARAGRAPH}' => $feeParagraph,
+        $custom = array(
+            '__MAHNWESEN_STAGE__' => $stageLabel, '__MAHNWESEN_OPEN_AMOUNT__' => $openAmount, '__MAHNWESEN_FEE__' => $feeAmount,
+            '__MAHNWESEN_TOTAL__' => $totalAmount, '__MAHNWESEN_CUSTOMER_CLASS__' => $classLabel, '__MAHNWESEN_NEXT_STAGE_DATE__' => $next,
+            '__MAHNWESEN_FEE_PARAGRAPH__' => $feeParagraph, '{INVOICE_REF}' => (string) $invoice->ref,
+            '{CUSTOMER_NAME}' => !empty($invoice->thirdparty) ? (string) $invoice->thirdparty->name : '',
+            '{INVOICE_DATE}' => dol_print_date($invoice->date, 'day', 'tzserver', $outputlangs), '{DUE_DATE}' => dol_print_date($invoice->date_lim_reglement, 'day', 'tzserver', $outputlangs),
+            '{OPEN_AMOUNT}' => $openAmount, '{DUNNING_FEE}' => $feeAmount, '{DUNNING_TOTAL}' => $totalAmount, '{CUSTOMER_CLASS}' => $classLabel,
+            '{DUNNING_STAGE}' => $stageLabel, '{TODAY}' => dol_print_date(dol_now(), 'day', 'tzserver', $outputlangs),
+            '{COMPANY_NAME}' => is_object($mysoc) ? (string) $mysoc->name : '', '{NEXT_STAGE_DATE}' => $next, '{FEE_PARAGRAPH}' => $feeParagraph,
         );
-        return strtr($rendered, $replacements);
+        return array('substitutions' => array_merge((array) $formmail->substit, $custom), 'outputlangs' => $outputlangs);
+    }
+
+    /**
+     * Apply Dolibarr's standard email substitutions and Mahnwesen tokens.
+     * Both native __TOKEN__ syntax and the module's legacy {TOKEN} syntax are
+     * supported so existing templates keep working.
+     *
+     * @param string $text Template text/HTML
+     * @param Facture $invoice Invoice
+     * @param array $case Stored case
+     * @param int $level Stage
+     * @param string $lang Output language
+     * @return string
+     */
+    public function renderTemplate($text, $invoice, $case, $level, $lang = '')
+    {
+        $context = $this->getTemplateSubstitutions($invoice, $case, $level, $lang);
+        return make_substitutions((string) $text, $context['substitutions'], $context['outputlangs']);
     }
 
     /**
