@@ -19,7 +19,7 @@ require_once dol_buildpath('/mahnwesen/class/dunningmanager.class.php', 0);
 require_once dol_buildpath('/mahnwesen/class/dunningnotice.class.php', 0);
 
 $langs->loadLangs(array('mahnwesen@mahnwesen', 'bills', 'companies', 'users', 'agenda'));
-if (!isModEnabled('mahnwesen') || !empty($user->socid) || !$user->hasRight('mahnwesen', 'dashboard', 'read')) { accessforbidden(); }
+if (!isModEnabled('mahnwesen') || !empty($user->socid) || !$user->hasRight('mahnwesen', 'dashboard', 'read') || !$user->hasRight('facture', 'lire')) { accessforbidden(); }
 
 $id = GETPOSTINT('id');
 $action = GETPOST('action', 'aZ09');
@@ -27,13 +27,14 @@ $edit = GETPOST('edit', 'aZ09');
 $pauseReason = GETPOST('pause_reason', 'nohtml');
 $pauseUntil = GETPOST('pause_until', 'alphanohtml');
 $caseNote = GETPOST('case_note', 'nohtml');
+$skipReason = GETPOST('skip_reason', 'nohtml');
 if ($id <= 0) { accessforbidden('Missing invoice id'); }
 
 $invoice = new Facture($db);
 if ($invoice->fetch($id) <= 0) { dol_print_error($db, $invoice->error); exit; }
+$result = restrictedArea($user, 'facture', $invoice->id, 'facture', 'facture');
 $invoice->fetch_thirdparty();
 $manager = new DunningManager($db);
-$manager->ensureRuleRows($user);
 $noticeService = new DunningNoticeService($db, $manager);
 
 function mahnwesenInvoiceRedirect($invoiceId)
@@ -59,6 +60,11 @@ if ($action === 'sync_case') {
     if (!$user->hasRight('mahnwesen', 'case', 'write')) { accessforbidden(); }
     if ($manager->updateCaseNote($id, $caseNote, $user)) { setEventMessages($langs->trans('CaseNoteSaved'), null, 'mesgs'); }
     else { setEventMessages($manager->error, $manager->errors, 'errors'); }
+    mahnwesenInvoiceRedirect($id);
+} elseif ($action === 'skip_stage') {
+    if (!$user->hasRight('mahnwesen', 'case', 'write') || !$user->hasRight('mahnwesen', 'notice', 'send')) { accessforbidden(); }
+    if ($manager->skipCurrentStage($id, $skipReason, $user)) { setEventMessages($langs->trans('MahnwesenStageSkipped'), null, 'mesgs'); }
+    else { setEventMessages($langs->trans('MahnwesenStageSkipFailed'), null, 'errors'); }
     mahnwesenInvoiceRedirect($id);
 } elseif ($action === 'generate_notice_pdf') {
     if (!$user->hasRight('mahnwesen', 'notice', 'send')) { accessforbidden(); }
@@ -125,9 +131,11 @@ if (!$case) {
 } else {
     $statusHtml = $case['status'] === 'closed'
         ? '<span class="badge badge-status0">'.$langs->trans('CaseClosed').'</span>'
+        : ($case['status'] === 'fee_open'
+            ? '<span class="badge badge-status1">'.$langs->trans('MahnwesenCaseFeeOpen').'</span>'
         : (!empty($case['paused'])
             ? '<span class="badge badge-status1">'.$langs->trans('Paused').'</span>'
-            : '<span class="badge badge-status4">'.$langs->trans('CaseActive').'</span>');
+            : '<span class="badge badge-status4">'.$langs->trans('CaseActive').'</span>'));
     $calendarStageHtml = $calculatedLevel > 0
         ? '<strong>'.$langs->trans($manager->getStageLabelKey($calculatedLevel)).'</strong>'
         : '<span class="opacitymedium">'.$langs->trans('DunningStageNone').'</span>';
@@ -186,8 +194,9 @@ if (!$case) {
     print '<tr><td>'.$langs->trans('MahnwesenPauseControl').'</td><td>';
     if (!empty($case['paused'])) {
         print '<span class="badge badge-status1">'.$langs->trans('Paused').'</span> ';
-        print $case['next_action_at']
-            ? $langs->trans('MahnwesenPauseUntil').' <strong>'.dol_print_date($db->jdate($case['next_action_at']), 'day').'</strong>'
+        $displayPauseUntil = !empty($case['pause_until']) ? $case['pause_until'] : $case['next_action_at'];
+        print $displayPauseUntil
+            ? $langs->trans('MahnwesenPauseUntil').' <strong>'.dol_print_date($db->jdate($displayPauseUntil), 'day').'</strong>'
             : '<strong>'.$langs->trans('MahnwesenPauseIndefinite').'</strong>';
         if ($user->hasRight('mahnwesen', 'case', 'write')) {
             print '<form method="POST" class="inline-block marginleftonly" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'">';
@@ -221,6 +230,11 @@ if (!$case) {
         print '<form method="POST" class="inline-block" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'">';
         print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="id" value="'.$id.'"><input type="hidden" name="action" value="generate_notice_pdf">';
         print '<button class="butAction" type="submit">'.img_picto('', 'pdf').' '.$langs->trans('MahnwesenGenerateLinkedPdf', $langs->trans($manager->getStageLabelKey($requiredLevel))).'</button></form>';
+        if ($user->hasRight('mahnwesen', 'case', 'write')) {
+            print '<form method="POST" class="inline-block" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'" onsubmit="return window.confirm(\''.dol_escape_js($langs->trans('MahnwesenSkipStageConfirm')).'\');">';
+            print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="id" value="'.$id.'"><input type="hidden" name="action" value="skip_stage">';
+            print '<input required type="text" name="skip_reason" maxlength="255" placeholder="'.dol_escape_htmltag($langs->trans('MahnwesenSkipReason')).'"> <button class="butActionDelete" type="submit">'.$langs->trans('MahnwesenSkipStage').'</button></form>';
+        }
     } elseif (!empty($case['paused'])) {
         print '<span class="butActionRefused classfortooltip" title="'.dol_escape_htmltag($langs->trans('NoticeCasePaused')).'">'.$langs->trans('MahnwesenPrepareNotice').'</span>';
     } elseif ($requiredLevel > 0 && !empty($workflow['required_at']) && ((int) $db->jdate($workflow['required_at'])) > dol_now()) {

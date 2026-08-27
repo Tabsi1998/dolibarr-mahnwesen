@@ -35,6 +35,18 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "zip=dist/mahnwesen-$VERSION.zip" >> "$GITHUB_OUTPUT"
 
+      - name: Verify tag matches module version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="$GITHUB_REF_NAME"
+          [[ "$TAG" == "v${VERSION}" || "$TAG" == "v${VERSION}-"* ]] || {
+            echo "Tag $TAG does not match module version $VERSION" >&2
+            exit 1
+          }
+
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:

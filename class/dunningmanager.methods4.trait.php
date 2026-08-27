@@ -26,6 +26,7 @@ trait DunningManagerMethods4
             $this->error = $this->db->lasterror();
             return false;
         }
+        unset($this->completedLevelsCache[(int) $case['id']]);
         return true;
     }
 
@@ -54,6 +55,7 @@ trait DunningManagerMethods4
      */
     public function evaluateInvoice($invoiceId)
     {
+        global $conf;
         $invoice = new Facture($this->db);
         if ($invoice->fetch((int) $invoiceId) <= 0) {
             $this->error = 'Unable to fetch invoice id '.((int) $invoiceId);
@@ -69,7 +71,18 @@ trait DunningManagerMethods4
         $reason = '';
         $eligible = true;
 
-        if ((int) $invoice->status !== Facture::STATUS_VALIDATED) {
+        $invoiceEntity = !empty($invoice->entity) ? (int) $invoice->entity : 0;
+        $invoiceCurrency = !empty($invoice->multicurrency_code) ? strtoupper((string) $invoice->multicurrency_code) : strtoupper((string) $conf->currency);
+        if ($invoiceEntity !== (int) $conf->entity) {
+            $eligible = false;
+            $reason = 'wrong_entity';
+        } elseif ($invoiceCurrency !== strtoupper((string) $conf->currency)) {
+            // getRemainToPay() is expressed in the company/base currency in
+            // supported Dolibarr versions. Never label that amount as a foreign
+            // invoice currency or mix currencies in dashboard totals.
+            $eligible = false;
+            $reason = 'unsupported_currency';
+        } elseif ((int) $invoice->status !== Facture::STATUS_VALIDATED) {
             $eligible = false;
             $reason = 'invoice_not_open';
         } elseif (!$this->isSupportedInvoiceType((int) $invoice->type)) {
@@ -96,7 +109,7 @@ trait DunningManagerMethods4
 
         $daysLate = ($eligible && $dueYmd) ? $this->daysBetween($dueYmd, $todayYmd) : 0;
         $stage = $this->determineStage($daysLate);
-        $entity = isset($invoice->entity) ? (int) $invoice->entity : 1;
+        $entity = $invoiceEntity;
 
         return array(
             'eligible' => $eligible ? 1 : 0,
@@ -132,6 +145,17 @@ trait DunningManagerMethods4
      */
     protected function syncScannedRow($row, $user)
     {
+        // Serialize case creation/update per invoice. This avoids relying on a
+        // duplicate-key fallback, which would leave PostgreSQL transactions in
+        // an aborted state after a concurrent INSERT.
+        $sqlInvoiceLock = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'facture WHERE rowid = '.((int) $row['invoice_id']).' AND entity = '.((int) $row['invoice_entity']).' FOR UPDATE';
+        $resInvoiceLock = $this->db->query($sqlInvoiceLock);
+        if (!$resInvoiceLock || !$this->db->fetch_object($resInvoiceLock)) {
+            if ($resInvoiceLock) { $this->db->free($resInvoiceLock); }
+            $this->error = $this->db->lasterror() ?: 'Unable to lock invoice for case synchronization';
+            return false;
+        }
+        $this->db->free($resInvoiceLock);
         $case = $this->getCaseByInvoice((int) $row['invoice_id']);
         $entity = !empty($row['invoice_entity']) ? (int) $row['invoice_entity'] : 1;
         $calculatedLevel = (int) $row['stage'];
@@ -157,18 +181,6 @@ trait DunningManagerMethods4
             }
             $caseId = (int) $this->db->last_insert_id(MAIN_DB_PREFIX.'mahnwesen_case');
             if ($caseId <= 0) {
-                // Portable fallback: the table has a unique key on (entity, fk_facture).
-                $sqlFind = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_case WHERE entity = '.$entity.' AND fk_facture = '.((int) $row['invoice_id']);
-                $resFind = $this->db->query($sqlFind);
-                if ($resFind) {
-                    $objFind = $this->db->fetch_object($resFind);
-                    if ($objFind) {
-                        $caseId = (int) $objFind->rowid;
-                    }
-                    $this->db->free($resFind);
-                }
-            }
-            if ($caseId <= 0) {
                 $this->error = 'Unable to get inserted dunning case id';
                 return false;
             }
@@ -182,8 +194,8 @@ trait DunningManagerMethods4
         $paused = !empty($case['paused']);
         $wasClosed = ($case['status'] === 'closed');
         $newLevel = $paused ? $oldLevel : $level;
-        // While paused, next_action_at stores the optional automatic resume date.
-        // A synchronization must never overwrite it with the next dunning-stage date.
+        // A synchronization must not move the workflow due date while paused.
+        // The independent pause deadline is stored in mahnwesen_pause.
         if ($paused) {
             $nextAction = $case['next_action_at'];
         }
@@ -226,11 +238,18 @@ trait DunningManagerMethods4
      */
     protected function closeNoLongerEligibleCasesSafe($user)
     {
+        global $conf;
         $closed = 0;
-        $sql = 'SELECT rowid, entity, fk_facture, current_level, paused, status, remaining_amount';
-        $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_case';
-        $sql .= " WHERE status <> 'closed'";
-        $sql .= ' AND entity IN ('.getEntity('invoice').')';
+        $sql = 'SELECT DISTINCT mc.rowid, mc.entity, mc.fk_facture, mc.current_level, mc.paused, mc.status, mc.remaining_amount';
+        $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_case as mc';
+        $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'facture as f ON f.rowid = mc.fk_facture AND f.entity = mc.entity';
+        $restrictCustomerVisibility = is_object($user) && !empty($user->id) && !$user->hasRight('societe', 'client', 'voir');
+        if ($restrictCustomerVisibility) {
+            $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'societe_commerciaux as sc ON sc.fk_soc = f.fk_soc AND sc.fk_user = '.((int) $user->id);
+        }
+        $sql .= " WHERE mc.status = 'open'";
+        $sql .= ' AND mc.entity = '.((int) $conf->entity);
+        $sql .= ' ORDER BY mc.rowid ASC'.$this->db->plimit(min(10000, $this->getMaxScan() * 2));
         $resql = $this->db->query($sql);
         if (!$resql) {
             $this->error = $this->db->lasterror();
@@ -291,14 +310,21 @@ trait DunningManagerMethods4
     protected function closeCase($case, $remain, $reason, $user)
     {
         $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
-        $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_case SET status = 'closed', paused = 0, remaining_amount = ".((float) max(0, $remain));
+        $hasOpenFee = false;
+        if ((float) $remain <= 0.000001) {
+            $sqlFee = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_fee WHERE entity = '.((int) $case['entity']).' AND fk_case = '.((int) $case['id'])." AND status = 'open'".$this->db->plimit(1);
+            $resFee = $this->db->query($sqlFee);
+            if ($resFee) { $hasOpenFee = (bool) $this->db->fetch_object($resFee); $this->db->free($resFee); }
+        }
+        $newStatus = $hasOpenFee ? 'fee_open' : 'closed';
+        $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_case SET status = '".$newStatus."', paused = 0, remaining_amount = ".((float) max(0, $remain));
         $sql .= ', next_action_at = NULL, fk_user_modif = '.$uid;
         $sql .= ' WHERE rowid = '.((int) $case['id']);
         if (!$this->db->query($sql)) {
             $this->error = $this->db->lasterror();
             return false;
         }
-        return $this->addHistory((int) $case['entity'], (int) $case['id'], (int) $case['invoice_id'], 'case_closed', (int) $case['current_level'], (float) max(0, $remain), 'manual', 'success', $reason, $user);
+        return $this->addHistory((int) $case['entity'], (int) $case['id'], (int) $case['invoice_id'], $hasOpenFee ? 'invoice_paid_fee_open' : 'case_closed', (int) $case['current_level'], (float) max(0, $remain), 'manual', 'success', $reason, $user);
     }
 
     /**
@@ -325,6 +351,7 @@ trait DunningManagerMethods4
             $this->error = $this->db->lasterror();
             return false;
         }
+        unset($this->completedLevelsCache[(int) $caseId]);
         return true;
     }
 
@@ -339,8 +366,9 @@ trait DunningManagerMethods4
      * Return default rule values. fee_amount is the TOTAL dunning-fee amount
      * for that stage, not an amount added again on every stage transition.
      *
-     * The AT-safe default is 0 / 40 / 40 / 40 EUR. Whether a configured fee
-     * is actually applied depends on the third-party classification below.
+     * The jurisdiction-neutral safe default is zero for every stage. Whether a
+     * configured fee is applied depends on explicit configuration and the
+     * third-party classification below.
      *
      * @param int $level Stage 1..4
      * @return array
@@ -349,7 +377,9 @@ trait DunningManagerMethods4
     {
         $level = max(1, min(4, (int) $level));
         $days = array(1 => 3, 2 => 10, 3 => 20, 4 => 30);
-        $fees = array(1 => 0.0, 2 => 40.0, 3 => 40.0, 4 => 40.0);
+        // Legal/accounting treatment differs by jurisdiction and contract.
+        // No monetary fee is enabled by default.
+        $fees = array(1 => 0.0, 2 => 0.0, 3 => 0.0, 4 => 0.0);
         return array(
             'id' => 0,
             'entity' => 0,

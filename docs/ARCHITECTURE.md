@@ -36,6 +36,18 @@ Append-oriented audit/event history for lifecycle and send actions.
 
 Reserved/configuration-oriented rule storage.
 
+### `llx_mahnwesen_attempt`
+
+Operational delivery state and the immutable content/amount/recipient/artifact snapshot used for one mail attempt. Requested invoice attachments are copied to an attempt-specific file before SMTP so later invoice-PDF regeneration cannot change the audited bytes.
+
+### `llx_mahnwesen_pause`
+
+Separate dated/indefinite pause lifecycle. Workflow due dates are no longer overloaded as pause deadlines.
+
+### `llx_mahnwesen_fee`
+
+Module-owned subledger for fees stated in successfully delivered notices. It is not an invoice or accounting entry.
+
 ## Core data ownership
 
 Dolibarr remains authoritative for:
@@ -54,6 +66,8 @@ Mahnwesen remains authoritative for:
 - pause state
 - dunning history
 - send reservations/outcomes
+- delivery snapshots and recovery decisions
+- pause lifecycle and fee subledger
 - configured dunning behavior
 
 ## Compatibility strategy

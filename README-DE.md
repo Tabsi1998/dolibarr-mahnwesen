@@ -2,7 +2,7 @@
 
 Custom-Modul für ein kontrolliertes Mahnwesen bei überfälligen Kundenrechnungen in Dolibarr.
 
-> **Status:** aktive Entwicklung. Die aktuell praktisch getestete Entwicklungslinie ist `0.5.x`; stabile Tags werden erst nach einem Smoke-Test gesetzt. Dolibarr 22 wurde bereits praktisch getestet. Dolibarr 21 und 23 sind feste Kompatibilitätsziele und werden statisch/API-seitig geprüft; die Runtime-Testmatrix wird noch erweitert.
+> **Status:** technisch gehärtete Entwicklungslinie `0.6.x`. Dolibarr 22 wurde praktisch getestet. Die CI lädt und prüft die echten Dolibarr-21/22/23-APIs; vollständige Installationstests auf 21 und 23 bleiben Release-Voraussetzung.
 
 ## Ziele
 
@@ -71,19 +71,19 @@ Siehe [docs/VARIABLES.md](docs/VARIABLES.md).
 
 Mahnspesen sind pro Stufe und Kundentyp konfigurierbar. Ein Dolibarr-Drittpartei-Datensatz kann ausdrücklich eine Privatperson sein; `TE_PRIVATE` wird entsprechend behandelt. Unklare Typen sollen sicherheitshalber nicht automatisch wie B2B behandelt werden.
 
-Die Spesen verändern **nicht** den Originalbetrag der Dolibarr-Rechnung. Sie werden separat im Mahnfall/Mahnschreiben ausgewiesen.
+Die Spesen verändern **nicht** den Originalbetrag der Dolibarr-Rechnung und erzeugen keinen Buchungssatz. Nach erfolgreichem Versand werden sie in einem eigenen Nebenbuch geführt und müssen ausdrücklich als bezahlt oder erlassen verbucht werden. Der technische Standardwert ist 0,00.
 
 ## Installation
 
 Git-Checkout direkt in den Custom-Ordner:
 
 ```bash
-git clone <repository-url> htdocs/custom/mahnwesen
+git clone https://github.com/Tabsi1998/dolibarr-mahnwesen.git htdocs/custom/mahnwesen
 ```
 
 Release-ZIPs verwenden das Format `mahnwesen-x.y.z.zip` mit dem Ordner `mahnwesen/` als ZIP-Wurzel.
 
-Nach Updates mit Änderungen an Hooks/Modulregistrierung das Modul einmal deaktivieren und wieder aktivieren. Mahnfälle und Historie bleiben erhalten.
+Nach dem Upgrade auf `0.6.x` das Modul einmal deaktivieren und wieder aktivieren. Dadurch werden die neuen Tabellen für Versandversuche, Pausen und das Spesen-Nebenbuch angelegt; Mahnfälle und Historie bleiben erhalten. Die Automatik erst nach einem Staging-Smoke-Test aktivieren.
 
 ## Kompatibilität
 
@@ -95,6 +95,7 @@ Das Projekt wird nicht auf eine einzelne Dolibarr-Version gebrandet. Zielmatrix 
 - [Architektur](docs/ARCHITECTURE.md)
 - [Mahnworkflow](docs/WORKFLOW.md)
 - [Kompatibilität](docs/COMPATIBILITY.md)
+- [Betrieb / Upgrade](docs/OPERATIONS.md)
 - [E-Mail-/PDF-Variablen](docs/VARIABLES.md)
 - [Sicherheitsmodell](SECURITY.md)
 - [Versionshistorie](CHANGELOG.md)

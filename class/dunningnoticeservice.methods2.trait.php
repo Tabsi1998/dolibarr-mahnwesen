@@ -12,6 +12,7 @@ trait DunningNoticeServiceMethods2
      */
     public function getRecipientOptions($invoice)
     {
+        $this->recipientLookupFailed = false;
         $options = array();
         $seen = array();
 
@@ -22,6 +23,7 @@ trait DunningNoticeServiceMethods2
         $sql .= ' WHERE ec.element_id = '.((int) $invoice->id);
         $sql .= " AND tc.element = 'facture' AND tc.source = 'external' AND tc.code = 'BILLING'";
         $sql .= " AND sp.email IS NOT NULL AND sp.email <> ''";
+        $sql .= ' AND sp.statut = 1';
         $sql .= ' ORDER BY sp.lastname ASC, sp.firstname ASC, sp.rowid ASC';
         $resql = $this->db->query($sql);
         if ($resql) {
@@ -39,12 +41,19 @@ trait DunningNoticeServiceMethods2
                     'email' => $email,
                     'label' => ($name !== '' ? $name.' <'.$email.'>' : $email),
                     'source' => 'billing_contact',
+                    'contact_id' => (int) $obj->rowid,
                 );
                 $seen[$key] = 1;
             }
             $this->db->free($resql);
         } else {
-            $this->errors[] = 'Recipient contact lookup failed: '.$this->db->lasterror();
+            $this->recipientLookupFailed = true;
+            $this->error = 'Recipient contact lookup failed.';
+            $this->errors[] = $this->error;
+            dol_syslog(__METHOD__.' '.$this->db->lasterror(), LOG_ERR);
+            // A technical lookup failure is not equivalent to there being no
+            // billing contact. Fail closed and never use the company fallback.
+            return array();
         }
 
         if (empty($invoice->thirdparty)) {
@@ -58,6 +67,7 @@ trait DunningNoticeServiceMethods2
                     'email' => $email,
                     'label' => (string) $invoice->thirdparty->name.' <'.$email.'>',
                     'source' => 'thirdparty',
+                    'contact_id' => 0,
                 );
             }
         }
@@ -76,26 +86,42 @@ trait DunningNoticeServiceMethods2
      */
     public function getAutomaticRecipient($invoice, $policy = 'single_billing')
     {
+        $option = $this->getAutomaticRecipientOption($invoice, $policy);
+        return $option ? (string) $option['email'] : '';
+    }
+
+    /** Return the complete selected recipient snapshot for automatic delivery. */
+    public function getAutomaticRecipientOption($invoice, $policy = 'single_billing')
+    {
         $options = $this->getRecipientOptions($invoice);
         $billing = array();
-        $fallback = '';
+        $fallback = false;
         foreach ($options as $option) {
             if ($option['source'] === 'billing_contact') {
-                $billing[] = $option['email'];
-            } elseif ($option['source'] === 'thirdparty' && $fallback === '') {
-                $fallback = $option['email'];
+                $billing[] = $option;
+            } elseif ($option['source'] === 'thirdparty' && $fallback === false) {
+                $fallback = $option;
             }
         }
         if ($policy === 'first_billing') {
-            return !empty($billing) ? (string) $billing[0] : $fallback;
+            return !empty($billing) ? $billing[0] : $fallback;
         }
         if (count($billing) === 1) {
-            return (string) $billing[0];
+            return $billing[0];
         }
         if (count($billing) > 1) {
-            return '';
+            return false;
         }
         return $fallback;
+    }
+
+    /** Resolve a posted address back to the validated BILLING/company option. */
+    public function getRecipientOptionByEmail($invoice, $email)
+    {
+        foreach ($this->getRecipientOptions($invoice) as $option) {
+            if (strcasecmp((string) $option['email'], trim((string) $email)) === 0) { return $option; }
+        }
+        return false;
     }
 
     /** @return bool */
@@ -164,7 +190,7 @@ trait DunningNoticeServiceMethods2
         // If a non-standard installation lacks the table, simply retain the
         // effective sender instead of turning the composer into a fatal error.
         $sql = 'SELECT rowid, label, email, private FROM '.MAIN_DB_PREFIX.'c_email_senderprofile';
-        $sql .= ' WHERE active = 1 AND entity IN ('.getEntity('emailsenderprofile').')';
+        $sql .= ' WHERE active = 1 AND entity IN ('.getEntity('c_email_senderprofile').')';
         $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
         $sql .= ' AND (private = 0'.($uid > 0 ? ' OR private = '.$uid : '').')';
         $sql .= ' ORDER BY position ASC, label ASC, rowid ASC';
@@ -228,7 +254,13 @@ trait DunningNoticeServiceMethods2
         $totalAmount = $this->formatMoney($breakdown['total'], $outputlangs);
         $classLabel = $outputlangs->trans($this->manager->getCustomerClassLabelKey($breakdown['classification']['class']));
         $stageLabel = $outputlangs->trans($this->manager->getStageLabelKey((int) $level));
-        $next = (!empty($case['next_action_at']) && empty($case['paused'])) ? dol_print_date($this->db->jdate($case['next_action_at']), 'day', 'tzserver', $outputlangs) : '';
+        $next = '';
+        $nextLevel = $this->manager->getNextFutureLevel((int) $level);
+        $dueYmd = !empty($invoice->date_lim_reglement) ? dol_print_date($invoice->date_lim_reglement, '%Y-%m-%d', 'tzserver') : '';
+        if ($nextLevel > 0 && $dueYmd !== '') {
+            $nextAt = $this->manager->calculateWorkflowStageDueAt(!empty($case['id']) ? (int) $case['id'] : 0, $dueYmd, $nextLevel);
+            if ($nextAt) { $next = dol_print_date($this->db->jdate($nextAt), 'day', 'tzserver', $outputlangs); }
+        }
         $feeParagraph = '';
         if ($breakdown['fee'] > 0.000001) {
             $feeParagraph = (stripos($lang, 'de') === 0)
@@ -306,18 +338,18 @@ trait DunningNoticeServiceMethods2
      */
     public function getExistingFinalPdfInfo($invoice, $level)
     {
+        global $conf;
         $root = $this->getInvoiceDocumentRoot($invoice);
         if ($root === '') { return false; }
-        $safeRef = dol_sanitizeFileName($invoice->ref);
-        $stagePart = $this->getStageFilenamePart((int) $level);
-        $invoicePdfPath = $this->getInvoicePdfPath($invoice);
-        $dir = ($invoicePdfPath !== '') ? dirname($invoicePdfPath) : rtrim($root, '/').'/'.$safeRef;
-        $filename = $safeRef.'_'.$stagePart.'.pdf';
-        $fullpath = $dir.'/'.$filename;
+        $sql = 'SELECT pdf_path FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE entity = '.((int) $conf->entity).' AND fk_facture = '.((int) $invoice->id).' AND level = '.((int) $level)." AND status = 'sent' AND pdf_path IS NOT NULL AND pdf_path <> '' ORDER BY rowid DESC".$this->db->plimit(1);
+        $res = $this->db->query($sql);
+        if (!$res) { return false; }
+        $o = $this->db->fetch_object($res); $this->db->free($res);
+        if (!$o) { return false; }
+        $relative = ltrim((string) $o->pdf_path, '/');
+        $fullpath = rtrim($root, '/').'/'.$relative;
         if (!is_file($fullpath) || !is_readable($fullpath) || filesize($fullpath) <= 0) { return false; }
-        $relativeDir = ltrim(str_replace('\\', '/', substr($dir, strlen(rtrim($root, '/')))), '/');
-        $relative = ($relativeDir !== '' ? $relativeDir.'/' : '').$filename;
-        return array('fullpath'=>$fullpath, 'relative'=>$relative, 'filename'=>$filename, 'modulepart'=>'invoice', 'preview'=>0);
+        return array('fullpath'=>$fullpath, 'relative'=>$relative, 'filename'=>basename($fullpath), 'modulepart'=>'invoice', 'preview'=>0);
     }
 
     /**
@@ -329,7 +361,7 @@ trait DunningNoticeServiceMethods2
      */
     public function getFinalPdfFilename($invoice, $level)
     {
-        return dol_sanitizeFileName($invoice->ref).'_'.$this->getStageFilenamePart((int) $level).'.pdf';
+        return dol_sanitizeFileName($invoice->ref).'_'.$this->getStageFilenamePart((int) $level).'_A<id>.pdf';
     }
 
     /**

@@ -99,6 +99,15 @@ This makes case creation, pause/resume, note changes and dunning send outcomes v
 
 Before a manual email is sent, the module synchronizes the case and re-checks both the required stage and the remaining amount. If either changed while the composer was open, the send is refused and the user must review the newly rendered email/PDF again.
 
+The final gate locks the case and revalidates entity, current invoice balance,
+currency, fee, stage, cooldown, pause and selected recipient. It then reserves a
+dedicated attempt before generating a unique PDF. Only the exact reserved body,
+recipient, amounts and hashed attachments are handed to the mailer.
+
+An SMTP error after the mailer was invoked is treated as ambiguous. It blocks a
+retry until an operator checks the mail system and records either confirmed
+delivery or permission to retry.
+
 
 ## Late-send spacing
 

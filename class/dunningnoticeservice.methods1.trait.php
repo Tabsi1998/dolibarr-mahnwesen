@@ -104,7 +104,7 @@ trait DunningNoticeServiceMethods1
 
         $sql = 'SELECT rowid, entity, module, type_template, lang, private, fk_user, label, position, defaultfortype, enabled, active, email_from, topic, joinfiles, content';
         $sql .= ' FROM '.MAIN_DB_PREFIX.'c_email_templates';
-        $sql .= ' WHERE entity IN (0, '.((int) $conf->entity).')';
+        $sql .= ' WHERE entity IN ('.getEntity('c_email_templates').')';
         $sql .= ' AND type_template IN ('.implode(',', $quoted).') AND active = 1 AND private = 0';
         $sql .= ' ORDER BY defaultfortype DESC, position ASC, label ASC, lang ASC, rowid ASC';
         $res = $this->db->query($sql);
@@ -155,8 +155,8 @@ trait DunningNoticeServiceMethods1
 
     /**
      * Pick the native default template for a level. Preference order is:
-     * customer language + default, neutral language + default, any default,
-     * customer language, neutral language, then first public active template.
+     * customer language + default, customer language, neutral default,
+     * neutral language, then an explicitly configured cross-language fallback.
      *
      * @param int $level Level 1..4
      * @param string $lang Customer language
@@ -170,21 +170,25 @@ trait DunningNoticeServiceMethods1
             return false;
         }
         $lang = (string) $lang;
+        $langFamily = strtolower((string) preg_replace('/[_-].*$/', '', $lang));
         $groups = array();
         foreach ($templates as $tpl) {
+            $tplFamily = strtolower((string) preg_replace('/[_-].*$/', '', (string) $tpl['lang']));
             if ($tpl['lang'] === $lang && !empty($tpl['defaultfortype'])) { $groups[1][] = $tpl; }
-            elseif ($tpl['lang'] === '' && !empty($tpl['defaultfortype'])) { $groups[2][] = $tpl; }
-            elseif (!empty($tpl['defaultfortype'])) { $groups[3][] = $tpl; }
-            elseif ($tpl['lang'] === $lang) { $groups[4][] = $tpl; }
-            elseif ($tpl['lang'] === '') { $groups[5][] = $tpl; }
-            else { $groups[6][] = $tpl; }
+            elseif ($tpl['lang'] === $lang) { $groups[2][] = $tpl; }
+            elseif ($langFamily !== '' && $tplFamily === $langFamily && !empty($tpl['defaultfortype'])) { $groups[3][] = $tpl; }
+            elseif ($langFamily !== '' && $tplFamily === $langFamily) { $groups[4][] = $tpl; }
+            elseif ($tpl['lang'] === '' && !empty($tpl['defaultfortype'])) { $groups[5][] = $tpl; }
+            elseif ($tpl['lang'] === '') { $groups[6][] = $tpl; }
+            elseif (getDolGlobalInt('MAHNWESEN_ALLOW_LANGUAGE_FALLBACK', 0) && !empty($tpl['defaultfortype'])) { $groups[7][] = $tpl; }
         }
-        for ($i = 1; $i <= 6; $i++) {
+        for ($i = 1; $i <= 7; $i++) {
             if (!empty($groups[$i])) {
                 return $groups[$i][0];
             }
         }
-        return reset($templates);
+        $this->error = 'No active dunning template matches customer language '.$lang.'.';
+        return false;
     }
 
     /**
@@ -207,10 +211,11 @@ trait DunningNoticeServiceMethods1
         );
         $created = 0;
         $existing = 0;
-        for ($level = 1; $level <= 4; $level++) {
+        foreach (array('de_DE', 'en_US') as $starterLang) {
+          for ($level = 1; $level <= 4; $level++) {
             $type = $types[$level];
             $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'c_email_templates WHERE entity = '.((int) $conf->entity);
-            $sql .= " AND type_template = '".$this->db->escape($type)."' AND lang = 'de_DE'".$this->db->plimit(1);
+            $sql .= " AND type_template = '".$this->db->escape($type)."' AND lang = '".$this->db->escape($starterLang)."'".$this->db->plimit(1);
             $res = $this->db->query($sql);
             if (!$res) {
                 $this->error = $this->db->lasterror();
@@ -222,14 +227,16 @@ trait DunningNoticeServiceMethods1
                 $existing++;
                 continue;
             }
-            $tpl = $this->getDefaultTemplate($level, 'de_DE');
+            $tpl = $this->getDefaultTemplate($level, $starterLang);
+            $starterLabel = $labels[$level].($starterLang === 'en_US' ? ' (English)' : '');
             $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'c_email_templates (entity, module, type_template, lang, private, fk_user, datec, label, position, defaultfortype, enabled, active, email_from, topic, joinfiles, content) VALUES (';
-            $sql .= ((int) $conf->entity).", 'mahnwesen', '".$this->db->escape($type)."', 'de_DE', 0, NULL, '".$this->db->escape($this->db->idate(dol_now()))."', '".$this->db->escape($labels[$level])."', ".($level * 10).", 1, '1', 1, '', '".$this->db->escape($tpl['subject'])."', '1', '".$this->db->escape($tpl['body'])."')";
+            $sql .= ((int) $conf->entity).", 'mahnwesen', '".$this->db->escape($type)."', '".$this->db->escape($starterLang)."', 0, NULL, '".$this->db->escape($this->db->idate(dol_now()))."', '".$this->db->escape($starterLabel)."', ".($level * 10).", 1, '1', 1, '', '".$this->db->escape($tpl['subject'])."', '1', '".$this->db->escape($tpl['body'])."')";
             if (!$this->db->query($sql)) {
                 $this->error = $this->db->lasterror();
                 return false;
             }
             $created++;
+          }
         }
         return array('created' => $created, 'existing' => $existing);
     }

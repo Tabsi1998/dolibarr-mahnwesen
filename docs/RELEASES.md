@@ -10,8 +10,8 @@ The repository separates stable source from test builds.
 
 ## Version tags
 
-- Stable release examples: `v0.5.1`, later `v0.5.2` after runtime approval
-- Test/pre-release examples: `v0.5.2-rc.1`, `v0.5.2-beta.1`
+- Stable release example: `v0.6.0` after runtime approval
+- Test/pre-release examples: `v0.6.0-rc.1`, `v0.6.0-beta.1`
 
 The Dolibarr installer package itself keeps the installer-compatible name `mahnwesen-x.y.z.zip`. A pre-release tag may therefore contain an RC suffix while the attached installable ZIP uses the semantic module version from `modMahnwesen.class.php`.
 

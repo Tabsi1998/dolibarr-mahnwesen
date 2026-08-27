@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '0.5.4';
+        $this->version = '0.6.0';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -66,7 +66,7 @@ class modMahnwesen extends DolibarrModules
         $this->requiredby = array();
         $this->conflictwith = array();
         $this->langfiles = array('mahnwesen@mahnwesen');
-        $this->phpmin = array(7, 1);
+        $this->phpmin = array(7, 4);
         $this->need_dolibarr_version = array(21, 0);
         $this->need_javascript_ajax = 0;
         $this->warnings_activation = array();
@@ -98,6 +98,7 @@ class modMahnwesen extends DolibarrModules
             18 => array('MAHNWESEN_PRIVATE_FEE_2', 'chaine', '0.00', 'Private-person fee at first dunning notice', 0, 'current', 0),
             19 => array('MAHNWESEN_PRIVATE_FEE_3', 'chaine', '0.00', 'Private-person fee at second dunning notice', 0, 'current', 0),
             20 => array('MAHNWESEN_PRIVATE_FEE_4', 'chaine', '0.00', 'Private-person fee at third dunning notice', 0, 'current', 0),
+            21 => array('MAHNWESEN_ALLOW_LANGUAGE_FALLBACK', 'chaine', '0', 'Allow explicit cross-language template fallback', 0, 'current', 0),
         );
 
         // Daily worker. Case synchronization and timed pause release are safe
@@ -156,6 +157,21 @@ class modMahnwesen extends DolibarrModules
             'position' => 1000 + $r,
             'enabled' => 'isModEnabled("mahnwesen")',
             'perms' => '$user->hasRight("mahnwesen", "dashboard", "read")',
+            'target' => '',
+            'user' => 0,
+        );
+
+        $this->menu[$r++] = array(
+            'fk_menu' => 'fk_mainmenu=mahnwesen',
+            'type' => 'left',
+            'titre' => 'MahnwesenSendAttempts',
+            'mainmenu' => 'mahnwesen',
+            'leftmenu' => 'mahnwesen_attempts',
+            'url' => '/mahnwesen/attempts.php',
+            'langs' => 'mahnwesen@mahnwesen',
+            'position' => 1000 + $r,
+            'enabled' => 'isModEnabled("mahnwesen")',
+            'perms' => '$user->hasRight("mahnwesen", "case", "write")',
             'target' => '',
             'user' => 0,
         );

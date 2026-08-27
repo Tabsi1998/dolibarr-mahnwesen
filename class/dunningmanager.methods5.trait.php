@@ -53,13 +53,14 @@ trait DunningManagerMethods5
     }
 
     /** Save a complete stage rule into our own table and keep old constants in sync. */
-    public function saveRule($level, $days, $feeAmount, $sendEmail, $templateRef, $user)
+    public function saveRule($level, $days, $feeAmount, $sendEmail, $templateRef, $user, $enabled = 1)
     {
         global $conf;
         $level = max(1, min(4, (int) $level));
         $days = max(0, (int) $days);
         $feeAmount = max(0.0, (float) $feeAmount);
         $sendEmail = $sendEmail ? 1 : 0;
+        $enabled = $enabled ? 1 : 0;
         $templateRef = trim((string) $templateRef);
         if ($templateRef === '') {
             $templateRef = 'internal';
@@ -69,7 +70,7 @@ trait DunningManagerMethods5
         }
         $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
         $sql = 'UPDATE '.MAIN_DB_PREFIX.'mahnwesen_rule SET days_after_due = '.$days.', fee_amount = '.((float) $feeAmount).', send_email = '.$sendEmail;
-        $sql .= ", email_template = '".$this->db->escape($templateRef)."', fk_user_modif = ".$uid;
+        $sql .= ", email_template = '".$this->db->escape($templateRef)."', enabled = ".$enabled.', fk_user_modif = '.$uid;
         $sql .= ' WHERE entity = '.((int) $conf->entity).' AND level = '.$level;
         if (!$this->db->query($sql)) {
             $this->error = $this->db->lasterror();
@@ -160,7 +161,7 @@ trait DunningManagerMethods5
             return $this->getBusinessFeeForLevel($level);
         }
         if ($classification['class'] === 'consumer') {
-            return $this->getPrivateFeeForLevel($level);
+            return getDolGlobalInt('MAHNWESEN_PRIVATE_FEES_ALLOWED', 0) ? $this->getPrivateFeeForLevel($level) : 0.0;
         }
         if (($classification['class'] === 'unknown' || $classification['class'] === 'special') && getDolGlobalInt('MAHNWESEN_UNKNOWN_FEES_ALLOWED')) {
             return $this->getPrivateFeeForLevel($level);
@@ -216,9 +217,19 @@ trait DunningManagerMethods5
         return $found;
     }
 
+    /** Count unresolved automatic failures so transient faults can retry safely. */
+    public function getAutomaticFailureCount($caseId, $level)
+    {
+        $sql = 'SELECT COUNT(*) as cnt FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE fk_case = '.((int) $caseId).' AND level = '.((int) $level)." AND mode = 'automatic' AND status = 'failed'";
+        $res = $this->db->query($sql);
+        if (!$res) { return PHP_INT_MAX; }
+        $o = $this->db->fetch_object($res); $this->db->free($res);
+        return $o ? (int) $o->cnt : 0;
+    }
+
     /**
-     * Resume pauses whose next_action_at date has arrived. Indefinite pauses
-     * have next_action_at=NULL and are never resumed automatically.
+     * Resume pauses whose separate pause_until date has arrived. Indefinite
+     * pauses have pause_until=NULL and are never resumed automatically.
      *
      * @return int|false Number resumed
      */
@@ -227,7 +238,9 @@ trait DunningManagerMethods5
         global $conf;
         $nowSql = $this->db->idate(dol_now());
         $ids = array();
-        $sql = 'SELECT fk_facture FROM '.MAIN_DB_PREFIX.'mahnwesen_case WHERE entity = '.((int) $conf->entity)." AND status = 'open' AND paused = 1 AND next_action_at IS NOT NULL AND next_action_at <= '".$this->db->escape($nowSql)."' ORDER BY next_action_at ASC";
+        $sql = 'SELECT c.fk_facture, p.pause_until as resume_at FROM '.MAIN_DB_PREFIX.'mahnwesen_case c INNER JOIN '.MAIN_DB_PREFIX.'mahnwesen_pause p ON p.fk_case = c.rowid AND p.entity = c.entity AND p.status = \'active\'';
+        $sql .= ' WHERE c.entity = '.((int) $conf->entity)." AND c.status = 'open' AND c.paused = 1 AND p.pause_until IS NOT NULL AND p.pause_until <= '".$this->db->escape($nowSql)."'";
+        $sql .= ' UNION SELECT c.fk_facture, c.next_action_at as resume_at FROM '.MAIN_DB_PREFIX.'mahnwesen_case c WHERE c.entity = '.((int) $conf->entity)." AND c.status = 'open' AND c.paused = 1 AND c.next_action_at IS NOT NULL AND c.next_action_at <= '".$this->db->escape($nowSql)."' AND NOT EXISTS (SELECT 1 FROM ".MAIN_DB_PREFIX."mahnwesen_pause p2 WHERE p2.entity = c.entity AND p2.fk_case = c.rowid AND p2.status = 'active') ORDER BY resume_at ASC";
         $res = $this->db->query($sql);
         if (!$res) {
             $this->error = $this->db->lasterror();
@@ -310,11 +323,12 @@ trait DunningManagerMethods5
             return 1;
         }
         $sent = 0;
+        $attempted = 0;
         $skipped = 0;
         $failed = 0;
         $maxSend = $this->getAutomaticSendMax();
         foreach ($rows as $row) {
-            if ($sent >= $maxSend) {
+            if ($attempted >= $maxSend) {
                 break;
             }
             $calculatedLevel = (int) $row['stage'];
@@ -332,7 +346,7 @@ trait DunningManagerMethods5
             }
             $rule = $this->getRuleByLevel($level);
             if (empty($rule['send_email'])) { continue; }
-            if ($this->hasSuccessfulNoticeAtLevel((int) $case['id'], $level) || $this->hasPendingNoticeAtLevel((int) $case['id'], $level) || $this->hasFailedNoticeAtLevel((int) $case['id'], $level)) {
+            if ($this->hasSuccessfulNoticeAtLevel((int) $case['id'], $level) || $this->hasPendingNoticeAtLevel((int) $case['id'], $level) || $this->getAutomaticFailureCount((int) $case['id'], $level) >= 3) {
                 $skipped++;
                 continue;
             }
@@ -343,11 +357,12 @@ trait DunningManagerMethods5
                 continue;
             }
             $invoice->fetch_thirdparty();
-            $recipient = $service->getAutomaticRecipient($invoice, $this->getAutomaticRecipientPolicy());
-            if ($recipient === '') {
+            $recipientOption = $service->getAutomaticRecipientOption($invoice, $this->getAutomaticRecipientPolicy());
+            if ($recipientOption === false) {
                 $skipped++;
                 continue;
             }
+            $recipient = (string) $recipientOption['email'];
             $customerLang = (!empty($invoice->thirdparty) && !empty($invoice->thirdparty->default_lang)) ? (string) $invoice->thirdparty->default_lang : (is_object($langs) ? $langs->defaultlang : 'de_DE');
             $template = $service->getTemplate($level, $customerLang, $actor);
             if ($template === false) {
@@ -360,7 +375,8 @@ trait DunningManagerMethods5
             $attachInvoice = ($template['source'] === 'native')
                 ? ((string) ($template['joinfiles'] ?? '') === '1')
                 : (getDolGlobalInt('MAHNWESEN_ATTACH_INVOICE_DEFAULT', 1) > 0);
-            $result = $service->sendNotice($invoice, $case, $level, $recipient, $subject, $body, $attachInvoice, $actor, 'automatic', isset($template['email_from']) ? $template['email_from'] : '', isset($template['lang']) ? $template['lang'] : $customerLang);
+            $attempted++;
+            $result = $service->sendNotice($invoice, $case, $level, $recipient, $subject, $body, $attachInvoice, $actor, 'automatic', isset($template['email_from']) ? $template['email_from'] : '', isset($template['lang']) ? $template['lang'] : $customerLang, '', '', !empty($template['source_id']) ? (int) $template['source_id'] : 0);
             if ($result === false) {
                 $failed++;
                 $this->errors[] = 'Auto-send '.$invoice->ref.': '.$service->error;
@@ -369,7 +385,7 @@ trait DunningManagerMethods5
             }
         }
 
-        $this->output = 'Daily Mahnwesen workflow: resumed '.$resumed.' pause(s); synchronized cases: created '.$sync['created'].', level '.$sync['level_changed'].', updated '.$sync['updated'].', closed '.$sync['closed'].'; automatic sends '.$sent.', skipped '.$skipped.', failed '.$failed.' (limit '.$maxSend.'). Invoices were not modified.';
+        $this->output = 'Daily Mahnwesen workflow: resumed '.$resumed.' pause(s); synchronized cases: created '.$sync['created'].', level '.$sync['level_changed'].', updated '.$sync['updated'].', closed '.$sync['closed'].'; automatic attempts '.$attempted.', sent '.$sent.', skipped '.$skipped.', failed '.$failed.' (attempt limit '.$maxSend.'). Invoices were not modified.';
         dol_syslog(__METHOD__.' '.$this->output, $failed ? LOG_WARNING : LOG_INFO);
         return $failed ? 1 : 0;
     }

@@ -9,7 +9,7 @@ trait DunningNoticeServiceMethods3
      *
      * @return float Y position below the address frames
      */
-    protected function drawSpongeReminderHeader(&$pdf, $invoice, $level, $outputlangs, $pageWidth, $pageHeight, $marginLeft, $marginRight, $marginTop)
+    protected function drawSpongeReminderHeader(&$pdf, $invoice, $level, $outputlangs, $pageWidth, $pageHeight, $marginLeft, $marginRight, $marginTop, $recipientContactId = 0)
     {
         global $conf, $mysoc;
         $defaultFontSize = pdf_getPDFFontSize($outputlangs);
@@ -98,9 +98,10 @@ trait DunningNoticeServiceMethods3
 
         // Billing contact has the same priority as the Sponge invoice model.
         $useContact = false;
-        $ids = $invoice->getIdContact('external', 'BILLING');
-        if (!empty($ids)) {
-            $useContact = ($invoice->fetch_contact($ids[0]) > 0);
+        $ids = array_map('intval', (array) $invoice->getIdContact('external', 'BILLING'));
+        $recipientContactId = (int) $recipientContactId;
+        if ($recipientContactId > 0 && in_array($recipientContactId, $ids, true)) {
+            $useContact = ($invoice->fetch_contact($recipientContactId) > 0);
         }
         $recipientParty = ($useContact && is_object($invoice->contact) && $invoice->contact->socid != $invoice->thirdparty->id && getDolGlobalInt('MAIN_USE_COMPANY_NAME_OF_CONTACT', 1)) ? $invoice->contact : $invoice->thirdparty;
         $recipientName = is_object($recipientParty) ? pdfBuildThirdpartyName($recipientParty, $outputlangs) : '';

@@ -2,7 +2,7 @@
 
 A custom Dolibarr module for controlled dunning workflows on overdue customer invoices.
 
-> **Status:** active development. The latest runtime-tested development line is `0.5.x`; stable tags are only created after smoke testing. Dolibarr 22 has been runtime-tested. Dolibarr 21 and 23 are explicit compatibility targets and are covered by API/static compatibility checks; runtime validation is still being expanded.
+> **Status:** hardened `0.6.x` development line. Dolibarr 22 has been runtime-tested. CI downloads and verifies the real Dolibarr 21/22/23 source APIs; full installation smoke tests on 21 and 23 remain release gates.
 
 ## Goals
 
@@ -51,7 +51,9 @@ The dunning composer follows Dolibarr's normal mail workflow: template selection
 
 ## Events / Agenda
 
-`llx_mahnwesen_history` remains the immutable workflow source of truth. Relevant dunning events are also projected idempotently into Dolibarr's normal invoice **Events/Agenda** using `ActionComm`. This keeps case creation, pause/resume, notes and send results visible alongside the invoice's other operational history without making Agenda authoritative for workflow decisions.
+`llx_mahnwesen_history` remains the append-only workflow source of truth. Mutable delivery state lives separately in `llx_mahnwesen_attempt`; PDF/body/recipient/amount snapshots and SHA-256 hashes make a delivery auditable. Ambiguous SMTP outcomes block retries until an operator resolves them on the **Delivery attempts** page.
+
+Dunning fees are tracked in a module-owned subledger after a successful notice. They do not modify the Dolibarr invoice or create an accounting entry and must be marked paid or waived explicitly.
 
 ## Email templates
 
@@ -64,12 +66,12 @@ See [docs/VARIABLES.md](docs/VARIABLES.md).
 For a Git checkout, clone the repository into Dolibarr's custom directory using the directory name `mahnwesen`:
 
 ```bash
-git clone <repository-url> htdocs/custom/mahnwesen
+git clone https://github.com/Tabsi1998/dolibarr-mahnwesen.git htdocs/custom/mahnwesen
 ```
 
 For a release ZIP, upload `mahnwesen-x.y.z.zip` through Dolibarr's external module installer.
 
-After updates that change hooks or module registration, disable and re-enable the module once. Business tables are intentionally retained.
+After upgrading to `0.6.x`, disable and re-enable the module once. This creates the new attempt, pause and fee-ledger tables; existing cases/history are retained. Keep automatic sending disabled until a staging smoke test has completed.
 
 ## Compatibility
 
@@ -87,6 +89,7 @@ Mahnwesen writes its workflow state only to module-owned tables. Sending is gate
 - [Workflow / sequential escalation](docs/WORKFLOW.md)
 - [Compatibility](docs/COMPATIBILITY.md)
 - [Release strategy](docs/RELEASES.md)
+- [Operations / upgrade runbook](docs/OPERATIONS.md)
 - [Template variables](docs/VARIABLES.md)
 - [Security](SECURITY.md)
 - [Changelog](CHANGELOG.md)

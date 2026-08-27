@@ -19,7 +19,7 @@ require_once dol_buildpath('/mahnwesen/class/dunningmanager.class.php', 0);
 require_once dol_buildpath('/mahnwesen/class/dunningnotice.class.php', 0);
 
 $langs->loadLangs(array('mahnwesen@mahnwesen', 'bills', 'companies', 'mails'));
-if (!isModEnabled('mahnwesen') || !empty($user->socid) || !$user->hasRight('mahnwesen', 'dashboard', 'read')) { accessforbidden(); }
+if (!isModEnabled('mahnwesen') || !empty($user->socid) || !$user->hasRight('mahnwesen', 'dashboard', 'read') || !$user->hasRight('facture', 'lire')) { accessforbidden(); }
 
 $id = GETPOSTINT('id');
 $action = GETPOST('action', 'aZ09');
@@ -27,9 +27,9 @@ if ($id <= 0) { accessforbidden('Missing invoice id'); }
 
 $invoice = new Facture($db);
 if ($invoice->fetch($id) <= 0) { dol_print_error($db, $invoice->error); exit; }
+$result = restrictedArea($user, 'facture', $invoice->id, 'facture', 'facture');
 $invoice->fetch_thirdparty();
 $manager = new DunningManager($db);
-$manager->ensureRuleRows($user);
 $service = new DunningNoticeService($db, $manager);
 $workflow = $manager->getWorkflowState($id);
 if ($workflow === false) { setEventMessages($manager->error, $manager->errors, 'errors'); }
@@ -108,19 +108,21 @@ foreach ($recipients as $r) { if (strcasecmp($r['email'], $selectedRecipient) ==
 
 if ($action === 'generate_preview') {
     if (!$user->hasRight('mahnwesen', 'notice', 'send')) { accessforbidden(); }
-    if (!$workflow || empty($workflow['actionable']) || $template === false || $level <= 0) {
+    if (!$workflow || empty($workflow['actionable']) || $template === false || $level <= 0 || !$recipientAllowed) {
         setEventMessages($langs->trans('NoticeNotReady'), null, 'errors');
     } else {
-        $previewInfo = $service->generatePdf($invoice, $dummyCase, $level, $body, true, $templateLang);
+        $previewRecipient = $service->getRecipientOptionByEmail($invoice, $selectedRecipient);
+        $previewInfo = $service->generatePdf($invoice, $dummyCase, $level, $body, true, $templateLang, array('contact_id' => $previewRecipient ? (int) $previewRecipient['contact_id'] : 0));
         if ($previewInfo === false) { setEventMessages($service->error, $service->errors, 'errors'); }
         else { setEventMessages($langs->trans('NoticePreviewGenerated'), null, 'mesgs'); }
     }
 } elseif ($action === 'generate_document') {
     if (!$user->hasRight('mahnwesen', 'notice', 'send')) { accessforbidden(); }
-    if (!$workflow || empty($workflow['actionable']) || !$case || $template === false || $level <= 0) {
+    if (!$workflow || empty($workflow['actionable']) || !$case || $template === false || $level <= 0 || !$recipientAllowed) {
         setEventMessages($langs->trans('NoticeNotReady'), null, 'errors');
     } else {
-        $finalInfo = $service->generatePdf($invoice, $case, $level, $body, false, $templateLang);
+        $documentRecipient = $service->getRecipientOptionByEmail($invoice, $selectedRecipient);
+        $finalInfo = $service->generatePdf($invoice, $case, $level, $body, false, $templateLang, array('contact_id' => $documentRecipient ? (int) $documentRecipient['contact_id'] : 0));
         if ($finalInfo === false) {
             setEventMessages($service->error, $service->errors, 'errors');
         } else {
@@ -157,7 +159,7 @@ if ($action === 'generate_preview') {
         } else {
             $case = $currentCase;
             $level = $preparedLevel;
-            $result = $service->sendNotice($invoice, $case, $level, $selectedRecipient, $subject, $body, $attachInvoice, $user, 'manual', $selectedFrom, $templateLang, $cc, $bcc);
+            $result = $service->sendNotice($invoice, $case, $level, $selectedRecipient, $subject, $body, $attachInvoice, $user, 'manual', $selectedFrom, $templateLang, $cc, $bcc, $templateId);
             if ($result === false) { setEventMessages($service->error, $service->errors, 'errors'); }
             else {
                 setEventMessages($langs->trans('NoticeSentSuccess', $selectedRecipient), null, 'mesgs');
@@ -287,6 +289,10 @@ print '<div class="mahnwesen-mail-editor">'.$editor->Create(1).'</div>';
 print '<input type="hidden" name="confirm_send" id="mahnwesen_confirm_send" value="0">';
 print '<div class="tabsAction">';
 $sendLabel = $level > 0 ? $langs->trans('MahnwesenSendStage', $langs->trans($manager->getStageLabelKey($level))) : $langs->trans('SendMail');
+if ($canOperate) {
+    print '<button class="butAction" type="submit" name="action" value="generate_preview">'.img_picto('', 'view').' '.$langs->trans('MahnwesenGeneratePreview').'</button>';
+    print '<button class="butAction" type="submit" name="action" value="generate_document">'.img_picto('', 'pdf').' '.$langs->trans('MahnwesenGenerateDocument').'</button>';
+}
 if ($canOperate && $manualSendEnabled && !$sendPending && $fromEmail !== '' && !empty($recipients)) {
     $confirmText = dol_escape_js($langs->trans('MahnwesenSendConfirmJs', $level > 0 ? $langs->trans($manager->getStageLabelKey($level)) : ''));
     print '<button class="butAction button-save" type="submit" name="action" value="send_notice" onclick="if(!window.confirm(\''.$confirmText.'\')){return false;} document.getElementById(\'mahnwesen_confirm_send\').value=\'1\';">'.img_picto('', 'email').' '.$sendLabel.'</button>';
@@ -298,10 +304,15 @@ print '<a class="butAction" href="'.dol_escape_htmltag(dol_buildpath('/mahnwesen
 print '</div>';
 print '</form>';
 
+if ($previewInfo) {
+    $previewUrl = DOL_URL_ROOT.'/document.php?modulepart=mahnwesen&file='.urlencode($previewInfo['relative']);
+    print '<div class="info center"><a target="_blank" rel="noopener" href="'.dol_escape_htmltag($previewUrl).'">'.img_picto('', 'view').' '.$langs->trans('MahnwesenOpenPreview').'</a></div>';
+}
+
 print '<div class="opacitymedium small">'.$langs->trans('MahnwesenSequentialSafetyFooter').'</div>';
 if (!empty($templatePayload)) {
     print '<script>';
-    print 'window.MAHNWESEN_TEMPLATE_DATA='.json_encode($templatePayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES).';';
+    print 'window.MAHNWESEN_TEMPLATE_DATA='.json_encode($templatePayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT).';';
     print <<<'JS'
 (function(){
   var sel=document.getElementById('mahnwesen_template_id');

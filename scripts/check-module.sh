@@ -8,6 +8,7 @@ if command -v php >/dev/null 2>&1; then
     php -l "$file" >/dev/null
   done < <(find . -type f -name '*.php' -not -path './vendor/*' -print0)
   echo "PHP lint: OK"
+  php tests/run.php
 else
   echo "PHP not found; skipping lint" >&2
 fi
@@ -17,6 +18,11 @@ for lang in de_DE en_US; do
   test -f "$file"
   awk -F= 'NF >= 2 && $1 !~ /^[[:space:]]*#/ {gsub(/[[:space:]]+$/, "", $1); if ($1 != "") print $1}' "$file" | sort > "/tmp/mahnwesen-$lang.keys"
 done
+
+if grep -RInE '^[A-Za-z0-9_]+=.*[[:alnum:]_]Mahnwesen[A-Za-z0-9_]+=' langs/*/mahnwesen.lang; then
+  echo "Concatenated language key detected" >&2
+  exit 1
+fi
 
 diff -u /tmp/mahnwesen-de_DE.keys /tmp/mahnwesen-en_US.keys
 if [ "$(sort /tmp/mahnwesen-de_DE.keys | uniq -d | wc -l)" -ne 0 ]; then
@@ -34,3 +40,9 @@ if grep -RInE "(UPDATE|INSERT INTO|DELETE FROM)[^;]*(llx_facture([[:space:]]|$)|
   exit 1
 fi
 echo "Invoice write guard: OK"
+
+grep -q "restrictedArea(\$user, 'facture'" invoice.php
+grep -q "restrictedArea(\$user, 'facture'" notice.php
+grep -q "JSON_HEX_TAG" notice.php
+grep -q "status IN ('reserved', 'sending', 'ambiguous')" class/dunningmanager.methods3.trait.php
+echo "Security contracts: OK"

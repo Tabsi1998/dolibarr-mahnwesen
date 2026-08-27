@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.6.0
+
+- Enforced Dolibarr invoice read/restricted-area permissions and active-entity isolation.
+- Added one atomic send gate that revalidates current balance, fee, stage, cooldown, pause, recipient and duplicate state under a case lock.
+- Added dedicated delivery-attempt records with exact body/configuration snapshots, unique PDFs, SHA-256 attachment hashes and permission-checked recovery with a safety delay for in-flight SMTP outcomes.
+- Kept workflow history append-only; attempt state is maintained in a separate operational table.
+- Added a separate pause lifecycle table and a fee subledger with paid/waived settlement actions.
+- Made recipient lookup fail closed, filtered inactive contacts and used the selected contact in the PDF address.
+- Blocked foreign-currency invoices until a correct multicurrency workflow is implemented.
+- Limited automatic attempts rather than only successes and added bounded automatic retries.
+- Added English starter templates and language-family-aware selection before cross-language defaults.
+- Added visible PDF preview/draft actions and hardened inline JSON against script-context injection.
+- Added policy tests, stronger language/security contracts, real Dolibarr 21/22/23 source/API checks and release tag/version validation.
+- Raised the declared PHP minimum to 7.4 and set all new default dunning fees to zero.
+
 ## 0.5.4 (release candidate)
 
 - Cleaned the dunning PDF total area: one full-width closing rule and a borderless, right-aligned total replace the previous visually half-open amount box.

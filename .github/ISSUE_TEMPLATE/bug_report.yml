@@ -1,0 +1,31 @@
+name: Bug report
+description: Report a reproducible Mahnwesen problem without customer data
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: dropdown
+    id: dolibarr
+    attributes:
+      label: Dolibarr version
+      options: ["21.x", "22.x", "23.x", "Other"]
+    validations:
+      required: true
+  - type: input
+    id: module
+    attributes:
+      label: Mahnwesen version
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Do not include names, addresses, invoice PDFs, credentials or production dumps.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true

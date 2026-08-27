@@ -20,7 +20,7 @@ This roadmap distinguishes implemented behavior from planned workflow hardening.
 - [x] duplicate/pending send reservation concept
 - [x] automatic-send configuration foundation
 
-## Next - sequential workflow hardening (target 0.5.x)
+## Hardened workflow baseline - 0.6.x
 
 ### Strict stage sequence
 
@@ -28,7 +28,7 @@ This roadmap distinguishes implemented behavior from planned workflow hardening.
 - [x] distinguish `time_eligible_level` from `workflow_required_level`
 - [x] never auto-advance past an unsent required stage
 - [x] preserve configured spacing after a late previous-stage send
-- [ ] allow an authorized explicit `waive/skip` action with mandatory reason
+- [x] allow an authorized explicit `waive/skip` action with mandatory reason
 - [x] log sent / failed / pending decisions immutably; waiver/skip audit remains planned
 - [x] make manual and automatic sending use the exact same eligibility service
 
@@ -66,7 +66,7 @@ Example:
 - [x] no automatic send for ambiguous recipient
 - [x] no automatic send while paused
 - [x] auto-resume dated pauses before eligibility evaluation
-- [ ] dry-run / simulation report for automatic decisions
+- [x] dry-run / simulation report for automatic decisions
 
 ## Compatibility and quality
 
@@ -74,8 +74,9 @@ Example:
 - [x] runtime use on Dolibarr 22
 - [ ] runtime smoke test on Dolibarr 23
 - [ ] evaluate Dolibarr 20 as best-effort compatibility target
-- [ ] add fixture-based scanner/workflow tests
+- [x] add dependency-free policy tests and static security contracts
 - [ ] add database migration tests
+- [ ] add full Dolibarr container/database integration tests
 - [ ] add mail rendering snapshot tests
 - [ ] add PDF smoke tests
 
@@ -88,4 +89,4 @@ Example:
 - debtor exclusion / dispute flag
 - export/reporting for outstanding dunning cases
 - richer Agenda/email-document links and optional dedicated dunning event type
-- multilingual template selection based on customer language
+- [x] language-safe template selection based on customer language/family

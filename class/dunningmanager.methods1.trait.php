@@ -20,6 +20,9 @@ trait DunningManagerMethods1
     /** @var array|null Cached stage rules */
     protected $rulesCache = null;
 
+    /** @var array<int,array<int,bool>> Completed-stage cache for one request. */
+    protected $completedLevelsCache = array();
+
     /**
      * @param DoliDB $db Database handler
      */
@@ -31,15 +34,17 @@ trait DunningManagerMethods1
     /**
      * Scan overdue invoices without changing data.
      *
-     * Important: the first SQL query intentionally does NOT filter invoice
-     * types anymore. Type filtering happens in PHP so diagnostics can tell us
-     * when candidates are excluded because of their type.
+     * The SQL query applies cheap, deterministic filters before the scan limit.
+     * The PHP checks remain as a second safety layer around Dolibarr's balance
+     * calculation and invoice-type semantics.
      *
      * @param int $limit Maximum number of overdue invoice candidates fetched
+     * @param User|null $visibilityUser Restrict rows to the user's customer visibility; null is the entity-local cron scope
      * @return array|false Rows or false on database error
      */
-    public function scanDueInvoices($limit = 0)
+    public function scanDueInvoices($limit = 0, $visibilityUser = null)
     {
+        global $conf;
         $this->error = '';
         $this->errors = array();
         $this->diagnostics = array();
@@ -57,7 +62,7 @@ trait DunningManagerMethods1
         }
 
         $minAmount = $this->getMinimumAmount();
-        $this->diagnostics = $this->loadRawDiagnostics($todaySql);
+        $this->diagnostics = $this->loadRawDiagnostics($todaySql, $visibilityUser);
         $this->diagnostics['scan_limit'] = $limit;
         $this->diagnostics['minimum_amount'] = $minAmount;
         $this->diagnostics['include_deposits'] = $this->includeDepositInvoices() ? 1 : 0;
@@ -76,18 +81,33 @@ trait DunningManagerMethods1
         $this->diagnostics['type_situation'] = 0;
         $this->diagnostics['type_other'] = 0;
 
-        $sql = 'SELECT f.rowid, f.entity as invoice_entity, f.fk_soc, f.date_lim_reglement, f.type, f.fk_statut, f.paye, s.nom as socname';
+        $sql = 'SELECT DISTINCT f.rowid, f.entity as invoice_entity, f.fk_soc, f.date_lim_reglement, f.type, f.fk_statut, f.paye, s.nom as socname';
         $sql .= ', mc.rowid as case_id, mc.paused as case_paused, mc.current_level as case_level, mc.status as case_status';
         $sql .= ' FROM '.MAIN_DB_PREFIX.'facture as f';
         $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'societe as s ON s.rowid = f.fk_soc';
+        $restrictCustomerVisibility = is_object($visibilityUser) && !empty($visibilityUser->id) && method_exists($visibilityUser, 'hasRight') && !$visibilityUser->hasRight('societe', 'client', 'voir');
+        if ($restrictCustomerVisibility) {
+            $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'societe_commerciaux as sc ON sc.fk_soc = f.fk_soc AND sc.fk_user = '.((int) $visibilityUser->id);
+        }
         $sql .= ' LEFT JOIN '.MAIN_DB_PREFIX.'mahnwesen_case as mc';
         $sql .= ' ON mc.fk_facture = f.rowid AND mc.entity = f.entity';
-        $sql .= ' WHERE f.entity IN ('.getEntity('invoice').')';
+        // A complete Dolibarr entity context (company identity, rules, sender,
+        // document roots and constants) cannot safely be switched mid-run.
+        // Consequently Mahnwesen automation is deliberately entity-local.
+        $sql .= ' WHERE f.entity = '.((int) $conf->entity);
         $sql .= ' AND f.fk_statut = '.((int) Facture::STATUS_VALIDATED);
+        $sql .= ' AND f.paye = 0';
+        $supportedTypes = array(Facture::TYPE_STANDARD, Facture::TYPE_REPLACEMENT, Facture::TYPE_SITUATION);
+        if ($this->includeDepositInvoices()) { $supportedTypes[] = Facture::TYPE_DEPOSIT; }
+        $sql .= ' AND f.type IN ('.implode(',', array_map('intval', $supportedTypes)).')';
         $sql .= ' AND f.date_lim_reglement IS NOT NULL';
         $sql .= " AND f.date_lim_reglement < '".$this->db->escape($todaySql)."'";
         $sql .= ' ORDER BY f.date_lim_reglement ASC, f.rowid ASC';
-        $sql .= $this->db->plimit($limit);
+        // Over-fetch because credits/deposits can reduce getRemainToPay() to
+        // zero even while paye is not set. Stopping only after $limit eligible
+        // rows prevents a small set of such invoices from starving the queue.
+        $candidateLimit = min(10000, max($limit, $limit * 10));
+        $sql .= $this->db->plimit($candidateLimit);
 
         dol_syslog(__METHOD__.' SQL='.$sql, LOG_DEBUG);
         $resql = $this->db->query($sql);
@@ -174,6 +194,7 @@ trait DunningManagerMethods1
                 'invoice_entity' => isset($obj->invoice_entity) ? (int) $obj->invoice_entity : 1,
             );
             $this->diagnostics['included']++;
+            if (count($rows) >= $limit) { break; }
         }
 
         $this->db->free($resql);
@@ -186,8 +207,9 @@ trait DunningManagerMethods1
      * @param string $todaySql SQL date/time for start of current server day
      * @return array
      */
-    protected function loadRawDiagnostics($todaySql)
+    protected function loadRawDiagnostics($todaySql, $visibilityUser = null)
     {
+        global $conf;
         $diag = array(
             'all_invoices_entity' => 0,
             'validated_status1' => 0,
@@ -204,7 +226,13 @@ trait DunningManagerMethods1
         $sql .= ', SUM(CASE WHEN f.fk_statut = '.((int) Facture::STATUS_VALIDATED).' AND f.date_lim_reglement IS NOT NULL AND f.date_lim_reglement < \''.$this->db->escape($todaySql).'\' THEN 1 ELSE 0 END) as validated_overdue_raw';
         $sql .= ', SUM(CASE WHEN f.fk_statut = '.((int) Facture::STATUS_VALIDATED).' AND f.paye = 1 THEN 1 ELSE 0 END) as validated_paye_flag_set';
         $sql .= ' FROM '.MAIN_DB_PREFIX.'facture as f';
-        $sql .= ' WHERE f.entity IN ('.getEntity('invoice').')';
+        $restrictCustomerVisibility = is_object($visibilityUser) && !empty($visibilityUser->id) && method_exists($visibilityUser, 'hasRight') && !$visibilityUser->hasRight('societe', 'client', 'voir');
+        if ($restrictCustomerVisibility) {
+            $sql .= ' WHERE EXISTS (SELECT 1 FROM '.MAIN_DB_PREFIX.'societe_commerciaux as sc WHERE sc.fk_soc = f.fk_soc AND sc.fk_user = '.((int) $visibilityUser->id).')';
+            $sql .= ' AND f.entity = '.((int) $conf->entity);
+        } else {
+            $sql .= ' WHERE f.entity = '.((int) $conf->entity);
+        }
 
         dol_syslog(__METHOD__.' SQL='.$sql, LOG_DEBUG);
         $resql = $this->db->query($sql);
@@ -291,10 +319,11 @@ trait DunningManagerMethods1
     {
         $daysLate = max(0, (int) $daysLate);
         $thresholds = $this->getStageThresholds();
+        $rules = $this->getRules();
         $stage = 0;
 
         foreach ($thresholds as $level => $days) {
-            if ($daysLate >= $days) {
+            if (!empty($rules[(int) $level]['enabled']) && $daysLate >= $days) {
                 $stage = (int) $level;
             }
         }
@@ -354,10 +383,11 @@ trait DunningManagerMethods1
      */
     public function getCaseByInvoice($invoiceId)
     {
+        global $conf;
         $sql = 'SELECT rowid, entity, fk_facture, current_level, paused, status, remaining_amount, last_notice_at, next_action_at, note_private, date_creation, tms, fk_user_create, fk_user_modif';
         $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_case';
         $sql .= ' WHERE fk_facture = '.((int) $invoiceId);
-        $sql .= ' AND entity IN ('.getEntity('invoice').')';
+        $sql .= ' AND entity = '.((int) $conf->entity);
         $sql .= ' ORDER BY rowid DESC';
         $sql .= $this->db->plimit(1);
         $resql = $this->db->query($sql);
@@ -370,7 +400,7 @@ trait DunningManagerMethods1
         if (!$obj) {
             return null;
         }
-        return array(
+        $caseData = array(
             'id' => (int) $obj->rowid,
             'entity' => (int) $obj->entity,
             'invoice_id' => (int) $obj->fk_facture,
@@ -386,6 +416,15 @@ trait DunningManagerMethods1
             'fk_user_create' => (int) $obj->fk_user_create,
             'fk_user_modif' => (int) $obj->fk_user_modif,
         );
+        $sqlPause = 'SELECT pause_until, reason FROM '.MAIN_DB_PREFIX.'mahnwesen_pause WHERE entity = '.((int) $caseData['entity']).' AND fk_case = '.((int) $caseData['id'])." AND status = 'active' ORDER BY rowid DESC".$this->db->plimit(1);
+        $resPause = $this->db->query($sqlPause);
+        if ($resPause) {
+            $pause = $this->db->fetch_object($resPause);
+            if ($pause) { $caseData['pause_until'] = $pause->pause_until; $caseData['pause_reason'] = (string) $pause->reason; }
+            $this->db->free($resPause);
+        }
+        if (!array_key_exists('pause_until', $caseData)) { $caseData['pause_until'] = null; $caseData['pause_reason'] = ''; }
+        return $caseData;
     }
 
     /**
@@ -397,12 +436,13 @@ trait DunningManagerMethods1
      */
     public function getHistoryByInvoice($invoiceId, $limit = 100)
     {
+        global $conf;
         $limit = max(1, min(500, (int) $limit));
         $rows = array();
         $sql = 'SELECT rowid, fk_case, fk_facture, action, level, amount_snapshot, mode, result, recipient, message, date_creation, fk_user_create';
         $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_history';
         $sql .= ' WHERE fk_facture = '.((int) $invoiceId);
-        $sql .= ' AND entity IN ('.getEntity('invoice').')';
+        $sql .= ' AND entity = '.((int) $conf->entity);
         $sql .= ' ORDER BY date_creation DESC, rowid DESC';
         $sql .= $this->db->plimit($limit);
         $resql = $this->db->query($sql);

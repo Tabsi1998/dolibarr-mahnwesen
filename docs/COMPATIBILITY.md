@@ -19,7 +19,7 @@ The module descriptor currently uses Dolibarr 21 as the minimum target. This mea
 2. Keep one code line for supported majors whenever practical.
 3. Prefer feature detection over hard-coded version checks.
 4. Keep version-specific code in small compatibility helpers if needed.
-5. CI checks expected Dolibarr APIs on 21, 22 and 23.
+5. CI downloads official Dolibarr 21/22/23 source files and checks the exact APIs used by the module.
 6. Runtime smoke tests remain the final authority.
 
 ## Core integration points currently relied on
@@ -37,4 +37,4 @@ The module descriptor currently uses Dolibarr 21 as the minimum target. This mea
 
 ## PHP
 
-The module avoids modern syntax that would unnecessarily narrow PHP support. Actual PHP support still follows the PHP versions supported by the installed Dolibarr major release.
+The declared and CI-tested minimum is PHP 7.4. CI also lints on supported PHP 8.x versions.

@@ -16,9 +16,10 @@ trait DunningNoticeServiceMethods4
      * @param string $body Rendered HTML/body
      * @param bool $preview Replaceable preview or final invoice-linked copy
      * @param string $lang Output language
+     * @param array $context Exact send context (attempt_id, contact_id)
      * @return array|false
      */
-    public function generatePdf($invoice, $case, $level, $body, $preview = true, $lang = '')
+    public function generatePdf($invoice, $case, $level, $body, $preview = true, $lang = '', $context = array())
     {
         global $conf, $langs, $mysoc;
         $this->error = '';
@@ -46,7 +47,9 @@ trait DunningNoticeServiceMethods4
             // Dolibarr's regular "Linked files" block.
             $invoicePdfPath = $this->getInvoicePdfPath($invoice);
             $dir = ($invoicePdfPath !== '') ? dirname($invoicePdfPath) : rtrim($root, '/').'/'.$safeRef;
-            $filename = $safeRef.'_'.$stagePart.'.pdf';
+            $attemptId = !empty($context['attempt_id']) ? (int) $context['attempt_id'] : 0;
+            $suffix = $attemptId > 0 ? '_A'.$attemptId : '_'.date('Ymd_His', dol_now());
+            $filename = $safeRef.'_'.$stagePart.$suffix.'.pdf';
             $relativeDir = ltrim(str_replace('\\', '/', substr($dir, strlen(rtrim($root, '/')))), '/');
             $relative = ($relativeDir !== '' ? $relativeDir.'/' : '').$filename;
         }
@@ -75,7 +78,7 @@ trait DunningNoticeServiceMethods4
             if (method_exists($pdf, 'setPrintHeader')) { $pdf->setPrintHeader(false); $pdf->setPrintFooter(false); }
             $pdf->AddPage();
 
-            $bodyStartY = $this->drawSpongeReminderHeader($pdf, $invoice, $level, $outputlangs, $pageWidth, $pageHeight, $marginLeft, $marginRight, $marginTop);
+            $bodyStartY = $this->drawSpongeReminderHeader($pdf, $invoice, $level, $outputlangs, $pageWidth, $pageHeight, $marginLeft, $marginRight, $marginTop, !empty($context['contact_id']) ? (int) $context['contact_id'] : 0);
             $defaultFontSize = pdf_getPDFFontSize($outputlangs);
             $contentWidth = $pageWidth - $marginLeft - $marginRight;
 
@@ -175,7 +178,7 @@ trait DunningNoticeServiceMethods4
      *
      * @return array|false
      */
-    public function sendNotice($invoice, $case, $level, $recipient, $subject, $body, $attachInvoice, $user, $mode = 'manual', $templateFrom = '', $lang = '', $cc = '', $bcc = '')
+    public function sendNotice($invoice, $case, $level, $recipient, $subject, $body, $attachInvoice, $user, $mode = 'manual', $templateFrom = '', $lang = '', $cc = '', $bcc = '', $templateId = 0)
     {
         $this->error = '';
         $this->errors = array();
@@ -189,7 +192,7 @@ trait DunningNoticeServiceMethods4
             $this->error = 'Manual dunning email sending is disabled in module settings.';
             return false;
         }
-        if (empty($case) || $case['status'] === 'closed' || !empty($case['paused'])) {
+        if (empty($case) || $case['status'] !== 'open' || !empty($case['paused'])) {
             $this->error = 'Dunning case is closed or paused.';
             return false;
         }
@@ -202,6 +205,11 @@ trait DunningNoticeServiceMethods4
         }
         if (!filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
             $this->error = 'Invalid recipient email.';
+            return false;
+        }
+        $recipientOption = $this->getRecipientOptionByEmail($invoice, $recipient);
+        if ($recipientOption === false) {
+            $this->error = $this->recipientLookupFailed ? 'Recipient lookup failed; delivery was blocked.' : 'Recipient is no longer an active BILLING contact or the customer email.';
             return false;
         }
         $cc = $this->normalizeEmailList($cc);
@@ -224,18 +232,61 @@ trait DunningNoticeServiceMethods4
             return false;
         }
 
-        // A final dunning document has a deterministic filename. Reuse it when
-        // already generated; otherwise create it automatically as part of the
-        // send operation. This avoids duplicate PDFs for the same stage.
-        $pdfInfo = $this->getExistingFinalPdfInfo($invoice, $level);
-        $generatedNow = false;
+        $breakdown = $this->manager->getAmountBreakdown($invoice, $case, $level);
+        $historyMessage = 'Subject: '.$subject."\nFrom: ".$from;
+        if ($cc !== '') { $historyMessage .= "\nCC: ".$cc; }
+        if ($bcc !== '') { $historyMessage .= "\nBCC: ".$bcc; }
+        $historyMessage .= "\nInvoice amount: ".number_format($breakdown['invoice'], 2, '.', '').' '.$GLOBALS['conf']->currency;
+        $historyMessage .= "\nDunning fee: ".number_format($breakdown['fee'], 2, '.', '').' '.$GLOBALS['conf']->currency;
+        $historyMessage .= "\nTotal: ".number_format($breakdown['total'], 2, '.', '').' '.$GLOBALS['conf']->currency;
+
+        // Reserve before generating or touching an attachment. The manager
+        // revalidates current amount, fee, stage, cooldown, pause and entity
+        // under a row lock and returns the authoritative snapshot.
+        $reservation = $this->manager->reserveNoticeAttempt(
+            $case,
+            $recipient,
+            $level,
+            (float) $breakdown['invoice'],
+            $historyMessage,
+            $user,
+            $mode,
+            array(
+                'contact_id' => (int) $recipientOption['contact_id'],
+                'sender' => $from,
+                'cc' => $cc,
+                'bcc' => $bcc,
+                'subject' => (string) $subject,
+                'body_html' => (string) $this->asHtml($body),
+                'fee' => (float) $breakdown['fee'],
+                'total' => (float) $breakdown['total'],
+                'template_id' => (int) $templateId,
+                'template_lang' => (string) $lang,
+            )
+        );
+        if ($reservation === false) {
+            $this->error = $this->manager->error ?: 'Unable to reserve dunning notice send';
+            return false;
+        }
+        $attemptId = (int) $reservation['id'];
+        $case = $reservation['case'];
+        $breakdown = $reservation['breakdown'];
+
+        // Reload the exact invoice object after reservation so PDF metadata and
+        // attachments cannot come from a stale object passed by the caller.
+        $freshInvoice = new Facture($this->db);
+        if ($freshInvoice->fetch((int) $case['invoice_id']) <= 0) {
+            $this->error = 'Unable to reload invoice after send reservation.';
+            $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
+            return false;
+        }
+        $freshInvoice->fetch_thirdparty();
+        $pdfInfo = $this->generatePdf($freshInvoice, $case, $level, $body, false, $lang, array('attempt_id' => $attemptId, 'contact_id' => (int) $recipientOption['contact_id']));
         if ($pdfInfo === false) {
-            $pdfInfo = $this->generatePdf($invoice, $case, $level, $body, false, $lang);
-            if ($pdfInfo === false) { return false; }
-            $generatedNow = true;
-            if (!$this->manager->recordGeneratedDocument((int) $invoice->id, (int) $level, $pdfInfo['relative'], $user, $mode)) {
-                $this->errors[] = 'PDF generated, but document audit entry failed: '.$this->manager->error;
-            }
+            $pdfError = $this->error ?: 'Dunning PDF generation failed.';
+            $this->manager->finalizeNoticeAttempt($attemptId, false, $pdfError, $case, $user, false);
+            $this->error = $pdfError;
+            return false;
         }
 
         $files = array($pdfInfo['fullpath']);
@@ -243,36 +294,49 @@ trait DunningNoticeServiceMethods4
         $names = array($pdfInfo['filename']);
         $invoicePdf = '';
         if ($attachInvoice) {
-            $invoicePdf = $this->getInvoicePdfPath($invoice);
-            if ($invoicePdf !== '') {
-                $files[] = $invoicePdf;
-                $mimes[] = 'application/pdf';
-                $names[] = basename($invoicePdf);
+            $sourceInvoicePdf = $this->getInvoicePdfPath($freshInvoice);
+            if ($sourceInvoicePdf === '') {
+                $this->error = 'The original invoice PDF was requested but is unavailable.';
+                $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
+                return false;
             }
+            // Attach an attempt-specific copy. Dolibarr may regenerate its
+            // main invoice PDF later; the copied bytes and stored hash must
+            // continue to identify exactly what this email contained.
+            $invoicePdf = dirname($pdfInfo['fullpath']).'/'.dol_sanitizeFileName($freshInvoice->ref).'_Invoice_A'.$attemptId.'.pdf';
+            if (!@copy($sourceInvoicePdf, $invoicePdf) || !is_readable($invoicePdf) || filesize($invoicePdf) <= 0) {
+                $this->error = 'Unable to create an immutable snapshot of the original invoice PDF.';
+                $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
+                return false;
+            }
+            $files[] = $invoicePdf;
+            $mimes[] = 'application/pdf';
+            $names[] = basename($sourceInvoicePdf);
         }
-
-        $breakdown = $this->manager->getAmountBreakdown($invoice, $case, $level);
-        $historyMessage = 'Betreff: '.$subject."\nVon: ".$from."\nPDF: ".$pdfInfo['relative'];
-        if ($cc !== '') { $historyMessage .= "\nCC: ".$cc; }
-        if ($bcc !== '') { $historyMessage .= "\nBCC: ".$bcc; }
-        $historyMessage .= "\nOffene Rechnung: ".number_format($breakdown['invoice'], 2, '.', '').' '.$GLOBALS['conf']->currency;
-        $historyMessage .= "\nMahnspesen: ".number_format($breakdown['fee'], 2, '.', '').' '.$GLOBALS['conf']->currency;
-        $historyMessage .= "\nGesamt: ".number_format($breakdown['total'], 2, '.', '').' '.$GLOBALS['conf']->currency;
-        if ($attachInvoice) {
-            $historyMessage .= "\nRechnung: ".($invoicePdf !== '' ? basename($invoicePdf) : 'nicht verfügbar');
+        if (!$this->manager->updateNoticeAttemptArtifacts($attemptId, $pdfInfo, $invoicePdf)) {
+            $this->error = 'Unable to persist attachment hashes: '.$this->manager->error;
+            $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
+            return false;
         }
-
-        $reservationId = $this->manager->reserveNoticeAttempt(
-            $case,
-            $recipient,
-            $level,
-            (float) $case['remaining_amount'],
-            $historyMessage,
-            $user,
-            $mode
-        );
-        if ($reservationId === false) {
-            $this->error = $this->manager->error ?: 'Unable to reserve dunning notice send';
+        // Payments are maintained in separate Dolibarr tables and cannot be
+        // held behind the module case lock. Re-read once more immediately
+        // before entering the SMTP ambiguity window.
+        $this->manager->refreshWorkflowCaches((int) $case['id']);
+        $lastEvaluation = $this->manager->evaluateInvoice((int) $freshInvoice->id);
+        $lastRequiredLevel = ($lastEvaluation !== false && !empty($lastEvaluation['eligible'])) ? $this->manager->getNextRequiredLevel((int) $case['id'], (int) $lastEvaluation['row']['stage']) : 0;
+        $lastRequiredAt = $lastRequiredLevel > 0 ? $this->manager->calculateWorkflowStageDueAt((int) $case['id'], (string) $lastEvaluation['row']['due_ymd'], $lastRequiredLevel) : null;
+        $lastBreakdown = $this->manager->getAmountBreakdown($freshInvoice, array('remaining_amount' => $lastEvaluation !== false ? (float) $lastEvaluation['remain_to_pay'] : 0.0), $level);
+        $lastRecipientOption = $this->getRecipientOptionByEmail($freshInvoice, $recipient);
+        if ($lastEvaluation === false || empty($lastEvaluation['eligible']) || $lastRequiredLevel !== (int) $level || ($lastRequiredAt && (int) $this->db->jdate($lastRequiredAt) > dol_now()) || abs((float) $lastEvaluation['remain_to_pay'] - (float) $breakdown['invoice']) > 0.000001 || abs((float) $lastBreakdown['fee'] - (float) $breakdown['fee']) > 0.000001 || $lastRecipientOption === false || (int) $lastRecipientOption['contact_id'] !== (int) $recipientOption['contact_id']) {
+            $this->error = 'Invoice state changed while the final document was generated. Delivery was cancelled.';
+            $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
+            return false;
+        }
+        $historyMessage .= "\nPDF: ".$pdfInfo['relative']."\nPDF SHA-256: ".hash_file('sha256', $pdfInfo['fullpath']);
+        if ($invoicePdf !== '') { $historyMessage .= "\nInvoice PDF: ".basename($invoicePdf)."\nInvoice PDF SHA-256: ".hash_file('sha256', $invoicePdf); }
+        if (!$this->manager->markNoticeAttemptSending($attemptId)) {
+            $this->error = 'Unable to mark the attempt as sending: '.$this->manager->error;
+            $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
             return false;
         }
 
@@ -292,7 +356,7 @@ trait DunningNoticeServiceMethods4
                 1,
                 '',
                 '',
-                'mahnwesen'.$invoice->id,
+                'mahnwesen'.$freshInvoice->id.'-attempt'.$attemptId,
                 '',
                 'standard',
                 $from
@@ -307,25 +371,31 @@ trait DunningNoticeServiceMethods4
             if ($this->error === '') {
                 $this->error = (is_object($mail) && !empty($mail->error)) ? $mail->error : 'CMailFile sendfile failed';
             }
-            $failedMessage = $historyMessage."\nFehler: ".$this->error;
-            if (!$this->manager->finalizeNoticeAttempt($reservationId, false, $failedMessage, $case, $user)) {
-                $this->errors[] = 'Versand fehlgeschlagen; Audit-Finalisierung ebenfalls fehlgeschlagen: '.$this->manager->error;
+            $failedMessage = $historyMessage."\nError: ".$this->error;
+            if (!$this->manager->finalizeNoticeAttempt($attemptId, false, $failedMessage, $case, $user, true)) {
+                $this->errors[] = 'Delivery failed and audit finalization also failed: '.$this->manager->error;
             }
+            $this->error .= ' The SMTP outcome is treated as ambiguous; an administrator must resolve the attempt before retrying.';
             return false;
         }
 
-        if (!$this->manager->finalizeNoticeAttempt($reservationId, true, $historyMessage, $case, $user)) {
-            $this->error = 'Die E-Mail wurde vom Mailer als versendet gemeldet, aber die Audit-Finalisierung ist fehlgeschlagen. Nicht erneut senden; die ausstehende Reservierung blockiert einen Doppelversand. '.$this->manager->error;
+        $messageId = '';
+        if (is_object($mail)) {
+            if (!empty($mail->message_id)) { $messageId = (string) $mail->message_id; }
+            elseif (!empty($mail->msgid)) { $messageId = (string) $mail->msgid; }
+        }
+        if (!$this->manager->finalizeNoticeAttempt($attemptId, true, $historyMessage, $case, $user, false, $messageId)) {
+            $this->error = 'The mailer reported success, but audit finalization failed. Do not retry; the attempt remains blocked. '.$this->manager->error;
             return false;
         }
 
         // Advance only to the next sequentially allowed stage. A failure here
         // must not turn a successfully delivered email into a retryable send.
-        $syncAfterSend = $this->manager->syncInvoiceCase((int) $invoice->id, $user);
+        $syncAfterSend = $this->manager->syncInvoiceCase((int) $freshInvoice->id, $user);
         if ($syncAfterSend === false) {
             $this->errors[] = 'E-Mail wurde versendet, aber der Mahnfall konnte danach nicht synchronisiert werden: '.$this->manager->error;
         }
-        $this->manager->syncHistoryToAgenda((int) $invoice->id, $user);
+        $this->manager->syncHistoryToAgenda((int) $freshInvoice->id, $user);
 
         return array(
             'recipient' => $recipient,
@@ -335,6 +405,7 @@ trait DunningNoticeServiceMethods4
             'mode' => $mode,
             'cc' => $cc,
             'bcc' => $bcc,
+            'attempt_id' => $attemptId,
             'fee' => $breakdown['fee'],
             'total' => $breakdown['total'],
         );

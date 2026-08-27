@@ -35,5 +35,8 @@ class DunningNoticeService
 
     /** @var array */
     public $errors = array();
+
+    /** @var bool True when BILLING contacts could not be queried safely. */
+    public $recipientLookupFailed = false;
     use DunningNoticeServiceMethods1, DunningNoticeServiceMethods2, DunningNoticeServiceMethods3, DunningNoticeServiceMethods4, DunningNoticeServiceMethods5;
 }
