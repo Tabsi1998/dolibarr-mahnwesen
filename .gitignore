@@ -6,3 +6,10 @@
 /.vscode/
 *.log
 *.tmp
+
+# Local VS Code test environments and generated results
+/.local-testing/
+/*.code-workspace
+/.venv/
+__pycache__/
+.pytest_cache/
