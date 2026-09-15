@@ -28,6 +28,7 @@ tar -cf - \
   --exclude='./.gitattributes' \
   --exclude='./.editorconfig' \
   --exclude='./CONTRIBUTING.md' \
+  --exclude='./CLAUDE.md' \
   . | (cd "$STAGE/mahnwesen" && tar -xf -)
 
 ZIPFILE="$OUTDIR/mahnwesen-$VERSION.zip"
