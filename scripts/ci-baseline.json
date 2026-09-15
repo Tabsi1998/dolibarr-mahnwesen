@@ -1,0 +1,11 @@
+{
+  "lang-placeholders": [],
+  "line-endings": [],
+  "php-deprecations": [],
+  "shellcheck": [
+    "scripts/build-release.sh: SC2155 (warning)"
+  ],
+  "whitespace": [
+    "admin/setup.php: trailing whitespace"
+  ]
+}
