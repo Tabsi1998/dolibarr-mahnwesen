@@ -82,7 +82,7 @@ ZIP_DOCKERFILE = (f"FROM php:{RELEASE_PHP}-cli\n"
 
 # What scripts/build-release.sh leaves out of the package.
 PACKAGE_EXCLUDES = (".git", ".github", "dist", "build", "scripts", "tests", ".gitignore",
-                    ".gitattributes", ".editorconfig", "CONTRIBUTING.md")
+                    ".gitattributes", ".editorconfig", "CONTRIBUTING.md", "CLAUDE.md")
 
 # The lines scripts/check-module.sh prints when each part really ran. It skips
 # the lint and the policy tests silently when php is missing, so exit code 0

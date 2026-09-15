@@ -46,6 +46,8 @@ it out.
   `scripts/local_check.py` together; the release check fails otherwise.
 - `build-release.sh` packs every file it does not exclude. Local-only folders
   such as `.ci-panel/` must stay out of Git, or the release ZIP carries them.
+  `CONTRIBUTING.md` and `CLAUDE.md` are excluded; a new developer document
+  needs an exclude in the script and in `PACKAGE_EXCLUDES` too.
 
 ## Ratchet
 
