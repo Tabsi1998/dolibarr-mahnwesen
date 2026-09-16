@@ -194,7 +194,9 @@ if (!$case) {
     print '<tr><td>'.$langs->trans('MahnwesenPauseControl').'</td><td>';
     if (!empty($case['paused'])) {
         print '<span class="badge badge-status1">'.$langs->trans('Paused').'</span> ';
-        $displayPauseUntil = !empty($case['pause_until']) ? $case['pause_until'] : $case['next_action_at'];
+        // A pause row without a date is indefinite. Only pauses from before 0.6,
+        // which have no pause row, kept their end date in next_action_at.
+        $displayPauseUntil = !empty($case['pause_active']) ? $case['pause_until'] : $case['next_action_at'];
         print $displayPauseUntil
             ? $langs->trans('MahnwesenPauseUntil').' <strong>'.dol_print_date($db->jdate($displayPauseUntil), 'day').'</strong>'
             : '<strong>'.$langs->trans('MahnwesenPauseIndefinite').'</strong>';

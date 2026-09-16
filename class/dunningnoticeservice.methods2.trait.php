@@ -381,15 +381,85 @@ trait DunningNoticeServiceMethods2
         if ($root === '') {
             return '';
         }
+        // last_main_doc is relative to DOL_DATA_ROOT (facture/REF/REF.pdf, or
+        // 2/facture/... in a second entity), not to the invoice directory.
         if (!empty($invoice->last_main_doc)) {
-            $path = rtrim($root, '/').'/'.ltrim((string) $invoice->last_main_doc, '/');
-            if (is_file($path) && is_readable($path)) {
+            $path = $this->fileInsideRoot(DOL_DATA_ROOT.'/'.ltrim((string) $invoice->last_main_doc, '/'), $root);
+            if ($path !== '') {
                 return $path;
             }
         }
         $ref = dol_sanitizeFileName($invoice->ref);
-        $fallback = rtrim($root, '/').'/'.$ref.'/'.$ref.'.pdf';
-        return (is_file($fallback) && is_readable($fallback)) ? $fallback : '';
+        return $this->fileInsideRoot(rtrim($root, '/').'/'.$ref.'/'.$ref.'.pdf', $root);
+    }
+
+    /**
+     * Path of the existing invoice PDF relative to the invoice document root,
+     * as document.php expects it for modulepart=invoice.
+     *
+     * @param Facture $invoice Invoice
+     * @return string Empty when there is no invoice PDF
+     */
+    public function getInvoicePdfRelativePath($invoice)
+    {
+        $path = $this->getInvoicePdfPath($invoice);
+        $root = realpath($this->getInvoiceDocumentRoot($invoice));
+        if ($path === '' || $root === false) {
+            return '';
+        }
+        return ltrim(str_replace('\\', '/', substr($path, strlen($root))), '/');
+    }
+
+    /**
+     * Where the replaceable preview PDF of one stage lives.
+     *
+     * @param Facture $invoice Invoice
+     * @param int $level Stage
+     * @return array{dir:string,filename:string,relative:string}
+     */
+    public function getPreviewPdfLocation($invoice, $level)
+    {
+        global $conf;
+        $entity = !empty($invoice->entity) ? (int) $invoice->entity : (int) $conf->entity;
+        $root = !empty($conf->mahnwesen->multidir_output[$entity]) ? $conf->mahnwesen->multidir_output[$entity] : (!empty($conf->mahnwesen->dir_output) ? $conf->mahnwesen->dir_output : DOL_DATA_ROOT.'/mahnwesen');
+        $safeRef = dol_sanitizeFileName($invoice->ref);
+        $filename = $safeRef.'_'.$this->getStageFilenamePart((int) $level).'_preview.pdf';
+        return array('dir' => rtrim($root, '/').'/notices/'.$safeRef, 'filename' => $filename, 'relative' => 'notices/'.$safeRef.'/'.$filename);
+    }
+
+    /**
+     * The existing preview PDF of one stage, or an empty string.
+     *
+     * @param Facture $invoice Invoice
+     * @param int $level Stage
+     * @return string
+     */
+    public function getPreviewPdfPath($invoice, $level)
+    {
+        if ((int) $level < 1 || (int) $level > 4) {
+            return '';
+        }
+        $location = $this->getPreviewPdfLocation($invoice, $level);
+        return $this->fileInsideRoot($location['dir'].'/'.$location['filename'], $location['dir']);
+    }
+
+    /**
+     * A readable file whose real path lies inside the given root, or ''.
+     *
+     * @param string $path Candidate path
+     * @param string $root Directory the file must be in
+     * @return string
+     */
+    protected function fileInsideRoot($path, $root)
+    {
+        $real = realpath((string) $path);
+        $realRoot = realpath((string) $root);
+        if ($real === false || $realRoot === false || !is_file($real) || !is_readable($real)) {
+            return '';
+        }
+        $real = str_replace('\\', '/', $real);
+        $realRoot = rtrim(str_replace('\\', '/', $realRoot), '/');
+        return strpos($real, $realRoot.'/') === 0 ? $real : '';
     }
 
     /**

@@ -324,6 +324,13 @@ trait DunningManagerMethods4
             $this->error = $this->db->lasterror();
             return false;
         }
+        // A closed case is not paused; its pause must not come back when the
+        // invoice is reopened.
+        $sqlPause = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_pause SET status = 'ended', date_end = '".$this->db->escape($this->db->idate(dol_now()))."', fk_user_end = ".$uid.' WHERE entity = '.((int) $case['entity']).' AND fk_case = '.((int) $case['id'])." AND status = 'active'";
+        if (!$this->db->query($sqlPause)) {
+            $this->error = $this->db->lasterror();
+            return false;
+        }
         return $this->addHistory((int) $case['entity'], (int) $case['id'], (int) $case['invoice_id'], $hasOpenFee ? 'invoice_paid_fee_open' : 'case_closed', (int) $case['current_level'], (float) max(0, $remain), 'manual', 'success', $reason, $user);
     }
 
