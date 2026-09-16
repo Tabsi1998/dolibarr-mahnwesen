@@ -33,7 +33,7 @@ if ($action === 'resolve_attempt' && $attemptId > 0) {
     if ($manager->resolveNoticeAttempt($attemptId, $resolution, $reason, $user)) {
         setEventMessages($langs->trans('MahnwesenAttemptResolved'), null, 'mesgs');
     } else {
-        setEventMessages($langs->trans('MahnwesenAttemptResolveFailed'), null, 'errors');
+        setEventMessages($langs->trans('MahnwesenAttemptResolveFailed'), array($manager->error), 'errors');
     }
     header('Location: '.dol_buildpath('/mahnwesen/attempts.php', 1)); exit;
 }
@@ -46,7 +46,7 @@ if ($action === 'settle_fee' && $feeId > 0) {
     $permissionInvoice = new Facture($db); if ($permissionInvoice->fetch($invoiceId) <= 0) { accessforbidden(); }
     $result = restrictedArea($user, 'facture', $permissionInvoice->id, '', '', 'fk_soc', 'rowid');
     if ($manager->settleFeeClaim($feeId, $feeStatus, $reason, $user)) { setEventMessages($langs->trans('MahnwesenFeeSettled'), null, 'mesgs'); }
-    else { setEventMessages($langs->trans('MahnwesenFeeSettleFailed'), null, 'errors'); }
+    else { setEventMessages($langs->trans('MahnwesenFeeSettleFailed'), array($manager->error), 'errors'); }
     header('Location: '.dol_buildpath('/mahnwesen/attempts.php', 1)); exit;
 }
 

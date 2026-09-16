@@ -141,7 +141,6 @@ if ($action === 'save_automation') {
     $extraAttachmentMax = GETPOSTINT('max_extra_attachments');
     $extraAttachmentMb = GETPOSTINT('max_extra_attachment_mb');
     $policy = GETPOST('recipient_policy', 'aZ09');
-    $attach = GETPOSTINT('attach_invoice_default') > 0 ? 1 : 0;
     $allowLanguageFallback = GETPOSTINT('allow_language_fallback') > 0 ? 1 : 0;
     $errors = array();
     if ($fromEmail !== '' && !filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) { $errors[] = $langs->trans('SenderEmailInvalid'); }
@@ -151,7 +150,9 @@ if ($action === 'save_automation') {
     if ($extraAttachmentMax < 0 || $extraAttachmentMax > 20) { $errors[] = $langs->trans('MahnwesenExtraAttachmentMaxInvalid'); }
     if ($extraAttachmentMb < 1 || $extraAttachmentMb > 100) { $errors[] = $langs->trans('MahnwesenExtraAttachmentMbInvalid'); }
     if (!in_array($policy, array('single_billing', 'first_billing'), true)) { $errors[] = $langs->trans('MahnwesenRecipientPolicyInvalid'); }
-    if ($auto && !GETPOSTINT('auto_send_confirm')) { $errors[] = $langs->trans('MahnwesenAutoSendConfirmationRequired'); }
+    // The explicit confirmation is needed to switch automatic sending on, not
+    // for every later save while it stays on.
+    if ($auto && !getDolGlobalInt('MAHNWESEN_AUTO_SEND_ENABLED', 0) && !GETPOSTINT('auto_send_confirm')) { $errors[] = $langs->trans('MahnwesenAutoSendConfirmationRequired'); }
     if (empty($errors)) {
         $db->begin();
         $ok = mw4_set_const($db, 'MAHNWESEN_FROM_EMAIL', $fromEmail, $conf->entity)
@@ -163,7 +164,6 @@ if ($action === 'save_automation') {
             && mw4_set_const($db, 'MAHNWESEN_MAX_EXTRA_ATTACHMENTS', $extraAttachmentMax, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_MAX_EXTRA_ATTACHMENT_MB', $extraAttachmentMb, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_AUTO_RECIPIENT_POLICY', $policy, $conf->entity)
-            && mw4_set_const($db, 'MAHNWESEN_ATTACH_INVOICE_DEFAULT', $attach, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_ALLOW_LANGUAGE_FALLBACK', $allowLanguageFallback, $conf->entity);
         if ($ok) { $db->commit(); setEventMessages($langs->trans('SetupSaved'), null, 'mesgs'); }
         else { $db->rollback(); setEventMessages($langs->trans('Error'), null, 'errors'); }
@@ -189,7 +189,6 @@ $autoMaxPerCustomer = getDolGlobalInt('MAHNWESEN_AUTO_MAX_PER_CUSTOMER', 1);
 $extraAttachmentMax = getDolGlobalInt('MAHNWESEN_MAX_EXTRA_ATTACHMENTS', 5);
 $extraAttachmentMb = getDolGlobalInt('MAHNWESEN_MAX_EXTRA_ATTACHMENT_MB', 10);
 $policy = getDolGlobalString('MAHNWESEN_AUTO_RECIPIENT_POLICY', 'single_billing');
-$attachDefault = getDolGlobalInt('MAHNWESEN_ATTACH_INVOICE_DEFAULT', 1);
 $allowLanguageFallback = getDolGlobalInt('MAHNWESEN_ALLOW_LANGUAGE_FALLBACK', 0);
 
 llxHeader('', $langs->trans('MahnwesenSetup'), '', '', 0, 0, '', '', '', 'mod-mahnwesen page-admin');
@@ -322,7 +321,7 @@ if ($tab === 'automation') {
     print '<table class="border centpercent tableforfield">';
     print '<tr><td class="titlefield">'.$langs->trans('NoticeSenderEmail').'</td><td><input class="minwidth300" type="email" name="from_email" value="'.dol_escape_htmltag($fromEmail).'"></td><td>'.$langs->trans('NoticeSenderEmailHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('EnableManualSend').'</td><td><input type="checkbox" name="manual_send_enabled" value="1"'.($manual ? ' checked' : '').'></td><td>'.$langs->trans('EnableManualSendHelp').'</td></tr>';
-    print '<tr><td>'.$langs->trans('MahnwesenAttachInvoiceDefault').'</td><td><input type="checkbox" name="attach_invoice_default" value="1"'.($attachDefault ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenAttachInvoiceDefaultHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenAttachInvoiceSetting').'</td><td></td><td>'.$langs->trans('MahnwesenAttachInvoiceFromTemplate').'</td></tr>';
     print '<tr><td>'.$langs->trans('MahnwesenRecipientPolicy').'</td><td><select name="recipient_policy">';
     print '<option value="single_billing"'.($policy === 'single_billing' ? ' selected' : '').'>'.$langs->trans('MahnwesenRecipientPolicySingle').'</option>';
     print '<option value="first_billing"'.($policy === 'first_billing' ? ' selected' : '').'>'.$langs->trans('MahnwesenRecipientPolicyFirst').'</option>';

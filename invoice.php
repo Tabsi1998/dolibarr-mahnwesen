@@ -64,7 +64,7 @@ if ($action === 'sync_case') {
 } elseif ($action === 'skip_stage') {
     if (!$user->hasRight('mahnwesen', 'case', 'write') || !$user->hasRight('mahnwesen', 'notice', 'send')) { accessforbidden(); }
     if ($manager->skipCurrentStage($id, $skipReason, $user)) { setEventMessages($langs->trans('MahnwesenStageSkipped'), null, 'mesgs'); }
-    else { setEventMessages($langs->trans('MahnwesenStageSkipFailed'), null, 'errors'); }
+    else { setEventMessages($langs->trans('MahnwesenStageSkipFailed'), array($manager->error), 'errors'); }
     mahnwesenInvoiceRedirect($id);
 } elseif ($action === 'generate_notice_pdf') {
     if (!$user->hasRight('mahnwesen', 'notice', 'send')) { accessforbidden(); }

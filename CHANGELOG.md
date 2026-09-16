@@ -7,6 +7,22 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-09-16
+
+Small fixes found while testing 1.0.1.
+
+### Fixed
+
+- The dashboard and its footer named version 0.5.3 (#9).
+- The setting "attach original invoice PDF by default" had no effect; it is
+  gone, and the setup explains that the stage's email template decides (#10).
+- Skipping a stage, resolving a delivery attempt and settling a fee said only
+  that they failed; they now name the reason (#11).
+- Saving the automation settings while automatic sending was already on asked
+  for the risk confirmation again; it is needed only to switch it on (#12).
+- The workflow and architecture documents and the German README described
+  stage skipping and the rule table as future or reserved (#13).
+
 ## [1.0.1] - 2026-09-16
 
 Bugfix release. The dunning tab, the composer and the dunning buttons work again
@@ -163,6 +179,7 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.2
 [1.0.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.0

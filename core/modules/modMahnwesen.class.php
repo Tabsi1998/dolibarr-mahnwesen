@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '1.0.1';
+        $this->version = '1.0.2';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -91,7 +91,6 @@ class modMahnwesen extends DolibarrModules
             11 => array('MAHNWESEN_AUTO_SEND_ENABLED', 'chaine', '0', 'Allow cron to send configured dunning levels automatically', 0, 'current', 1),
             12 => array('MAHNWESEN_AUTO_SEND_MAX', 'chaine', '10', 'Maximum automatic sends per cron run', 0, 'current', 0),
             13 => array('MAHNWESEN_AUTO_RECIPIENT_POLICY', 'chaine', 'single_billing', 'Automatic recipient resolution policy', 0, 'current', 0),
-            14 => array('MAHNWESEN_ATTACH_INVOICE_DEFAULT', 'chaine', '1', 'Attach existing invoice PDF by default', 0, 'current', 0),
             15 => array('MAHNWESEN_PRIVATE_FEES_ALLOWED', 'chaine', '0', 'Apply configured dunning fees to TE_PRIVATE customers', 0, 'current', 0),
             16 => array('MAHNWESEN_UNKNOWN_FEES_ALLOWED', 'chaine', '0', 'Apply configured dunning fees to unknown/special customer types', 0, 'current', 0),
             17 => array('MAHNWESEN_PRIVATE_FEE_1', 'chaine', '0.00', 'Private-person fee at payment reminder', 0, 'current', 0),
