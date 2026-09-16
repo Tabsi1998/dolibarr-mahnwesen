@@ -129,6 +129,16 @@ trait DunningNoticeServiceMethods4
             $pdf->Cell(43, 4, $outputlangs->transnoentities('Total'), 0, 0, 'R');
             $pdf->SetXY($marginLeft + $descW + 1.5, $y + 1.4);
             $pdf->Cell($amountW - 3, 4, $this->formatMoney($breakdown['total'], $outputlangs), 0, 0, 'R');
+            // The same deadline as __MAHNWESEN_PAYMENT_DEADLINE__ in the email (#64).
+            $deadline = $this->manager->getPaymentDeadline((int) $level);
+            if ($deadline) {
+                $y += $rowH;
+                $pdf->SetFont('', '', $defaultFontSize);
+                $pdf->SetXY($marginLeft + $descW - 45, $y + 1.4);
+                $pdf->Cell(43, 4, $outputlangs->transnoentities('MahnwesenPaymentDeadline'), 0, 0, 'R');
+                $pdf->SetXY($marginLeft + $descW + 1.5, $y + 1.4);
+                $pdf->Cell($amountW - 3, 4, dol_print_date($deadline, 'day', 'tzserver', $outputlangs), 0, 0, 'R');
+            }
 
             // Printed letter body. The dedicated PDF cleanup removes email-only
             // signature graphics and supports an explicit PDF end marker.
@@ -265,6 +275,8 @@ trait DunningNoticeServiceMethods4
         $historyMessage .= "\nInvoice amount: ".number_format($breakdown['invoice'], 2, '.', '').' '.$GLOBALS['conf']->currency;
         $historyMessage .= "\nDunning fee: ".number_format($breakdown['fee'], 2, '.', '').' '.$GLOBALS['conf']->currency;
         $historyMessage .= "\nTotal: ".number_format($breakdown['total'], 2, '.', '').' '.$GLOBALS['conf']->currency;
+        $deadline = $this->manager->getPaymentDeadline((int) $level);
+        if ($deadline) { $historyMessage .= "\nPayment deadline: ".dol_print_date($deadline, '%Y-%m-%d', 'tzserver'); }
 
         // Reserve before generating or touching an attachment. The manager
         // revalidates current amount, fee, stage, cooldown, pause and entity

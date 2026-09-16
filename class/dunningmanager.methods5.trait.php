@@ -168,6 +168,23 @@ trait DunningManagerMethods5
         return max(0.0, (float) price2num($value));
     }
 
+    /** Payment period in days that a notice of this stage grants, 0 for none (#64). */
+    public function getPaymentDaysForLevel($level)
+    {
+        $level = max(1, min(4, (int) $level));
+        return max(0, min(365, getDolGlobalInt('MAHNWESEN_PAYMENT_DAYS_'.$level, 0)));
+    }
+
+    /** Payment deadline of a notice of this stage written at $from (default now), null without a period. */
+    public function getPaymentDeadline($level, $from = null)
+    {
+        $days = $this->getPaymentDaysForLevel($level);
+        if ($days <= 0) {
+            return null;
+        }
+        return (int) strtotime('+'.$days.' days', $from === null ? dol_now() : (int) $from);
+    }
+
     /**
      * Return the fee actually applied for a stage/customer.
      *

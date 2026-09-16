@@ -10,6 +10,8 @@
         ['__MAHNWESEN_CUSTOMER_CLASS__', 'Privatperson / Unternehmen / unklar'],
         ['__MAHNWESEN_NEXT_STAGE_DATE__', 'Datum der nächsten Mahnstufe'],
         ['__MAHNWESEN_FEE_PARAGRAPH__', 'fertiger Absatz zu Mahnspesen'],
+        ['__MAHNWESEN_PAYMENT_DEADLINE__', 'Zahlungsfrist (Datum)'],
+        ['__MAHNWESEN_PAYMENT_DAYS__', 'Zahlungsfrist in Tagen'],
         ['{INVOICE_REF}', 'Rechnungsnummer'],
         ['{CUSTOMER_NAME}', 'Kundenname'],
         ['{INVOICE_DATE}', 'Rechnungsdatum'],

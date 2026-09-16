@@ -7,6 +7,26 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-09-16
+
+A payment deadline in dunning notices.
+
+### Added
+
+- A payment period per stage under *Setup > Stages & fees* (0 = none, the
+  default, so nothing changes until you set one). A notice then names the date
+  by which to pay: in the PDF below the total, and in email templates as
+  `__MAHNWESEN_PAYMENT_DEADLINE__` (with `__MAHNWESEN_PAYMENT_DAYS__` for the
+  number of days). Until now a template could only print today's date (#64).
+- The history of a sent notice records its payment deadline (#64).
+
+### Changed
+
+- After a notice with a payment deadline, the next stage becomes due no
+  earlier than the day after that deadline, and `__MAHNWESEN_NEXT_STAGE_DATE__`
+  says so. The next notice no longer arrives while the customer still has time
+  to pay (#64).
+
 ## [1.0.4] - 2026-09-16
 
 Email templates as you would expect them, and updates that keep manual sending.
@@ -226,7 +246,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.5
 [1.0.4]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.4
 [1.0.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.3
 [1.0.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.2
