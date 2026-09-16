@@ -4,11 +4,12 @@ trait DunningNoticeServiceMethods4
 {
 
     /**
-     * Generate a dunning PDF. Preview files stay in the Mahnwesen document
-     * area. Non-preview files are stored in the invoice document directory so
-     * Dolibarr shows them with the invoice's other linked/generated files.
-     * The invoice record itself is never modified and last_main_doc is not
-     * changed.
+     * Generate a dunning PDF. A preview stays in the module's notices folder.
+     * The PDF of a delivery attempt (context attempt_id) goes into that
+     * attempt's evidence folder of the module. Any other final PDF goes into
+     * the invoice documents as REF_<stage>.pdf, replacing the earlier one of
+     * that stage. The invoice record itself is never modified and
+     * last_main_doc is not changed.
      *
      * @param Facture $invoice Invoice
      * @param array $case Stored case
@@ -37,18 +38,19 @@ trait DunningNoticeServiceMethods4
             $dir = $location['dir'];
             $filename = $location['filename'];
             $relative = $location['relative'];
+        } elseif (!empty($context['attempt_id'])) {
+            $modulepart = 'mahnwesen';
+            $dir = $this->getAttemptEvidenceDir((int) $context['attempt_id']);
+            $filename = $this->getFinalPdfFilename($invoice, (int) $level);
+            $relative = 'attempts/'.((int) $context['attempt_id']).'/'.$filename;
         } else {
             $root = $this->getInvoiceDocumentRoot($invoice);
             if ($root === '') { $this->error = 'Invoice document output directory is unavailable'; return false; }
-            // Put the dunning PDF into the exact directory used by the invoice
-            // documents. This also respects installations using a custom or
-            // hierarchical invoice document path and makes the file visible in
-            // Dolibarr's regular "Linked files" block.
+            // The invoice's own document folder, so Dolibarr lists the PDF with
+            // the invoice's other files; custom document paths are respected.
             $invoicePdfPath = $this->getInvoicePdfPath($invoice);
             $dir = ($invoicePdfPath !== '') ? dirname($invoicePdfPath) : rtrim($root, '/').'/'.$safeRef;
-            $attemptId = !empty($context['attempt_id']) ? (int) $context['attempt_id'] : 0;
-            $suffix = $attemptId > 0 ? '_A'.$attemptId : '_'.date('Ymd_His', dol_now());
-            $filename = $safeRef.'_'.$stagePart.$suffix.'.pdf';
+            $filename = $this->getFinalPdfFilename($invoice, (int) $level);
             $relativeDir = ltrim(str_replace('\\', '/', substr($dir, strlen(rtrim($root, '/')))), '/');
             $relative = ($relativeDir !== '' ? $relativeDir.'/' : '').$filename;
         }
@@ -329,10 +331,10 @@ trait DunningNoticeServiceMethods4
                 $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
                 return false;
             }
-            // Attach an attempt-specific copy. Dolibarr may regenerate its
+            // Attach a copy kept with the attempt. Dolibarr may regenerate its
             // main invoice PDF later; the copied bytes and stored hash must
             // continue to identify exactly what this email contained.
-            $invoicePdf = dirname($pdfInfo['fullpath']).'/'.dol_sanitizeFileName($freshInvoice->ref).'_Invoice_A'.$attemptId.'.pdf';
+            $invoicePdf = dirname($pdfInfo['fullpath']).'/'.basename($sourceInvoicePdf);
             if (!@copy($sourceInvoicePdf, $invoicePdf) || !is_readable($invoicePdf) || filesize($invoicePdf) <= 0) {
                 $this->error = 'Unable to create an immutable snapshot of the original invoice PDF.';
                 $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
@@ -348,7 +350,8 @@ trait DunningNoticeServiceMethods4
             }
         }
         foreach ($checkedExtraAttachments as $index => $extra) {
-            $snapshot = dirname($pdfInfo['fullpath']).'/'.dol_sanitizeFileName($freshInvoice->ref).'_Attachment_A'.$attemptId.'_'.($index + 1).'_'.$extra['name'];
+            // Numbered, so two uploads with the same name cannot overwrite each other.
+            $snapshot = dirname($pdfInfo['fullpath']).'/extra-'.($index + 1).'-'.$extra['name'];
             if (!@copy($extra['path'], $snapshot) || !is_readable($snapshot) || filesize($snapshot) <= 0) {
                 $this->error = 'Unable to create an immutable snapshot of an additional attachment.';
                 $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
@@ -438,6 +441,12 @@ trait DunningNoticeServiceMethods4
         if (!$this->manager->finalizeNoticeAttempt($attemptId, true, $historyMessage, $case, $user, false, $messageId)) {
             $this->error = 'The mailer reported success, but audit finalization failed. Do not retry; the attempt remains blocked. '.$this->manager->error;
             return false;
+        }
+
+        // The invoice documents show the dunning PDF of each stage under its
+        // plain name; the attempt folder keeps the exact evidence.
+        if ($this->publishToInvoiceDocuments($freshInvoice, $level, $pdfInfo['fullpath']) === '') {
+            $this->errors[] = 'The email was sent, but the dunning PDF could not be copied to the invoice documents.';
         }
 
         // Advance only to the next sequentially allowed stage. A failure here

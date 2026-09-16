@@ -10,6 +10,7 @@ Dolibarr cron runner, the mail server and the database.
 from __future__ import annotations
 
 import datetime
+import hashlib
 import html
 import json
 import re
@@ -106,6 +107,12 @@ class Stack:
         completed = self.run(self.docker, "logs", self.web, check=False, timeout=120)
         return completed.stdout + completed.stderr
 
+    def files(self, directory: str) -> list[str]:
+        """File names in a directory of the Dolibarr container, empty when it does not exist."""
+        completed = self.run(self.docker, "exec", self.web, "sh", "-c", f"ls -1 '{directory}' 2>/dev/null || true",
+                             check=False, timeout=60)
+        return sorted(line.strip() for line in completed.stdout.splitlines() if line.strip())
+
 
 def invoice(stack: Stack, key: str) -> dict:
     return stack.fixtures["invoices"][key]
@@ -127,6 +134,14 @@ def form_with_action(page: Page, action: str, what: str):
     form = next((form for form in page.forms() if form.value("action") == action), None)
     expect(form is not None, f"{what}: no form with action {action}")
     return form
+
+
+STRAY_NAME = re.compile(r"_A\d+\.pdf$|_\d{8}_\d{6}\.pdf$|_Invoice_A\d+|_Attachment_A\d+")
+DOCUMENTS = "/var/www/documents"
+
+
+def invoice_documents(stack: "Stack", key: str) -> list[str]:
+    return stack.files(f"{DOCUMENTS}/facture/{invoice(stack, key)['ref']}")
 
 
 def page_ok(page: Page, what: str) -> Page:
@@ -265,6 +280,25 @@ def manual_send(stack: Stack) -> str:
            f"attachments received {sorted(received)} differ from those recorded {sorted(recorded)}")
     differing = [name for name in received if received[name] != recorded[name]]
     expect(not differing, f"SHA-256 in the database differs from the delivered bytes: {differing}")
+    expected_names = {f"{company['ref']}_Zahlungserinnerung.pdf", f"{company['ref']}.pdf"}
+    expect(set(received) == expected_names,
+           f"the email's attachments are named {sorted(received)}, expected {sorted(expected_names)} (#52)")
+    attempt_id = int(attempts[0][0])
+    evidence = stack.sql(f"SELECT rowid, snapshot_path, sha256 FROM llx_mahnwesen_attempt_file WHERE fk_attempt = {attempt_id}")
+    outside = [row[1] for row in evidence if not row[1].startswith(f"{DOCUMENTS}/mahnwesen/attempts/{attempt_id}/")]
+    expect(not outside, f"evidence files are kept outside the attempt folder: {outside} (#19)")
+    documents = invoice_documents(stack, "company_overdue")
+    expect(f"{company['ref']}_Zahlungserinnerung.pdf" in documents,
+           f"the invoice documents lack the dunning PDF under its stage name: {documents} (#52)")
+    stray = [name for name in documents if STRAY_NAME.search(name)]
+    expect(not stray, f"the invoice documents carry timestamped or attempt copies: {stray} (#52)")
+    for row in evidence:
+        download = browser.get(f"/custom/mahnwesen/attempts.php?evidence={row[0]}")
+        expect(download.status == 200 and hashlib.sha256(download.body).hexdigest() == row[2],
+               f"downloading evidence file {row[0]} did not return the recorded bytes (HTTP {download.status}) (#19)")
+    stranger = stack.browser("rtother").get(f"/custom/mahnwesen/attempts.php?evidence={evidence[0][0]}")
+    expect(hashlib.sha256(stranger.body).hexdigest() != evidence[0][2],
+           "a user outside the customer scope downloads delivery evidence")
     history = stack.value("SELECT COUNT(*) FROM llx_mahnwesen_history WHERE action = 'notice_sent' "
                           f"AND result = 'success' AND level = 1 AND fk_facture = {company['id']}")
     expect(history == "1", "no notice_sent history row for the reminder")
@@ -322,7 +356,7 @@ def attachment_choice(stack: Stack) -> str:
     messages = mailpit.messages()
     expect(len(messages) == 1, f"expected one email, Mailpit received {len(messages)}")
     names = sorted(mailpit.attachment_hashes(messages[0]["ID"]))
-    expect(len(names) == 1 and "Zahlungserinnerung" in names[0],
+    expect(names == [f"{renamed['ref']}_Zahlungserinnerung.pdf"],
            f"with the invoice PDF unticked the email carried {names}")
     roles = [row[0] for row in stack.sql(
         "SELECT f.file_role FROM llx_mahnwesen_attempt_file f JOIN llx_mahnwesen_attempt a ON a.rowid = f.fk_attempt "
@@ -380,6 +414,26 @@ def failure_reason(stack: Stack) -> str:
     skipped = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE action = 'stage_skipped' AND fk_facture = {company['id']}")
     expect(skipped == "0", "a stage was skipped without a reason")
     return "skipping without a reason is refused and the page names the reason"
+
+
+def documents(stack: Stack) -> str:
+    """Generating a stage's PDF twice leaves one file under its plain name (#52)."""
+    private = invoice(stack, "private_overdue")
+    browser = stack.browser()
+    composer = page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={private['id']}"), "composer")
+    announced = html.unescape(composer.text)
+    expect(f"{private['ref']}_Zahlungserinnerung.pdf" in announced and "A<id>" not in announced,
+           "the composer does not announce the dunning PDF under its plain name")
+    for attempt in (1, 2):
+        tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={private['id']}"), "invoice tab")
+        page_ok(browser.submit(form_with_action(tab, "generate_notice_pdf", "invoice tab")), f"generate the PDF ({attempt})")
+    files = invoice_documents(stack, "private_overdue")
+    expected = sorted([f"{private['ref']}.pdf", f"{private['ref']}_Zahlungserinnerung.pdf"])
+    expect(files == expected, f"after generating twice the invoice documents are {files}, expected {expected}")
+    generated = stack.value("SELECT COUNT(*) FROM llx_mahnwesen_history WHERE action = 'document_generated' "
+                            f"AND fk_facture = {private['id']}")
+    expect(generated == "2", f"expected two document_generated history rows, found {generated}")
+    return "one PDF per stage in the invoice documents, replaced on regeneration, both generations in the history"
 
 
 def automation(stack: Stack) -> str:
@@ -448,6 +502,7 @@ SCENARIOS = (
     ("manual-send", "The composer sends one reminder with verified attachments", manual_send, ("pages",)),
     ("attachment-choice", "Renamed invoice PDF found, unticked PDF not sent", attachment_choice, ("pages",)),
     ("pause-label", "Pause labels are right and closing ends the pause", pause_label, ("synchronise",)),
+    ("documents", "One dunning PDF per stage in the invoice documents", documents, ("pages",)),
     ("automation", "The cron sends automatically only when switched on, once", automation,
      ("manual-send", "attachment-choice")),
 )

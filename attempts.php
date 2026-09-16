@@ -14,10 +14,33 @@ if (!$res) { die('Include of main fails'); }
 
 require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
 require_once dol_buildpath('/mahnwesen/class/dunningmanager.class.php', 0);
+require_once dol_buildpath('/mahnwesen/class/dunningnotice.class.php', 0);
 $langs->loadLangs(array('mahnwesen@mahnwesen', 'bills', 'mails'));
 if (!isModEnabled('mahnwesen') || !empty($user->socid) || !$user->hasRight('mahnwesen', 'case', 'write') || !$user->hasRight('facture', 'lire')) { accessforbidden(); }
 
 $manager = new DunningManager($db);
+$service = new DunningNoticeService($db, $manager);
+
+// Deliver one evidence file of a delivery attempt behind the invoice's access
+// check. No "action" parameter: a read-only request needs no CSRF token.
+if (GETPOSTISSET('evidence')) {
+    $evidence = $manager->getNoticeAttemptFile(GETPOSTINT('evidence'));
+    if (!is_array($evidence)) { accessforbidden(); }
+    $evidenceInvoice = new Facture($db);
+    if ($evidenceInvoice->fetch((int) $evidence['fk_facture']) <= 0) { accessforbidden(); }
+    restrictedArea($user, 'facture', $evidenceInvoice->id, '', '', 'fk_soc', 'rowid');
+    $evidencePath = $service->getAttemptEvidencePath($evidence, $evidenceInvoice);
+    if ($evidencePath === '') { http_response_code(404); print 'Evidence file not found'; exit; }
+    $evidenceMime = preg_match('#^[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*$#i', (string) $evidence['mime_type']) ? (string) $evidence['mime_type'] : 'application/octet-stream';
+    header('Content-Type: '.$evidenceMime);
+    header('Content-Disposition: attachment; filename="'.dol_sanitizeFileName((string) $evidence['display_name']).'"');
+    header('Content-Length: '.filesize($evidencePath));
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: private, no-store');
+    readfile($evidencePath);
+    exit;
+}
+
 $action = GETPOST('action', 'aZ09');
 $attemptId = GETPOSTINT('attempt_id');
 if ($action === 'resolve_attempt' && $attemptId > 0) {
@@ -123,7 +146,8 @@ foreach ($attempts as $attempt) {
         $roleKey = array('dunning' => 'MahnwesenAttachmentRoleDunning', 'invoice' => 'MahnwesenAttachmentRoleInvoice', 'additional' => 'MahnwesenAttachmentRoleAdditional');
         foreach ($attemptFiles as $attemptFile) {
             $role = isset($roleKey[$attemptFile['file_role']]) ? $langs->trans($roleKey[$attemptFile['file_role']]) : (string) $attemptFile['file_role'];
-            print '<tr class="oddeven"><td>'.dol_escape_htmltag($role).'</td><td>'.dol_escape_htmltag((string) $attemptFile['display_name']).'</td><td class="right">'.dol_print_size((int) $attemptFile['size_bytes']).'</td><td><code>'.dol_escape_htmltag((string) $attemptFile['sha256']).'</code></td></tr>';
+            $evidenceUrl = dol_buildpath('/mahnwesen/attempts.php?evidence='.((int) $attemptFile['rowid']), 1);
+            print '<tr class="oddeven"><td>'.dol_escape_htmltag($role).'</td><td><a href="'.dol_escape_htmltag($evidenceUrl).'">'.img_mime((string) $attemptFile['display_name']).' '.dol_escape_htmltag((string) $attemptFile['display_name']).'</a></td><td class="right">'.dol_print_size((int) $attemptFile['size_bytes']).'</td><td><code>'.dol_escape_htmltag((string) $attemptFile['sha256']).'</code></td></tr>';
         }
         print '</table></div>';
     }
