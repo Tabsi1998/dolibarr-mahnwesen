@@ -1091,11 +1091,63 @@ def windows_package(context: Context) -> str:
     return f"identical to the Linux build ({count} files in the working copy)"
 
 
+def publishing_package(context: Context) -> str:
+    """What scripts/publish.py uploads: the same bytes every build, names Dolibarr accepts.
+
+    Dolibarr's installer takes the module folder from the file name, so a
+    package called anything but mahnwesen-<digits and dots>.zip cannot be
+    installed. The development package carries its version inside as well.
+    """
+    linux = context.cache.get("linux-zip")
+    if not linux:
+        raise StepSkipped("the Linux package has to be built first")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import publish  # noqa: E402 - the publishing script lives next to this one
+    match = re.search(r"\$this->version\s*=\s*'([^']+)'", MODULE.read_text(encoding="utf-8"))
+    version = match.group(1) if match else ""
+    problems = []
+    first = hashlib.sha256(linux.read_bytes()).hexdigest()
+    again = in_php(context, RELEASE_PHP, "bash scripts/build-release.sh", image=ZIP_IMAGE)
+    if again.returncode != 0:
+        raise StepFailed("the second release build failed:\n" + tail(again))
+    if hashlib.sha256(linux.read_bytes()).hexdigest() != first:
+        problems.append("two builds of the same files differ byte for byte; the packaging is not reproducible")
+    dev_version = f"{version}.7"
+    dev = in_php(context, RELEASE_PHP, f"PACKAGE_VERSION={dev_version} bash scripts/build-release.sh", image=ZIP_IMAGE)
+    context.log("build-release-dev", dev.stdout + dev.stderr)
+    dev_zip = SNAPSHOT / "dist" / f"mahnwesen-{dev_version}.zip"
+    if dev.returncode != 0 or not dev_zip.is_file():
+        raise StepFailed("the development package did not build:\n" + tail(dev))
+    for name in (linux.name, dev_zip.name):
+        if publish.installer_module_name(name) != "mahnwesen":
+            problems.append(f"Dolibarr's installer would not install {name} as module mahnwesen")
+    if publish.installer_module_name("mahnwesen-main.zip") is not None:
+        problems.append("the installer rule in publish.py accepts a name Dolibarr refuses")
+    release_files = publish.fingerprint(linux)
+    dev_files = publish.fingerprint(dev_zip)
+    descriptor = "mahnwesen/core/modules/modMahnwesen.class.php"
+    if set(release_files) != set(dev_files):
+        problems.append("the development package holds other files than the release package")
+    differing = sorted(name for name in release_files if release_files[name] != dev_files.get(name))
+    if differing != [descriptor]:
+        problems.append(f"the development package should differ only in its descriptor, differs in {differing[:4]}")
+    with zipfile.ZipFile(dev_zip) as bundle:
+        if f"$this->version = '{dev_version}'" not in bundle.read(descriptor).decode("utf-8", "replace"):
+            problems.append(f"the development package does not carry version {dev_version} inside")
+    for leftover in (dev_zip, dev_zip.with_name(dev_zip.name + ".sha256")):
+        leftover.unlink(missing_ok=True)
+    if problems:
+        raise StepFailed("the published packages would be wrong:\n  " + "\n  ".join(problems))
+    return f"reproducible, {linux.name} and {dev_zip.name} install as mahnwesen, development version inside"
+
+
 def package_steps() -> list:
     return [
         Step("package", "linux", "The installable ZIP as the Linux runner builds it", linux_package,
              ("repository/snapshot",)),
         Step("package", "windows", "The Windows build path yields the same ZIP", windows_package,
+             ("linux",)),
+        Step("package", "publishing", "Published packages are reproducible and installable", publishing_package,
              ("linux",)),
     ]
 

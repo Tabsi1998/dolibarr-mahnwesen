@@ -1,19 +1,26 @@
 name: Release ZIP
 
+# A release is published locally with `python scripts/publish.py release`,
+# which creates the tag. This workflow builds the same commit again on GitHub:
+# it compares its package file by file with the published one, or publishes it
+# when the tag was pushed without a local release.
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   release:
+    # Old test tags such as v0.5.4-test.1 are not releases.
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -22,66 +29,17 @@ jobs:
       - name: Validate module
         run: bash scripts/check-module.sh
 
-      - name: Build installable ZIP
-        run: bash scripts/build-release.sh
-
-      - name: Read module version
-        id: version
+      - name: Verify tag matches module version
         shell: bash
         run: |
           set -euo pipefail
           VERSION="$(awk -F"'" '/\$this->version[[:space:]]*=/ {print $2; exit}' core/modules/modMahnwesen.class.php)"
-          test -n "$VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "zip=dist/mahnwesen-$VERSION.zip" >> "$GITHUB_OUTPUT"
-          echo "checksum=dist/mahnwesen-$VERSION.zip.sha256" >> "$GITHUB_OUTPUT"
-
-      - name: Verify tag matches module version
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
-          TAG="$GITHUB_REF_NAME"
-          [[ "$TAG" == "v${VERSION}" || "$TAG" == "v${VERSION}-"* ]] || {
-            echo "Tag $TAG does not match module version $VERSION" >&2
+          [[ "$GITHUB_REF_NAME" == "v${VERSION}" ]] || {
+            echo "Tag $GITHUB_REF_NAME does not match module version $VERSION" >&2
             exit 1
           }
 
-      - name: Upload ZIP artifact
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: mahnwesen-${{ steps.version.outputs.version }}
-          path: ${{ steps.version.outputs.zip }}
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Publish tagged stable/prerelease
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Build, then publish or verify the release package
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="$GITHUB_REF_NAME"
-          EXTRA=()
-          if [[ "$TAG" == *-* ]]; then EXTRA=(--prerelease); fi
-          gh release create "$TAG" "${{ steps.version.outputs.zip }}" "${{ steps.version.outputs.checksum }}" \
-            --title "Mahnwesen $TAG" \
-            --generate-notes \
-            "${EXTRA[@]}"
-
-      - name: Publish manual test release
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
-          TAG="v${VERSION}-test.${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" "${{ steps.version.outputs.zip }}" "${{ steps.version.outputs.checksum }}" \
-            --target "$GITHUB_SHA" \
-            --title "Mahnwesen ${VERSION} Test ${GITHUB_RUN_NUMBER}" \
-            --notes "Automatisch erzeugter Test-Build aus main. Vor Produktivbetrieb zuerst in Dolibarr prüfen." \
-            --prerelease
+        run: python3 scripts/publish.py release --ci

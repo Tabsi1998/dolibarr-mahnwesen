@@ -85,7 +85,7 @@ Git-Checkout direkt in den Custom-Ordner:
 git clone https://github.com/Tabsi1998/dolibarr-mahnwesen.git htdocs/custom/mahnwesen
 ```
 
-Release-ZIPs verwenden das Format `mahnwesen-x.y.z.zip` mit dem Ordner `mahnwesen/` als ZIP-Wurzel.
+Release-ZIPs verwenden das Format `mahnwesen-x.y.z.zip` mit dem Ordner `mahnwesen/` als ZIP-Wurzel und liegen unter [Releases](https://github.com/Tabsi1998/dolibarr-mahnwesen/releases). Die Vorabversion „Entwicklungsstand (main)“ enthält nach jedem Merge den neuesten Stand als `mahnwesen-x.y.z.n.zip` - nur zum Testen, nicht für den Produktivbetrieb. Details: [docs/RELEASES.md](docs/RELEASES.md).
 
 Nach dem Upgrade auf `1.0.0` das Modul einmal deaktivieren und wieder aktivieren. Dadurch werden auch die Tabellen für vollständige Anhangsnachweise und Automatikläufe angelegt; Mahnfälle und Historie bleiben erhalten. Die Automatik erst nach einem Staging-Smoke-Test aktivieren.
 
