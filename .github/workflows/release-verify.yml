@@ -1,0 +1,56 @@
+# Releases are built and published by scripts/release.py on the developer's
+# machine. This rebuilds the package from the tag and proves the published ZIP
+# is exactly that build, and that the release is flagged the way its version says.
+name: Verify release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag of the release to verify, for example v1.0.1
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Tag matches the module version
+        run: python scripts/release.py --metadata --tag "$TAG"
+      - name: Rebuild the package from the tag
+        run: python scripts/build_release.py --out rebuilt
+      - name: Published package is that build
+        run: |
+          set -euo pipefail
+          mkdir published
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir published --pattern 'module_mahnwesen-*.zip' --pattern 'module_mahnwesen-*.zip.sha256'
+          for file in rebuilt/*; do
+            name="$(basename "$file")"
+            test -f "published/$name" || { echo "the release lacks $name" >&2; exit 1; }
+            cmp "$file" "published/$name" || { echo "$name on the release differs from the build of $TAG" >&2; exit 1; }
+          done
+          test "$(ls published | wc -l)" -eq "$(ls rebuilt | wc -l)" || { echo "the release carries other package files" >&2; exit 1; }
+          echo "published package is byte for byte the build of $TAG"
+      - name: Pre-release flag matches the version
+        run: |
+          set -euo pipefail
+          prerelease="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)"
+          case "$TAG" in
+            *-beta) expected=true ;;
+            *) expected=false ;;
+          esac
+          test "$prerelease" = "$expected" || { echo "$TAG is marked pre-release=$prerelease, expected $expected" >&2; exit 1; }
+          echo "pre-release=$prerelease as expected for $TAG"

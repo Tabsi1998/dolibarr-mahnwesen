@@ -28,8 +28,8 @@ ignored by Git.
 | repository | - | every `*.sh` parses, no CRLF in the index, `git diff --check` over every tracked line, Gitleaks over the history and over uncommitted files |
 | php | ci.yml `php-lint` matrix | `scripts/check-module.sh` in `php:7.4-cli` to `php:8.4-cli`, and proof that its lint, policy tests, language keys and contracts really ran (it skips them silently without php) |
 | dolibarr | ci.yml `dolibarr-api` matrix | `scripts/check-dolibarr-api.sh` for 21.0, 22.0, 23.0 and 24.0 |
-| package | ci.yml `build-package` | `scripts/build-release.sh` in `local-ci/mahnwesen-zip:8.2` (php:8.2-cli plus zip, built on first use), the ZIP checked file by file, the Windows fallback of the script compared with it, a second build byte-identical, and the development package (version inside, installer file name) |
-| release | release.yml | module version is x.y.z and matches the newest changelog entry and any tag; `phpmin` and `need_dolibarr_version` equal the lowest entry of each matrix |
+| package | ci.yml `package` | `scripts/build_release.py` from the working copy and from the snapshot, byte for byte identical, verified file by file |
+| release | ci.yml `package`, release-verify.yml | `scripts/release.py --metadata`: version, dated changelog section with link, support matrix (descriptor, `PHP_VERSIONS`, `DOLIBARR_VERSIONS`, `check-dolibarr-api.sh`, ci.yml, README tables); any tag matches; a package changed since the newest release needs a new version |
 | runtime | - | the module in a running Dolibarr 21.0, 22.0, 23.0 and 24.0 (official images, MariaDB, Mailpit), driven through its pages and the Dolibarr cron; see below |
 | extra | - | PHP 8.4 deprecations and warnings in `tests/run.php`, printf placeholders that differ between de_DE and en_US, ShellCheck, OSV |
 
@@ -70,21 +70,24 @@ and the throwaway passwords. A bug fix gets a scenario that fails before the
 fix; a new Dolibarr major gets a line in `RUNTIME_IMAGES`, `DOLIBARR_VERSIONS`,
 `scripts/check-dolibarr-api.sh` and the CI matrix.
 
-## Publishing packages
+## Releases
 
-Fabian only merges. After his merge Claude runs, from an up-to-date `main`:
+Every merged pull request that changes the package is released as "Mahnwesen
+vX.Y.Z", the same scheme as dolibarr-vereine. Such a pull request raises
+`$this->version` and turns its changelog entries into `## [x.y.z] - YYYY-MM-DD`
+with a link at the bottom; the local release step fails otherwise. After
+Fabian's merge Claude runs, on an up-to-date `main`:
 
 ```bash
-python scripts/publish.py dev        # development package into "Entwicklungsstand (main)"
-python scripts/publish.py release    # after a merged version bump: release vX.Y.Z
+python scripts/local_check.py
+python scripts/release.py --check
+python scripts/release.py
 ```
 
-It runs the local check when it has not passed for that commit, builds from
-`git archive` in the ZIP image and uploads, or - when GitHub's `publish-dev`
-job or `release.yml` was first - compares its build with the published ZIP file
-by file. Details and the release steps: `docs/RELEASES.md`. File names must stay
-`mahnwesen-<digits and dots>.zip`; Dolibarr's installer derives the module
-folder from them.
+`release-verify.yml` then rebuilds the tag and compares the published ZIP byte
+for byte. Details: `docs/RELEASES.md`. The package name must stay
+`module_mahnwesen-x.y.z.zip`; Dolibarr's installer derives the module folder
+from it.
 
 ## Keep in step
 
@@ -95,10 +98,8 @@ folder from them.
 - `scripts/check-module.sh` holds static contracts. A contract that only greps
   the start of a call proves nothing: the one for `restrictedArea()` did so and
   kept every user locked out until the runtime checks ran (#44).
-- `build-release.sh` packs every file it does not exclude. Local-only folders
-  such as `.ci-panel/` must stay out of Git, or the release ZIP carries them.
-  `CONTRIBUTING.md` and `CLAUDE.md` are excluded; a new developer document
-  needs an exclude in the script and in `PACKAGE_EXCLUDES` too.
+- `build_release.py` packs every tracked file outside `EXCLUDED_TOP`. A new
+  developer-only top-level file or folder needs an entry there.
 
 ## Ratchet
 
@@ -106,7 +107,7 @@ The extra group and the whitespace check compare against
 `scripts/ci-baseline.json`: known findings are debt, new ones fail. After
 paying debt down, run `python scripts/local_check.py --all --record` and commit
 the baseline. Debt on 2026-09-16: trailing whitespace in `admin/setup.php`
-(SC2155 in `scripts/build-release.sh` was paid down with #49).
+(the ShellCheck finding left with `build-release.sh`).
 
 ## Extending the checks
 

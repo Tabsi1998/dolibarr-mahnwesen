@@ -31,6 +31,7 @@ an explicit static safety contract.
 - use the central reservation/eligibility path for every delivery;
 - keep `llx_mahnwesen_history` append-only;
 - update German and English language keys together;
-- update `CHANGELOG.md` for user-visible changes.
+- update `CHANGELOG.md` for user-visible changes;
+- a change to the installable package raises the module version and carries its dated changelog section, see [docs/RELEASES.md](docs/RELEASES.md).
 
 Security issues must follow [SECURITY.md](SECURITY.md), not a public issue.
