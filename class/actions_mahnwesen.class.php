@@ -93,28 +93,33 @@ class ActionsMahnwesen extends CommonHookActions
             $label = $langs->trans('MahnwesenPrepareStage', $stage);
             $pdfAction = dol_buildpath('/mahnwesen/invoice.php', 1);
             $pdfLabel = $langs->trans('MahnwesenGenerateLinkedPdf', $stage);
-            $this->resprints = '<a class="butAction" href="'.dol_escape_htmltag($url).'">'.img_picto('', 'email').' '.dol_escape_htmltag($label).'</a>';
-            $this->resprints .= '<form method="POST" class="inline-block" action="'.dol_escape_htmltag($pdfAction).'">';
-            $this->resprints .= '<input type="hidden" name="token" value="'.newToken().'">';
-            $this->resprints .= '<input type="hidden" name="id" value="'.((int) $object->id).'">';
-            $this->resprints .= '<input type="hidden" name="action" value="generate_notice_pdf">';
-            $this->resprints .= '<button class="butAction" type="submit">'.img_picto('', 'pdf').' '.dol_escape_htmltag($pdfLabel).'</button></form>';
+            $out = '<a class="butAction" href="'.dol_escape_htmltag($url).'">'.img_picto('', 'email').' '.dol_escape_htmltag($label).'</a>';
+            $out .= '<form method="POST" class="inline-block" action="'.dol_escape_htmltag($pdfAction).'">';
+            $out .= '<input type="hidden" name="token" value="'.newToken().'">';
+            $out .= '<input type="hidden" name="id" value="'.((int) $object->id).'">';
+            $out .= '<input type="hidden" name="action" value="generate_notice_pdf">';
+            $out .= '<button class="butAction" type="submit">'.img_picto('', 'pdf').' '.dol_escape_htmltag($pdfLabel).'</button></form>';
+            // The invoice card does not print the hook manager's output for
+            // this hook, so the buttons are printed here, as Dolibarr expects.
+            print $out;
             return 0;
         }
 
+        $out = '';
         // Do not add noisy disabled buttons for a closed/completed workflow. A
         // paused case gets one disabled indicator so the user understands why
         // the expected dunning action is currently unavailable.
         if (!empty($case['paused']) && $requiredLevel > 0) {
             $stage = $langs->trans($manager->getStageLabelKey($requiredLevel));
             $title = $langs->trans('NoticeCasePaused');
-            $this->resprints = '<span class="butActionRefused classfortooltip" title="'.dol_escape_htmltag($title).'">'.img_picto('', 'email').' '.dol_escape_htmltag($langs->trans('MahnwesenPrepareStage', $stage)).'</span>';
+            $out = '<span class="butActionRefused classfortooltip" title="'.dol_escape_htmltag($title).'">'.img_picto('', 'email').' '.dol_escape_htmltag($langs->trans('MahnwesenPrepareStage', $stage)).'</span>';
         } elseif ($requiredLevel > 0 && !empty($workflow['required_at']) && ((int) $this->db->jdate($workflow['required_at'])) > dol_now()) {
             $stage = $langs->trans($manager->getStageLabelKey($requiredLevel));
             $when = dol_print_date($this->db->jdate($workflow['required_at']), 'day');
             $title = $langs->trans('MahnwesenSequentialCooldownInfo', $stage, $when);
-            $this->resprints = '<span class="butActionRefused classfortooltip" title="'.dol_escape_htmltag($title).'">'.img_picto('', 'email').' '.dol_escape_htmltag($langs->trans('MahnwesenPrepareStage', $stage)).'</span>';
+            $out = '<span class="butActionRefused classfortooltip" title="'.dol_escape_htmltag($title).'">'.img_picto('', 'email').' '.dol_escape_htmltag($langs->trans('MahnwesenPrepareStage', $stage)).'</span>';
         }
+        print $out;
         return 0;
     }
 

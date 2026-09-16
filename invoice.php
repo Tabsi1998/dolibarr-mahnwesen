@@ -32,7 +32,7 @@ if ($id <= 0) { accessforbidden('Missing invoice id'); }
 
 $invoice = new Facture($db);
 if ($invoice->fetch($id) <= 0) { dol_print_error($db, $invoice->error); exit; }
-$result = restrictedArea($user, 'facture', $invoice->id, 'facture', 'facture');
+$result = restrictedArea($user, 'facture', $invoice->id, '', '', 'fk_soc', 'rowid');
 $invoice->fetch_thirdparty();
 $manager = new DunningManager($db);
 $noticeService = new DunningNoticeService($db, $manager);

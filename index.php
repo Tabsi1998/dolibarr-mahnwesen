@@ -98,7 +98,7 @@ if ($action === 'sync_cases') {
     require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
     $permissionInvoice = new Facture($db);
     if ($permissionInvoice->fetch($facid) <= 0) { accessforbidden(); }
-    $result = restrictedArea($user, 'facture', $permissionInvoice->id, 'facture', 'facture');
+    $result = restrictedArea($user, 'facture', $permissionInvoice->id, '', '', 'fk_soc', 'rowid');
     $paused = ($action === 'pause_case');
     if ($manager->setPaused($facid, $paused, $user)) {
         setEventMessages($langs->trans($paused ? 'CasePausedMessage' : 'CaseResumedMessage'), null, 'mesgs');

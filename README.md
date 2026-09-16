@@ -2,7 +2,7 @@
 
 A custom Dolibarr module for controlled dunning workflows on overdue customer invoices.
 
-> **Status:** first stable release `1.0.0`. Dolibarr 22 has been runtime-tested; CI checks the actual Dolibarr 21/22/23 mail, invoice and FormMail APIs used by the module. A staging smoke test remains required for each production environment.
+> **Status:** stable line `1.0.x`. Automated runtime checks install the module into Dolibarr 21.0.4, 22.0.5, 23.0.4 and 24.0.1 and exercise activation, access rules, a real send and automatic sending; CI checks the Dolibarr 21-24 APIs the module uses. A staging smoke test with your own mail server remains required for each production environment.
 
 ## Goals
 

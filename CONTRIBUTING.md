@@ -12,10 +12,13 @@ bash scripts/check-module.sh
 bash scripts/check-dolibarr-api.sh 21.0
 bash scripts/check-dolibarr-api.sh 22.0
 bash scripts/check-dolibarr-api.sh 23.0
+bash scripts/check-dolibarr-api.sh 24.0
 ```
 
 Or run all of them in one go - on PHP 7.4 to 8.4, with the release package
-checked as well - with `python scripts/local_check.py` (needs Docker).
+checked as well and the module running in Dolibarr 21 to 24 - with
+`python scripts/local_check.py` (needs Docker). A bug fix comes with a runtime
+scenario in `tests/runtime/scenarios.py` that fails without the fix.
 
 PHP 7.4 is the minimum syntax target. A change to sending, reservations,
 permissions, entities, amounts or recipients must include a regression test or
