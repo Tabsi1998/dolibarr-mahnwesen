@@ -193,7 +193,7 @@ ManualSendDisabledHelp=Real sending is currently disabled at module level. PDF a
 
 # v0.4 - native HTML templates, fees, timed pauses and controlled automation
 MahnwesenEmailTemplateType=Dunning management
-MahnwesenV04Mode=Configurable dunning workflow - version 0.5.3
+MahnwesenV04Mode=Configurable dunning workflow
 MahnwesenV04DashboardIntro=Manages dunning cases, fees, HTML templates and optional controlled automatic delivery. The module never changes invoice data or invoice amounts.
 MahnwesenDashboardAutoOn=Automatic delivery is ON. Only stages explicitly enabled for automatic delivery are processed; send limits, recipient rules and duplicate protection remain active.
 MahnwesenDashboardAutoOff=Automatic delivery is OFF. The daily workflow may synchronize cases and release dated pauses, but sends no emails.
@@ -226,8 +226,8 @@ MahnwesenInternalHtmlTemplate=Direct HTML content
 MahnwesenEditNativeTemplate=Edit template
 MahnwesenAutomationEnabledInfo=Automatic dunning delivery is currently ON. Changes here affect the daily Mahnwesen workflow.
 MahnwesenAutomationDisabledInfo=Automatic dunning delivery is currently OFF. Preview and manual delivery can still be used independently.
-MahnwesenAttachInvoiceDefault=Attach original invoice PDF by default
-MahnwesenAttachInvoiceDefaultHelp=Uses only an existing main invoice PDF. Mahnwesen does not regenerate or modify the invoice PDF.
+MahnwesenAttachInvoiceSetting=Attach invoice PDF
+MahnwesenAttachInvoiceFromTemplate=Decided by the stage's email template (Setup → Emails → Email templates, "Join files"), and changeable per notice in the composer. Mahnwesen only uses an existing invoice PDF and never generates or changes it.
 MahnwesenRecipientPolicy=Automatic recipient policy
 MahnwesenRecipientPolicySingle=Exactly 1 BILLING contact; otherwise third-party email
 MahnwesenRecipientPolicyFirst=Use first BILLING contact; otherwise third-party email
@@ -257,7 +257,7 @@ MahnwesenPauseIndefinite=Indefinite
 MahnwesenAutoResumeHint=– automatic resume by daily workflow
 MahnwesenHistoryActionAutoResumed=Dunning case automatically resumed
 MahnwesenManualPreviewHtmlHelp=Recipient, subject, HTML body, dunning fee and attachments can be reviewed and edited before manual delivery. Sending remains a separate explicitly confirmed action.
-MahnwesenV04SafetyFooter=v0.5.3 never changes invoices. Dunning fees remain module calculations. Automatic email is possible only when globally enabled AND enabled for the current stage; pause, recipient checks and duplicate protection remain active.
+MahnwesenV04SafetyFooter=Mahnwesen never changes invoices. Dunning fees remain module calculations. Automatic email is possible only when globally enabled AND enabled for the current stage; pause, recipient checks and duplicate protection remain active.
 
 # v0.4.1 - native stage types and separate private/business fees
 EmailTemplateTypePaymentReminder=Dunning - Payment reminder

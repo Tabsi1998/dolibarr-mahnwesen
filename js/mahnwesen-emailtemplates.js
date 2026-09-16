@@ -1,4 +1,4 @@
-/* Mahnwesen 0.5.3 - contextual helper for Dolibarr native email templates */
+/* Mahnwesen - contextual helper for Dolibarr native email templates */
 (function () {
     'use strict';
 

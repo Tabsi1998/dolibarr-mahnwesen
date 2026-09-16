@@ -34,7 +34,7 @@ Append-oriented audit/event history for lifecycle and send actions.
 
 ### `llx_mahnwesen_rule`
 
-Reserved/configuration-oriented rule storage.
+The four stage rules per entity: days after the due date, enabled, automatic sending and the business fee. The private-person fees and the other settings are Dolibarr constants for now (#20).
 
 ### `llx_mahnwesen_attempt`
 

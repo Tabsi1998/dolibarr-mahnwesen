@@ -166,7 +166,7 @@ $selectedFrom = $service->resolveNativeSender($fromType, $templateId, $user, $pr
 $cc = trim(GETPOST('sendtocc', 'nohtml'));
 $bcc = trim(GETPOST('sendtoccc', 'nohtml'));
 $invoicePdf = $service->getInvoicePdfPath($invoice);
-$templateAttachDefault = ($template !== false && $template['source'] === 'native') ? ((string) ($template['joinfiles'] ?? '') === '1') : (getDolGlobalInt('MAHNWESEN_ATTACH_INVOICE_DEFAULT', 1) > 0);
+$templateAttachDefault = ($template !== false && (string) ($template['joinfiles'] ?? '') === '1');
 // A browser does not send an unticked checkbox, so the hidden marker tells a
 // deliberate "no invoice PDF" apart from a first view of the composer.
 $attachInvoice = (GETPOSTISSET('attach_invoice_shown') && !$templateApply) ? ($invoicePdf !== '' && GETPOSTINT('attach_invoice') > 0) : ($invoicePdf !== '' && $templateAttachDefault);

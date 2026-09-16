@@ -199,8 +199,14 @@ def pages(stack: Stack) -> str:
         "invoice tab": f"/custom/mahnwesen/invoice.php?id={overdue}",
         "composer": f"/custom/mahnwesen/notice.php?id={overdue}",
     }
+    old_version = re.compile(r"\b[Vv]ersion 0\.\d|\bv0\.\d")
     for what, path in paths.items():
-        page_ok(browser.get(path), what)
+        page = page_ok(browser.get(path), what)
+        stale = old_version.search(html.unescape(page.text))
+        expect(stale is None, f"{what} still names an old module version: {stale.group(0) if stale else ''} (#9)")
+    automation_tab = browser.get(paths["setup automation"]).text
+    expect('name="attach_invoice_default"' not in automation_tab,
+           "the setup still offers 'attach invoice PDF by default', which has no effect (#10)")
     card = page_ok(browser.get(f"/compta/facture/card.php?facid={overdue}"), "invoice card")
     expect(f"mahnwesen/notice.php?id={overdue}" in card.text,
            "the invoice card has no dunning action (invoicecard hook)")
@@ -362,8 +368,22 @@ def pause_label(stack: Stack) -> str:
     return "indefinite and dated pause labelled correctly, closing the case ends its pause"
 
 
+def failure_reason(stack: Stack) -> str:
+    """A refused action says why (#11)."""
+    company = invoice(stack, "company_overdue")
+    browser = stack.browser()
+    tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={company['id']}"), "invoice tab")
+    refused = browser.submit(form_with_action(tab, "skip_stage", "invoice tab"), {"skip_reason": ""})
+    expect(refused.status == 200, f"skipping without a reason answered HTTP {refused.status}")
+    expect("A reason is required to skip a dunning stage." in html.unescape(refused.text),
+           "skipping a stage without a reason fails without saying why")
+    skipped = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE action = 'stage_skipped' AND fk_facture = {company['id']}")
+    expect(skipped == "0", "a stage was skipped without a reason")
+    return "skipping without a reason is refused and the page names the reason"
+
+
 def automation(stack: Stack) -> str:
-    """With automatic sending on, the Dolibarr cron sends each due stage once."""
+    """Switched on in the setup, the Dolibarr cron sends each due stage once (#12)."""
     private = invoice(stack, "private_overdue")
     mailpit = stack.mailpit()
     mailpit.clear()
@@ -372,8 +392,28 @@ def automation(stack: Stack) -> str:
     expect(idle and idle[0] == ["success", "0", "0"], f"with automation off the run was {idle}")
     expect(not mailpit.messages(), "the cron sent email while automatic sending was off")
 
-    stack.sql("UPDATE llx_const SET value = '1' WHERE name = 'MAHNWESEN_AUTO_SEND_ENABLED' AND entity = 1")
-    stack.sql("UPDATE llx_mahnwesen_rule SET send_email = 1 WHERE level = 1 AND entity = 1")
+    browser = stack.browser()
+    confirmation = translations("MahnwesenAutoSendConfirmationRequired")
+    stages = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=stages"), "stages setup")
+    page_ok(browser.submit(form_with_action(stages, "save_stages", "stages setup"), {"stage_auto_send_1": "1"}),
+            "allow automatic sending for the payment reminder")
+    settings = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=automation"), "automation setup")
+    unconfirmed = browser.submit(form_with_action(settings, "save_automation", "automation setup"),
+                                 {"auto_send_enabled": "1"}, drop=("auto_send_confirm",))
+    expect(any(label in html.unescape(unconfirmed.text) for label in confirmation),
+           "automatic sending was switched on without the confirmation")
+    settings = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=automation"), "automation setup")
+    page_ok(browser.submit(form_with_action(settings, "save_automation", "automation setup"),
+                           {"auto_send_enabled": "1", "auto_send_confirm": "1"}), "switch automatic sending on")
+    enabled = stack.value("SELECT value FROM llx_const WHERE name = 'MAHNWESEN_AUTO_SEND_ENABLED' AND entity = 1")
+    expect(enabled == "1", f"automatic sending is {enabled!r} after confirming it in the setup")
+    settings = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=automation"), "automation setup")
+    saved = browser.submit(form_with_action(settings, "save_automation", "automation setup"),
+                           {"auto_send_max": "11"}, drop=("auto_send_confirm",))
+    expect(not any(label in html.unescape(saved.text) for label in confirmation),
+           "saving the automation tab while automatic sending stays on asks for the confirmation again (#12)")
+    limit = stack.value("SELECT value FROM llx_const WHERE name = 'MAHNWESEN_AUTO_SEND_MAX' AND entity = 1")
+    expect(limit == "11", f"the run limit is {limit!r} after saving 11")
     stack.cron()
     run = stack.sql("SELECT status, attempted, sent, failed FROM llx_mahnwesen_run ORDER BY rowid DESC LIMIT 1")
     expect(run and run[0] == ["success", "1", "1", "0"], f"expected one automatic send, the run was {run}")
@@ -404,6 +444,7 @@ SCENARIOS = (
     ("pages", "Every page and integration point renders", pages, ("synchronise",)),
     ("access", "Sales representatives only reach their customers", access, ("synchronise",)),
     ("preview", "The preview PDF opens for permitted users only", preview, ("pages",)),
+    ("failure-reason", "A refused action says why", failure_reason, ("pages",)),
     ("manual-send", "The composer sends one reminder with verified attachments", manual_send, ("pages",)),
     ("attachment-choice", "Renamed invoice PDF found, unticked PDF not sent", attachment_choice, ("pages",)),
     ("pause-label", "Pause labels are right and closing ends the pause", pause_label, ("synchronise",)),

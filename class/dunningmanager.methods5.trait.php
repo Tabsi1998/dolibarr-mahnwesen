@@ -470,9 +470,8 @@ trait DunningManagerMethods5
             }
             $subject = $service->renderTemplate($template['subject'], $invoice, $case, $level, $customerLang);
             $body = $service->renderTemplate($template['body'], $invoice, $case, $level, $customerLang);
-            $attachInvoice = ($template['source'] === 'native')
-                ? ((string) ($template['joinfiles'] ?? '') === '1')
-                : (getDolGlobalInt('MAHNWESEN_ATTACH_INVOICE_DEFAULT', 1) > 0);
+            // Only native templates exist; their "join files" flag decides.
+            $attachInvoice = ((string) ($template['joinfiles'] ?? '') === '1');
             $attempted++;
             if ($customerId > 0) {
                 $attemptedPerCustomer[$customerId] = isset($attemptedPerCustomer[$customerId]) ? $attemptedPerCustomer[$customerId] + 1 : 1;

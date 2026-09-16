@@ -35,7 +35,7 @@ If only the payment reminder has been sent, workflow-required level = `1st dunni
 
 ## Allowed transition
 
-The current implementation completes a stage after a successful send. The architecture also reserves an audited `stage_skipped` completion state for a future explicit waiver UI. A stage can therefore be completed by:
+A stage is completed by a successful send, or by an authorized user who skips it on the invoice's dunning tab with a mandatory reason, recorded as `stage_skipped`. A stage can therefore be completed by:
 
 - successful send, or
 - explicit authorized waiver/skip with a mandatory reason.

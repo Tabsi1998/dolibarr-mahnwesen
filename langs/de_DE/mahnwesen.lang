@@ -194,7 +194,7 @@ ManualSendDisabledHelp=Echtversand ist derzeit auf Modulebene deaktiviert. PDF- 
 
 # v0.4 - native HTML templates, fees, timed pauses and controlled automation
 MahnwesenEmailTemplateType=Mahnwesen
-MahnwesenV04Mode=Konfigurierbares Mahnwesen - Version 0.5.3
+MahnwesenV04Mode=Konfigurierbares Mahnwesen
 MahnwesenV04DashboardIntro=Verwaltet Mahnfälle, Mahnspesen, HTML-Vorlagen und optional kontrollierten automatischen Versand. Rechnungsdaten und Rechnungsbeträge werden durch das Modul nicht verändert.
 MahnwesenDashboardAutoOn=Automatischer Versand ist AKTIV. Es werden nur pro Mahnstufe freigegebene Stufen verarbeitet; Sicherheitslimit, Empfängerregeln und Doppelversandsperre bleiben aktiv.
 MahnwesenDashboardAutoOff=Automatischer Versand ist AUS. Der tägliche Workflow darf Mahnfälle synchronisieren und befristete Pausen fortsetzen, versendet aber keine E-Mails.
@@ -227,8 +227,8 @@ MahnwesenInternalHtmlTemplate=Direkter HTML-Inhalt
 MahnwesenEditNativeTemplate=Vorlage bearbeiten
 MahnwesenAutomationEnabledInfo=Automatischer Mahnversand ist derzeit AKTIV. Änderungen hier wirken auf den täglichen Mahnwesen-Workflow.
 MahnwesenAutomationDisabledInfo=Automatischer Mahnversand ist derzeit AUS. Vorschau und manueller Versand können unabhängig davon verwendet werden.
-MahnwesenAttachInvoiceDefault=Original-Rechnungs-PDF standardmäßig anhängen
-MahnwesenAttachInvoiceDefaultHelp=Verwendet nur ein bereits vorhandenes Haupt-PDF der Rechnung. Das Mahnwesen erzeugt oder verändert das Rechnungs-PDF nicht.
+MahnwesenAttachInvoiceSetting=Rechnungs-PDF anhängen
+MahnwesenAttachInvoiceFromTemplate=Legt die E-Mail-Vorlage der Mahnstufe fest (Einstellungen → E-Mail → E-Mail-Vorlagen, „Dateien anhängen“). In der Versandmaske lässt es sich pro Mahnung ändern. Das Mahnwesen verwendet nur ein vorhandenes Rechnungs-PDF und erzeugt oder verändert es nicht.
 MahnwesenRecipientPolicy=Empfängerregel für Automatik
 MahnwesenRecipientPolicySingle=Genau 1 BILLING-Kontakt; sonst Kunden-E-Mail
 MahnwesenRecipientPolicyFirst=Ersten BILLING-Kontakt verwenden; sonst Kunden-E-Mail
@@ -258,7 +258,7 @@ MahnwesenPauseIndefinite=Unbefristet
 MahnwesenAutoResumeHint=– automatische Fortsetzung durch den täglichen Workflow
 MahnwesenHistoryActionAutoResumed=Mahnfall automatisch fortgesetzt
 MahnwesenManualPreviewHtmlHelp=Empfänger, Betreff, HTML-Inhalt, Mahnspesen und Anhänge können vor dem manuellen Versand geprüft und bearbeitet werden. Der Versand bleibt ein separater, ausdrücklich bestätigter Schritt.
-MahnwesenV04SafetyFooter=v0.5.3 verändert keine Rechnungen. Mahnspesen bleiben Modulberechnungen. Automatische E-Mails sind nur bei globaler Freigabe UND Freigabe der jeweiligen Mahnstufe möglich; Pause, Empfängerprüfung und Doppelversandsperren bleiben aktiv.
+MahnwesenV04SafetyFooter=Das Mahnwesen verändert keine Rechnungen. Mahnspesen bleiben Modulberechnungen. Automatische E-Mails sind nur bei globaler Freigabe UND Freigabe der jeweiligen Mahnstufe möglich; Pause, Empfängerprüfung und Doppelversandsperren bleiben aktiv.
 
 # v0.4.1 - native stage types and separate private/business fees
 EmailTemplateTypePaymentReminder=Mahnwesen - Zahlungserinnerung

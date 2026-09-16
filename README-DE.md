@@ -34,7 +34,7 @@ Die Zeitberechnung und der tatsächliche Mahnworkflow werden getrennt behandelt.
 
 Beispiel: Eine Rechnung ist 25 Tage überfällig. Zeitlich wäre bereits die **2. Mahnung** erreicht. Wenn die **1. Mahnung aber nie versendet wurde**, darf das Modul nicht einfach Stufe 2 senden.
 
-Verbindliche Reihenfolge im aktuellen Entwicklungsstand:
+Verbindliche Reihenfolge:
 
 `Zahlungserinnerung -> 1. Mahnung -> 2. Mahnung -> 3. Mahnung`
 
@@ -47,7 +47,7 @@ Diese Regel gilt **genauso für die Automatik**. Zusätzlich bleiben die konfigu
 
 ## Dynamische Aktion auf der Rechnung
 
-Der aktuelle Entwicklungsstand ergänzt auf der Rechnung eine klare Hauptaktion, abhängig vom tatsächlichen Workflowzustand, z. B.:
+Auf der Rechnung erscheint eine klare Hauptaktion, abhängig vom tatsächlichen Workflowzustand, z. B.:
 
 - `Zahlungserinnerung vorbereiten`
 - `1. Mahnung vorbereiten`
