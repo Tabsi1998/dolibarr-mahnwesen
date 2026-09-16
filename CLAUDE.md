@@ -105,8 +105,8 @@ folder from them.
 The extra group and the whitespace check compare against
 `scripts/ci-baseline.json`: known findings are debt, new ones fail. After
 paying debt down, run `python scripts/local_check.py --all --record` and commit
-the baseline. Debt on 2026-09-15: SC2155 in `scripts/build-release.sh`, trailing
-whitespace in `admin/setup.php`.
+the baseline. Debt on 2026-09-16: trailing whitespace in `admin/setup.php`
+(SC2155 in `scripts/build-release.sh` was paid down with #49).
 
 ## Extending the checks
 
