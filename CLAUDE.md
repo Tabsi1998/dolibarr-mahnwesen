@@ -106,8 +106,8 @@ from it.
 The extra group and the whitespace check compare against
 `scripts/ci-baseline.json`: known findings are debt, new ones fail. After
 paying debt down, run `python scripts/local_check.py --all --record` and commit
-the baseline. Debt on 2026-09-16: trailing whitespace in `admin/setup.php`
-(the ShellCheck finding left with `build-release.sh`).
+the baseline. Since 1.0.4 the baseline holds no debt: the last whitespace
+error in `admin/setup.php` and the ShellCheck finding are gone.
 
 ## Extending the checks
 

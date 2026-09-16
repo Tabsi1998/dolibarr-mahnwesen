@@ -7,7 +7,5 @@
   "runtime-php-23.0": [],
   "runtime-php-24.0": [],
   "shellcheck": [],
-  "whitespace": [
-    "admin/setup.php: trailing whitespace"
-  ]
+  "whitespace": []
 }
