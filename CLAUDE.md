@@ -15,7 +15,7 @@ GitHub Actions is the second confirmation. Before every push:
 python scripts/local_check.py                 # everything but extra
 python scripts/local_check.py --all           # plus the gates GitHub does not run
 python scripts/local_check.py --only php,package
-python scripts/local_check.py --only runtime --keep-services   # leave the Dolibarrs running
+python scripts/local_check.py --only package,runtime --keep-services   # leave the Dolibarrs running
 python scripts/local_check.py --list          # the steps, without running them
 ```
 
@@ -30,7 +30,7 @@ ignored by Git.
 | dolibarr | ci.yml `dolibarr-api` matrix | `scripts/check-dolibarr-api.sh` for 21.0, 22.0, 23.0 and 24.0 |
 | package | ci.yml `package` | `scripts/build_release.py` from the working copy and from the snapshot, byte for byte identical, verified file by file |
 | release | ci.yml `package`, release-verify.yml | `scripts/release.py --metadata`: version, dated changelog section with link, support matrix (descriptor, `PHP_VERSIONS`, `DOLIBARR_VERSIONS`, `check-dolibarr-api.sh`, ci.yml, README tables); any tag matches; a package changed since the newest release needs a new version |
-| runtime | - | the module in a running Dolibarr 21.0, 22.0, 23.0 and 24.0 (official images, MariaDB, Mailpit), driven through its pages and the Dolibarr cron; see below |
+| runtime | ci.yml `runtime` | the package installed through Dolibarr's own installer in a running Dolibarr 21.0, 22.0, 23.0 and 24.0 (official images, MariaDB, Mailpit), upgraded from the previous release, driven through its pages and the Dolibarr cron; needs the package step; see below |
 | extra | - | PHP 8.4 deprecations and warnings in `tests/run.php`, printf placeholders that differ between de_DE and en_US, ShellCheck, OSV |
 
 Tools the checks expect: Docker Desktop, Git for Windows, gitleaks. A missing
@@ -44,18 +44,34 @@ as the Linux runner checks it out.
 
 `tests/runtime/` holds a real Dolibarr test. For every version in
 `RUNTIME_IMAGES` (header of `scripts/local_check.py`) the check starts, all at
-once, a `dolibarr/dolibarr` container with the snapshot mounted read-only as
-`custom/mahnwesen`, a MariaDB and a Mailpit, each on its own network. Database
-and documents live in tmpfs, passwords are new each run, and everything is
-removed afterwards. Ports: web 18021-18024, Mailpit 18121-18124.
+once, a `dolibarr/dolibarr` container, a MariaDB and a Mailpit, each on its own
+network. `custom/` starts empty and writable; `tests/runtime` of the snapshot is
+mounted read-only at `/opt/mahnwesen-tests`, outside the web root. Database,
+documents and `custom/` live in tmpfs, passwords are new each run, and
+everything is removed afterwards. Ports: web 18021-18024, Mailpit 18121-18124.
 
-- `fixtures.php` runs with the PHP CLI in the container: company in Austria,
-  SMTP to Mailpit, modules Societe/Facture/Agenda/Cron/Mahnwesen, an admin, a
-  sales representative `rtsales` for the company customer, a second
-  representative `rtother` without customers, a company with a BILLING
-  contact, a private customer and four validated overdue invoices with PDFs -
-  one of them renamed the way other PDF models name files. It prints the ids
-  as JSON. `bootstrap.php` refuses to run outside the CLI.
+The module arrives the way an administrator installs it. The package step
+builds `module_mahnwesen-x.y.z.zip`, and from the tag of the newest earlier
+release (`git archive`) the previous package. The first scenarios then:
+
+1. `upgrade`: deploy the previous package through *Deploy an external module*,
+   enable it from the module list, change a stage fee and synchronise; deploy
+   the new package, disable and enable it, and find cases, history, the fee and
+   the starter templates unchanged and every setting of the new descriptor
+   present. The `reset` fixture then removes the module's tables, settings,
+   templates and cron job.
+2. `deploy`: upload the new package; the files in `custom/mahnwesen` must be
+   exactly those of the ZIP.
+3. `enable`: enable it from the module list, then the `enabled` fixture.
+
+- `fixtures.php` runs with the PHP CLI in the container, in stages. `base`:
+  company in Austria, SMTP to Mailpit, modules Societe/Facture/Agenda/Cron, a
+  company with a BILLING contact, a private customer and four validated overdue
+  invoices with PDFs - one of them renamed the way other PDF models name files.
+  `enabled`: manual sending on, a sales representative `rtsales` for the
+  company customer, a second representative `rtother` without customers, the
+  cron job. `reset`: see above. Each stage prints its ids as JSON.
+  `bootstrap.php` refuses to run outside the CLI.
 - `scenarios.py` drives the pages with `dolibarr_http.py` (sessions, CSRF
   tokens, forms submitted as a browser submits them - an unticked checkbox is
   not sent), reads Mailpit's API and the database, and runs the Dolibarr cron

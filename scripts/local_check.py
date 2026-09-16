@@ -21,8 +21,10 @@ Groups:
                 and support matrix agree; any tag matches; a package changed
                 since the newest release needs a new version
     runtime     the module in a running Dolibarr 21, 22, 23 and 24 - official
-                images with MariaDB and Mailpit - driven through its pages and
-                the Dolibarr cron: activation, synchronisation, access rules,
+                images with MariaDB and Mailpit - installed from the package
+                through Dolibarr's installer, upgraded from the previous
+                release, driven through its pages and the Dolibarr cron:
+                activation, synchronisation, access rules,
                 a real send with the attachment hashes checked against the
                 delivered bytes, automatic sending, and PHP messages from
                 module code (tests/runtime/)
@@ -998,7 +1000,38 @@ def package(context: Context) -> str:
     with zipfile.ZipFile(archive) as bundle:
         files = sum(1 for info in bundle.infolist() if not info.is_dir())
     context.cache["package"] = archive
-    return f"{archive.name}: {files} files, identical from working copy and snapshot, sha256 {digest[:16]}"
+    previous = previous_package(context, builder)
+    return f"{archive.name}: {files} files, identical from working copy and snapshot, sha256 {digest[:16]}{previous}"
+
+
+def previous_package(context: Context, builder) -> str:
+    """The package of the newest earlier release, built from its tag, for the upgrade test."""
+    import io
+    import tarfile
+    releaser = scripts_module("release")
+    current = builder.module_version(SNAPSHOT)
+    earlier = [version for version in releaser.released_versions()
+               if releaser.version_key(version) < releaser.version_key(current)]
+    if not earlier:
+        context.cache.pop("previous_package", None)
+        return "; no earlier release to upgrade from"
+    version = earlier[0]
+    completed = subprocess.run([git(context), "archive", "--format=tar", f"v{version}"], cwd=str(ROOT),
+                               capture_output=True, timeout=300)
+    if completed.returncode != 0:
+        raise StepFailed(f"git archive v{version} failed: {completed.stderr.decode('utf-8', 'replace')}")
+    source = STATE / "previous-source"
+    if source.exists():
+        shutil.rmtree(source)
+    source.mkdir(parents=True)
+    with tarfile.open(fileobj=io.BytesIO(completed.stdout)) as bundle:
+        if hasattr(tarfile, "data_filter"):
+            bundle.extractall(source, filter="data")
+        else:
+            bundle.extractall(source)
+    zip_path, _ = builder.build(source, PACKAGE_OUT / "previous")
+    context.cache["previous_package"] = zip_path
+    return f"; upgrade test from v{version}"
 
 
 def package_steps() -> list:
@@ -1047,11 +1080,13 @@ def runtime_name(version: str, part: str) -> str:
 
 
 def start_runtime_stack(context: Context, version: str):
-    """One Dolibarr with MariaDB and Mailpit, the module mounted read-only, fixtures loaded.
+    """One Dolibarr with MariaDB and Mailpit, nothing of the module inside yet, base fixtures loaded.
 
-    Databases and documents live in tmpfs, so every run starts from an empty
-    Dolibarr and nothing is left behind. Passwords are new for every run and
-    never written to a log.
+    The module arrives the way a user installs it: the package is uploaded
+    through "Deploy an external module" by the first scenarios. Databases and
+    documents live in tmpfs, so every run starts from an empty Dolibarr and
+    nothing is left behind. Passwords are new for every run and never written
+    to a log.
     """
     import secrets
     scenarios = runtime_module()
@@ -1076,7 +1111,8 @@ def start_runtime_stack(context: Context, version: str):
         web_port=web_port, mail_port=mail_port, admin_password=secrets.token_urlsafe(18),
         sales_password=secrets.token_urlsafe(18), other_password=secrets.token_urlsafe(18),
         db_password=secrets.token_urlsafe(18), cron_key=secrets.token_hex(16),
-        run=context.run, docker=binary)
+        run=context.run, docker=binary, package=context.cache["package"],
+        previous_package=context.cache.get("previous_package"))
     context.cache.setdefault("runtime-networks", []).append(network)
     context.run(binary, "network", "create", network, timeout=60)
     # The images declare volumes; these containers are removed with theirs.
@@ -1091,7 +1127,10 @@ def start_runtime_stack(context: Context, version: str):
                 timeout=900)
     context.run(binary, "run", "--detach", "--name", names["web"], "--network", network,
                 "--publish", f"127.0.0.1:{web_port}:80", "--tmpfs", "/var/www/documents",
-                "--mount", f"type=bind,source={SNAPSHOT},target=/var/www/html/custom/mahnwesen,readonly",
+                # The image ships custom/ read-only. An administrator who deploys
+                # modules through the web makes it writable for the web server.
+                "--tmpfs", "/var/www/html/custom:rw,uid=33,gid=33,mode=0755",
+                "--mount", f"type=bind,source={SNAPSHOT / 'tests' / 'runtime'},target={scenarios.TESTS_DIR},readonly",
                 "--mount", f"type=bind,source={SNAPSHOT / 'tests' / 'runtime' / 'php-check.ini'},"
                            "target=/usr/local/etc/php/conf.d/zz-mahnwesen-check.ini,readonly",
                 "--env", "DOLI_DB_HOST=db", "--env", "DOLI_DB_NAME=dolibarr", "--env", "DOLI_DB_USER=dolibarr",
@@ -1101,16 +1140,12 @@ def start_runtime_stack(context: Context, version: str):
                 "--env", "DOLI_COMPANY_NAME=Runtime Verein", "--env", "DOLI_PROD=0",
                 "--env", "PHP_INI_DATE_TIMEZONE=Europe/Vienna", image, timeout=900)
     scenarios.wait_http(f"{stack.url}/index.php", 420)
-    completed = context.run(binary, "exec", "-u", "www-data",
-                            "--env", f"RT_SALES_PASSWORD={stack.sales_password}",
-                            "--env", f"RT_OTHER_PASSWORD={stack.other_password}",
-                            "--env", f"RT_CRON_KEY={stack.cron_key}", names["web"], "php",
-                            "/var/www/html/custom/mahnwesen/tests/runtime/fixtures.php",
-                            check=False, timeout=600)
-    context.log(f"runtime-{version}-fixtures", completed.stdout + completed.stderr)
-    if completed.returncode != 0:
-        raise StepFailed(f"fixtures.php failed on Dolibarr {version}:\n" + tail(completed))
-    stack.fixtures = scenarios.parse_fixtures(completed.stdout)
+    try:
+        stack.fixtures = stack.php_fixture("base")
+    except scenarios.CheckFailed as reason:
+        raise StepFailed(f"Dolibarr {version}: {reason}") from reason
+    finally:
+        context.log(f"runtime-{version}-fixtures", "\n".join(output for _, output in stack.notes.get("fixtures", [])))
     # Throwaway accounts of throwaway containers, for --keep-services. The
     # folder is ignored by Git.
     access = STATE / f"runtime-{version}-access.json"
@@ -1183,12 +1218,12 @@ def runtime_steps() -> list:
         group = "runtime"
         prefix = f"{version}-"
         for name, describe, action, needs in scenarios.SCENARIOS:
-            requirements = tuple(f"{prefix}{need}" for need in needs) or ("repository/snapshot",)
+            requirements = tuple(f"{prefix}{need}" for need in needs) or ("package/zip",)
             steps.append(Step(group, f"{prefix}{name}", f"Dolibarr {version}: {describe}",
                               runtime_step(version, name, action), requirements))
         steps.append(Step(group, f"{prefix}php-messages",
                           f"Dolibarr {version}: no PHP messages from module code",
-                          runtime_php_messages(version), (f"{prefix}install",)))
+                          runtime_php_messages(version), (f"{prefix}upgrade",)))
     return steps
 
 

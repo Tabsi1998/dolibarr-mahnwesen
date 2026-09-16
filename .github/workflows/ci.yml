@@ -30,13 +30,17 @@ jobs:
       - run: bash scripts/check-dolibarr-api.sh ${{ matrix.dolibarr }}
 
   runtime:
-    # The same runtime checks as the local run: the module in running
+    # The same runtime checks as the local run: the package installed through
+    # Dolibarr's installer, and upgraded from the previous release, in running
     # Dolibarr 21 to 24 installations with MariaDB and Mailpit.
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7.0.1
-      - run: python3 scripts/local_check.py --only runtime
+        with:
+          # The tags: the upgrade test builds the previous release from its tag.
+          fetch-depth: 0
+      - run: python3 scripts/local_check.py --only package,runtime
       - if: failure()
         uses: actions/upload-artifact@v7.0.1
         with:

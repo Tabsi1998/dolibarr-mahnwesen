@@ -1,7 +1,9 @@
 """What the runtime checks prove in a running Dolibarr.
 
 scripts/local_check.py starts one Dolibarr per supported version with MariaDB
-and Mailpit, runs fixtures.php, and then calls the scenarios below in order.
+and Mailpit, runs the base stage of fixtures.php, and then calls the scenarios
+below in order. The module arrives as a user installs it: the package from
+build_release.py, uploaded through Deploy an external module.
 Each scenario raises CheckFailed with what went wrong and returns a one-line
 result. They only use what a user and the cron use: the web pages, the
 Dolibarr cron runner, the mail server and the database.
@@ -16,6 +18,7 @@ import json
 import re
 import subprocess
 import time
+import zipfile
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +26,8 @@ from typing import Callable
 
 from dolibarr_http import Browser, Mailpit, Page, token_of
 
+MODULE_DIR = "/var/www/html/custom/mahnwesen"
+TESTS_DIR = "/opt/mahnwesen-tests"
 MODULE_TABLES = ("mahnwesen_case", "mahnwesen_history", "mahnwesen_rule", "mahnwesen_attempt",
                  "mahnwesen_attempt_file", "mahnwesen_fee", "mahnwesen_pause", "mahnwesen_run")
 LANGS = Path(__file__).resolve().parents[2] / "langs"
@@ -57,12 +62,18 @@ class Stack:
     cron_key: str
     run: Callable[..., subprocess.CompletedProcess]
     docker: str
+    package: Path
+    previous_package: Path | None = None
     fixtures: dict = field(default_factory=dict)
     notes: dict = field(default_factory=dict)
 
     @property
     def url(self) -> str:
         return f"http://127.0.0.1:{self.web_port}"
+
+    @property
+    def module_version(self) -> str:
+        return package_version(self.package)
 
     def mailpit(self) -> Mailpit:
         return Mailpit(f"http://127.0.0.1:{self.mail_port}")
@@ -85,6 +96,24 @@ class Stack:
     def value(self, query: str) -> str | None:
         rows = self.sql(query)
         return rows[0][0] if rows and rows[0] else None
+
+    def const(self, name: str) -> str | None:
+        return self.value(f"SELECT value FROM llx_const WHERE name = '{name}' AND entity IN (0, 1) ORDER BY entity DESC LIMIT 1")
+
+    def php_fixture(self, stage: str) -> dict:
+        """Run one stage of fixtures.php as the web server user and return what it printed."""
+        completed = self.run(self.docker, "exec", "-u", "www-data",
+                             "--env", f"RT_SALES_PASSWORD={self.sales_password}",
+                             "--env", f"RT_OTHER_PASSWORD={self.other_password}",
+                             "--env", f"RT_CRON_KEY={self.cron_key}", self.web, "php",
+                             f"{TESTS_DIR}/fixtures.php", stage, check=False, timeout=600)
+        self.notes.setdefault("fixtures", []).append((stage, completed.stdout + completed.stderr))
+        if completed.returncode != 0:
+            raise CheckFailed(f"fixtures.php {stage} failed:\n{(completed.stdout + completed.stderr)[-1500:]}")
+        return parse_fixtures(completed.stdout)
+
+    def shell(self, command: str) -> subprocess.CompletedProcess:
+        return self.run(self.docker, "exec", "-u", "www-data", self.web, "sh", "-c", command, check=False, timeout=120)
 
     def cron(self) -> str:
         """Run the Mahnwesen job through Dolibarr's own cron runner, as the daily cron would.
@@ -172,12 +201,124 @@ def page_ok(page: Page, what: str) -> Page:
     return page
 
 
+def module_list(browser: Browser) -> Page:
+    return page_ok(browser.get("/admin/modules.php?mode=common&search_keyword=mahnwesen"), "module list")
+
+
+def module_link(page: Page, action: str) -> str:
+    """The enable or disable link of the module in Dolibarr's module list."""
+    for href in re.findall(r'href="([^"]*modules\.php\?[^"]*)"', page.text):
+        target = html.unescape(href)
+        if f"action={action}&" in target + "&" and "value=modMahnwesen" in target:
+            return target
+    raise CheckFailed(f"the module list offers no action={action} link for modMahnwesen")
+
+
+def switch_module(stack: Stack, action: str) -> None:
+    """Enable (set) or disable (reset) the module from Dolibarr's module list."""
+    browser = stack.browser()
+    page_ok(browser.get(module_link(module_list(browser), action)), f"module list action {action}")
+
+
+def package_version(package: Path) -> str:
+    """The module version inside a package."""
+    with zipfile.ZipFile(package) as bundle:
+        text = bundle.read("mahnwesen/core/modules/modMahnwesen.class.php").decode("utf-8")
+    return re.search(r"\$this->version\s*=\s*'([^']+)'", text).group(1)
+
+
+def package_settings(package: Path) -> list[str]:
+    """The MAHNWESEN_ settings the descriptor inside a package creates on activation."""
+    with zipfile.ZipFile(package) as bundle:
+        text = bundle.read("mahnwesen/core/modules/modMahnwesen.class.php").decode("utf-8")
+    return sorted(set(re.findall(r"=> array\('(MAHNWESEN_[A-Z0-9_]+)', 'chaine'", text)))
+
+
+def upload(stack: Stack, package: Path) -> list[str]:
+    """Deploy an external module, as an administrator does it; the installed files must be the package."""
+    browser = stack.browser()
+    page = page_ok(browser.get("/admin/modules.php?mode=deploy"), "deploy page")
+    form = page.form(name="forminstall")
+    # checkforcompliance asks dolibarr.org for a blacklist; the check runs offline.
+    fields = [(name, value) for name, value in form.values() if name != "checkforcompliance"]
+    result = browser.post_multipart(form.url(), fields, [("fileinstall", package.name, package.read_bytes())])
+    expect(result.status == 200, f"uploading {package.name} answered HTTP {result.status}")
+    expect(not result.errors(), f"the upload page shows {', '.join(result.errors())}")
+    installed = stack.shell(f"cd {MODULE_DIR} && find . -type f | sort")
+    expect(installed.returncode == 0, f"the upload did not create {MODULE_DIR}:\n{result.text[-800:]}")
+    files = sorted(line[2:] for line in installed.stdout.splitlines() if line.startswith("./"))
+    with zipfile.ZipFile(package) as bundle:
+        packaged = sorted(info.filename[len("mahnwesen/"):] for info in bundle.infolist() if not info.is_dir())
+    expect(files == packaged, f"deployed files differ from {package.name}: "
+                              f"missing {sorted(set(packaged) - set(files))[:5]}, extra {sorted(set(files) - set(packaged))[:5]}")
+    return files
+
+
 # ------------------------------------------------------------------ scenarios
+
+def upgrade(stack: Stack) -> str:
+    """An installation of the previous release takes the new package: cases, history and settings stay, new settings arrive."""
+    expect(stack.fixtures.get("dolibarr", "").startswith(stack.version.rsplit(".", 1)[0]),
+           f"the container runs Dolibarr {stack.fixtures.get('dolibarr')}, expected {stack.version}")
+    if stack.previous_package is None:
+        return "no earlier release to upgrade from"
+    old = package_version(stack.previous_package)
+    upload(stack, stack.previous_package)
+    switch_module(stack, "set")
+    expect(stack.const("MAIN_MODULE_MAHNWESEN") == "1", f"{old} could not be enabled")
+    tables = {row[0] for row in stack.sql("SHOW TABLES LIKE 'llx_mahnwesen_%'")}
+    missing = [name for name in MODULE_TABLES if f"llx_{name}" not in tables]
+    expect(not missing, f"enabling the package of {old} created no tables {', '.join(missing)}")
+    browser = stack.browser()
+    stages = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=stages"), f"stages setup of {old}")
+    page_ok(browser.submit(form_with_action(stages, "save_stages", f"stages setup of {old}"), {"stage_business_fee_3": "55"}),
+            f"save the stages in {old}")
+    dashboard = page_ok(browser.get("/custom/mahnwesen/index.php"), f"dashboard of {old}")
+    page_ok(browser.submit(form_with_action(dashboard, "sync_cases", f"dashboard of {old}")), f"synchronise in {old}")
+
+    def state() -> list:
+        return stack.sql("SELECT (SELECT COUNT(*) FROM llx_mahnwesen_case), (SELECT COUNT(*) FROM llx_mahnwesen_history), "
+                         "(SELECT ROUND(fee_amount, 2) FROM llx_mahnwesen_rule WHERE level = 3 AND entity = 1), "
+                         "(SELECT COUNT(*) FROM llx_c_email_templates WHERE module = 'mahnwesen')")[0]
+    before = state()
+    expect(before[0] == "4" and before[2] == "55.00", f"{old} did not create the 4 cases and the fee of 55: {before}")
+
+    upload(stack, stack.package)
+    switch_module(stack, "reset")
+    switch_module(stack, "set")
+    expect(stack.const("MAIN_MODULE_MAHNWESEN") == "1", f"{stack.module_version} could not be enabled over {old}")
+    after = state()
+    expect(after == before, f"the upgrade changed cases, history, the stage fee or the starter templates: {before} -> {after}")
+    missing = [name for name in package_settings(stack.package) if stack.const(name) is None]
+    expect(not missing, f"the upgrade did not add the settings {missing}")
+    page_ok(stack.browser().get("/custom/mahnwesen/index.php"), "dashboard after the upgrade")
+
+    stack.php_fixture("reset")
+    expect(stack.const("MAIN_MODULE_MAHNWESEN") is None and not stack.sql("SHOW TABLES LIKE 'llx_mahnwesen_%'"),
+           "the reset after the upgrade test left module state behind")
+    return f"{old} -> {stack.module_version}: 4 cases, history, stage fee and templates kept; all settings present"
+
+
+def deploy(stack: Stack) -> str:
+    """The package goes in the way an administrator installs it: Deploy an external module."""
+    if stack.previous_package is None:
+        expect(stack.shell(f"test ! -e {MODULE_DIR}").returncode == 0, "the module exists before the upload")
+    files = upload(stack, stack.package)
+    return f"{stack.package.name} deployed: {len(files)} files in custom/mahnwesen on Dolibarr {stack.fixtures['dolibarr']}"
+
+
+def enable(stack: Stack) -> str:
+    """Enabling from the module list works; then the users and settings the checks need."""
+    browser = stack.browser()
+    page = module_list(browser)
+    page_ok(browser.get(module_link(page, "set")), "enable")
+    expect(stack.const("MAIN_MODULE_MAHNWESEN") == "1", "MAIN_MODULE_MAHNWESEN is not 1 after enabling from the module list")
+    stack.fixtures.update(stack.php_fixture("enabled"))
+    return f"enabled from the module list, cron job {stack.fixtures['cron_job']}, users rtsales and rtother"
+
 
 def install(stack: Stack) -> str:
     """The module is active, its tables and cron job exist, the starter templates are there."""
-    expect(stack.fixtures.get("dolibarr", "").startswith(stack.version.rsplit(".", 1)[0]),
-           f"the container runs Dolibarr {stack.fixtures.get('dolibarr')}, expected {stack.version}")
     enabled = stack.value("SELECT value FROM llx_const WHERE name = 'MAIN_MODULE_MAHNWESEN' AND entity = 1")
     expect(enabled == "1", "MAIN_MODULE_MAHNWESEN is not 1 after activation")
     tables = {row[0] for row in stack.sql("SHOW TABLES LIKE 'llx_mahnwesen_%'")}
@@ -641,7 +782,10 @@ def templates(stack: Stack) -> str:
 
 
 SCENARIOS = (
-    ("install", "Module, tables, cron job and templates after activation", install, ()),
+    ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
+    ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
+    ("enable", "Enabling from the module list", enable, ("deploy",)),
+    ("install", "Module, tables, cron job and templates after activation", install, ("enable",)),
     ("synchronise", "Synchronise creates the expected cases", synchronise, ("install",)),
     ("pages", "Every page and integration point renders", pages, ("synchronise",)),
     ("access", "Sales representatives only reach their customers", access, ("synchronise",)),
