@@ -1,8 +1,15 @@
 <?php
 /*
- * Prepare a fresh Dolibarr for the runtime checks: company, mail server,
- * modules, users, customers and overdue invoices. Prints one JSON object with
- * the ids the checks need. Passwords come from the environment only.
+ * Prepare a fresh Dolibarr for the runtime checks. Called in stages, each
+ * printing one JSON object with the ids the checks need:
+ *
+ *   base     company, mail server, core modules, customers and overdue invoices
+ *   enabled  after the module was enabled from the module list: its settings,
+ *            users with module rights, the cron job
+ *   reset    after the upgrade test: back to a Dolibarr that never had the
+ *            module, apart from its files
+ *
+ * Passwords come from the environment only.
  */
 
 require __DIR__.'/bootstrap.php';
@@ -15,45 +22,7 @@ global $db, $conf, $langs, $mysoc;
 $admin = rt_admin($db);
 $user = $admin;
 $GLOBALS['user'] = $admin;
-
-$salesPassword = (string) getenv('RT_SALES_PASSWORD');
-$otherPassword = (string) getenv('RT_OTHER_PASSWORD');
-if ($salesPassword === '' || $otherPassword === '') {
-    rt_fail('RT_SALES_PASSWORD and RT_OTHER_PASSWORD must be set');
-}
-
-// Company identity and outgoing mail through the Mailpit container.
-rt_const($db, 'MAIN_LANG_DEFAULT', 'de_DE');
-rt_const($db, 'MAIN_MONNAIE', 'EUR');
-rt_const($db, 'MAIN_INFO_SOCIETE_NOM', 'Runtime Verein');
-rt_const($db, 'MAIN_INFO_SOCIETE_ADDRESS', 'Teststrasse 1');
-rt_const($db, 'MAIN_INFO_SOCIETE_ZIP', '6020');
-rt_const($db, 'MAIN_INFO_SOCIETE_TOWN', 'Innsbruck');
-rt_const($db, 'MAIN_INFO_SOCIETE_MAIL', 'office@runtime-verein.test');
-rt_const($db, 'MAIN_MAIL_EMAIL_FROM', 'robot@runtime-verein.test');
-rt_const($db, 'MAIN_MAIL_SENDMODE', 'smtps');
-rt_const($db, 'MAIN_MAIL_SMTP_SERVER', getenv('RT_SMTP_HOST') ?: 'mail');
-rt_const($db, 'MAIN_MAIL_SMTP_PORT', getenv('RT_SMTP_PORT') ?: '1025');
-rt_const($db, 'MAIN_MAIL_EMAIL_TLS', '0');
-rt_const($db, 'MAIN_MAIL_EMAIL_STARTTLS', '0');
-rt_const($db, 'MAIN_DISABLE_ALL_MAILS', '0');
-rt_const($db, 'CRON_KEY', getenv('RT_CRON_KEY') ?: '');
-
-foreach (array('modSociete', 'modFacture', 'modAgenda', 'modCron', 'modMahnwesen') as $module) {
-    $result = activateModule($module);
-    if (!empty($result['errors'])) {
-        rt_fail('activating '.$module.' failed: '.implode(' | ', (array) $result['errors']));
-    }
-}
-$conf->setValues($db);
-if (!isModEnabled('mahnwesen')) {
-    rt_fail('Mahnwesen is not enabled after activation');
-}
-rt_const($db, 'MAHNWESEN_MANUAL_SEND_ENABLED', '1');
-rt_const($db, 'MAHNWESEN_FROM_EMAIL', 'mahnwesen@runtime-verein.test');
-$admin->loadRights('', 1);
-
-$countryId = (int) rt_value($db, "SELECT rowid FROM ".MAIN_DB_PREFIX."c_country WHERE code = 'AT'");
+$stage = isset($argv[1]) ? $argv[1] : '';
 
 /** Create an internal user with the given rights. */
 function rt_user($db, $admin, $login, $password, $rights)
@@ -81,16 +50,6 @@ function rt_user($db, $admin, $login, $password, $rights)
     return (int) $new->id;
 }
 
-$restricted = array(
-    array('facture', 'lire'),
-    array('societe', 'lire'),
-    array('mahnwesen', 'dashboard', 'read'),
-    array('mahnwesen', 'case', 'write'),
-    array('mahnwesen', 'notice', 'send'),
-);
-$salesId = rt_user($db, $admin, 'rtsales', $salesPassword, $restricted);
-$otherId = rt_user($db, $admin, 'rtother', $otherPassword, $restricted);
-
 /** Create a customer. */
 function rt_customer($db, $admin, $name, $email, $typentCode, $countryId)
 {
@@ -109,22 +68,6 @@ function rt_customer($db, $admin, $name, $email, $typentCode, $countryId)
         rt_fail('customer '.$name.': '.$customer->error.' '.implode(' | ', (array) $customer->errors));
     }
     return $customer;
-}
-
-$company = rt_customer($db, $admin, 'Runtime GmbH', 'buchhaltung@runtime-gmbh.test', 'TE_SMALL', $countryId);
-$private = rt_customer($db, $admin, 'Rita Privat', 'rita@privat.test', 'TE_PRIVATE', $countryId);
-if ($company->add_commercial($admin, $salesId) < 0) {
-    rt_fail('sales representative: '.$company->error);
-}
-
-$contact = new Contact($db);
-$contact->socid = $company->id;
-$contact->firstname = 'Berta';
-$contact->lastname = 'Billing';
-$contact->email = 'berta.billing@runtime-gmbh.test';
-$contact->statut = 1;
-if ($contact->create($admin) <= 0) {
-    rt_fail('contact: '.$contact->error);
 }
 
 /** Create, validate and print one invoice that fell due $daysOverdue days ago. */
@@ -161,32 +104,132 @@ function rt_invoice($db, $admin, $customer, $amount, $daysOverdue, $billingConta
     return array('id' => (int) $invoice->id, 'ref' => (string) $invoice->ref, 'last_main_doc' => (string) $invoice->last_main_doc);
 }
 
-$invoices = array(
-    'company_overdue' => rt_invoice($db, $admin, $company, 100, 35, (int) $contact->id),
-    'company_recent' => rt_invoice($db, $admin, $company, 50, 1, (int) $contact->id),
-    'private_overdue' => rt_invoice($db, $admin, $private, 80, 12),
-    'company_renamed' => rt_invoice($db, $admin, $company, 30, 20, (int) $contact->id),
-);
+if ($stage === 'base') {
+    // Company identity and outgoing mail through the Mailpit container.
+    rt_const($db, 'MAIN_LANG_DEFAULT', 'de_DE');
+    rt_const($db, 'MAIN_MONNAIE', 'EUR');
+    rt_const($db, 'MAIN_INFO_SOCIETE_NOM', 'Runtime Verein');
+    rt_const($db, 'MAIN_INFO_SOCIETE_ADDRESS', 'Teststrasse 1');
+    rt_const($db, 'MAIN_INFO_SOCIETE_ZIP', '6020');
+    rt_const($db, 'MAIN_INFO_SOCIETE_TOWN', 'Innsbruck');
+    rt_const($db, 'MAIN_INFO_SOCIETE_MAIL', 'office@runtime-verein.test');
+    rt_const($db, 'MAIN_MAIL_EMAIL_FROM', 'robot@runtime-verein.test');
+    rt_const($db, 'MAIN_MAIL_SENDMODE', 'smtps');
+    rt_const($db, 'MAIN_MAIL_SMTP_SERVER', getenv('RT_SMTP_HOST') ?: 'mail');
+    rt_const($db, 'MAIN_MAIL_SMTP_PORT', getenv('RT_SMTP_PORT') ?: '1025');
+    rt_const($db, 'MAIN_MAIL_EMAIL_TLS', '0');
+    rt_const($db, 'MAIN_MAIL_EMAIL_STARTTLS', '0');
+    rt_const($db, 'MAIN_DISABLE_ALL_MAILS', '0');
+    rt_const($db, 'CRON_KEY', getenv('RT_CRON_KEY') ?: '');
 
-// PDF models and document settings can name the invoice PDF differently from
-// REF/REF.pdf. Rename one and point last_main_doc at it, as such a model would.
-$renamed = $invoices['company_renamed'];
-$oldPath = DOL_DATA_ROOT.'/'.$renamed['last_main_doc'];
-$newRelative = dirname($renamed['last_main_doc']).'/'.$renamed['ref'].'-signed.pdf';
-if (!rename($oldPath, DOL_DATA_ROOT.'/'.$newRelative)) {
-    rt_fail('could not rename '.$oldPath);
+    foreach (array('modSociete', 'modFacture', 'modAgenda', 'modCron') as $module) {
+        $result = activateModule($module);
+        if (!empty($result['errors'])) {
+            rt_fail('activating '.$module.' failed: '.implode(' | ', (array) $result['errors']));
+        }
+    }
+    $conf->setValues($db);
+    $admin->loadRights('', 1);
+
+    $countryId = (int) rt_value($db, "SELECT rowid FROM ".MAIN_DB_PREFIX."c_country WHERE code = 'AT'");
+    $company = rt_customer($db, $admin, 'Runtime GmbH', 'buchhaltung@runtime-gmbh.test', 'TE_SMALL', $countryId);
+    $private = rt_customer($db, $admin, 'Rita Privat', 'rita@privat.test', 'TE_PRIVATE', $countryId);
+
+    $contact = new Contact($db);
+    $contact->socid = $company->id;
+    $contact->firstname = 'Berta';
+    $contact->lastname = 'Billing';
+    $contact->email = 'berta.billing@runtime-gmbh.test';
+    $contact->statut = 1;
+    if ($contact->create($admin) <= 0) {
+        rt_fail('contact: '.$contact->error);
+    }
+
+    $invoices = array(
+        'company_overdue' => rt_invoice($db, $admin, $company, 100, 35, (int) $contact->id),
+        'company_recent' => rt_invoice($db, $admin, $company, 50, 1, (int) $contact->id),
+        'private_overdue' => rt_invoice($db, $admin, $private, 80, 12),
+        'company_renamed' => rt_invoice($db, $admin, $company, 30, 20, (int) $contact->id),
+    );
+
+    // PDF models and document settings can name the invoice PDF differently from
+    // REF/REF.pdf. Rename one and point last_main_doc at it, as such a model would.
+    $renamed = $invoices['company_renamed'];
+    $oldPath = DOL_DATA_ROOT.'/'.$renamed['last_main_doc'];
+    $newRelative = dirname($renamed['last_main_doc']).'/'.$renamed['ref'].'-signed.pdf';
+    if (!rename($oldPath, DOL_DATA_ROOT.'/'.$newRelative)) {
+        rt_fail('could not rename '.$oldPath);
+    }
+    rt_exec($db, "UPDATE ".MAIN_DB_PREFIX."facture SET last_main_doc = '".$db->escape($newRelative)."' WHERE rowid = ".((int) $renamed['id']));
+    $invoices['company_renamed']['last_main_doc'] = $newRelative;
+
+    print json_encode(array(
+        'dolibarr' => DOL_VERSION,
+        'php' => PHP_VERSION,
+        'customers' => array('company' => (int) $company->id, 'private' => (int) $private->id),
+        'contacts' => array('billing' => (int) $contact->id),
+        'invoices' => $invoices,
+    ), JSON_PRETTY_PRINT)."\n";
+    exit(0);
 }
-rt_exec($db, "UPDATE ".MAIN_DB_PREFIX."facture SET last_main_doc = '".$db->escape($newRelative)."' WHERE rowid = ".((int) $renamed['id']));
-$invoices['company_renamed']['last_main_doc'] = $newRelative;
 
-$cronId = (int) rt_value($db, "SELECT rowid FROM ".MAIN_DB_PREFIX."cronjob WHERE classesname = '/mahnwesen/class/dunningmanager.class.php' AND methodename = 'doScheduledJob'");
+if ($stage === 'enabled') {
+    $salesPassword = (string) getenv('RT_SALES_PASSWORD');
+    $otherPassword = (string) getenv('RT_OTHER_PASSWORD');
+    if ($salesPassword === '' || $otherPassword === '') {
+        rt_fail('RT_SALES_PASSWORD and RT_OTHER_PASSWORD must be set');
+    }
+    if (!isModEnabled('mahnwesen')) {
+        rt_fail('Mahnwesen is not enabled; enable it from the module list first');
+    }
+    rt_const($db, 'MAHNWESEN_MANUAL_SEND_ENABLED', '1');
+    rt_const($db, 'MAHNWESEN_FROM_EMAIL', 'mahnwesen@runtime-verein.test');
+    $admin->loadRights('', 1);
 
-print json_encode(array(
-    'dolibarr' => DOL_VERSION,
-    'php' => PHP_VERSION,
-    'users' => array('admin' => (int) $admin->id, 'sales' => $salesId, 'other' => $otherId),
-    'customers' => array('company' => (int) $company->id, 'private' => (int) $private->id),
-    'contacts' => array('billing' => (int) $contact->id),
-    'invoices' => $invoices,
-    'cron_job' => $cronId,
-), JSON_PRETTY_PRINT)."\n";
+    $restricted = array(
+        array('facture', 'lire'),
+        array('societe', 'lire'),
+        array('mahnwesen', 'dashboard', 'read'),
+        array('mahnwesen', 'case', 'write'),
+        array('mahnwesen', 'notice', 'send'),
+    );
+    $salesId = rt_user($db, $admin, 'rtsales', $salesPassword, $restricted);
+    $otherId = rt_user($db, $admin, 'rtother', $otherPassword, $restricted);
+    $company = new Societe($db);
+    if ($company->fetch(0, 'Runtime GmbH') <= 0 || $company->add_commercial($admin, $salesId) < 0) {
+        rt_fail('sales representative: '.$company->error);
+    }
+
+    $cronId = (int) rt_value($db, "SELECT rowid FROM ".MAIN_DB_PREFIX."cronjob WHERE classesname = '/mahnwesen/class/dunningmanager.class.php' AND methodename = 'doScheduledJob'");
+    print json_encode(array(
+        'users' => array('admin' => (int) $admin->id, 'sales' => $salesId, 'other' => $otherId),
+        'cron_job' => $cronId,
+    ), JSON_PRETTY_PRINT)."\n";
+    exit(0);
+}
+
+if ($stage === 'reset') {
+    // After the upgrade test: back to a Dolibarr that never had the module, apart from its files.
+    require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+    unActivateModule('modMahnwesen');
+    $statements = array(
+        "DELETE FROM ".MAIN_DB_PREFIX."const WHERE name LIKE 'MAHNWESEN\\_%'",
+        "DELETE FROM ".MAIN_DB_PREFIX."c_email_templates WHERE module = 'mahnwesen' OR type_template LIKE 'mahnwesen\\_%'",
+        "DELETE FROM ".MAIN_DB_PREFIX."cronjob WHERE classesname = '/mahnwesen/class/dunningmanager.class.php'",
+        "DELETE FROM ".MAIN_DB_PREFIX."actioncomm WHERE ref_ext LIKE 'mahnwesen-%'",
+        "SET FOREIGN_KEY_CHECKS = 0",
+    );
+    $tables = rt_value($db, "SELECT GROUP_CONCAT(table_name) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name LIKE '".MAIN_DB_PREFIX."mahnwesen\\_%'");
+    foreach (array_filter(explode(',', (string) $tables)) as $table) {
+        $statements[] = "DROP TABLE ".$table;
+    }
+    $statements[] = "SET FOREIGN_KEY_CHECKS = 1";
+    foreach ($statements as $sql) {
+        rt_exec($db, $sql);
+    }
+    dol_delete_dir_recursive(DOL_DATA_ROOT.'/mahnwesen');
+    print json_encode(array('reset' => 1))."\n";
+    exit(0);
+}
+
+rt_fail('unknown stage "'.$stage.'", use base, enabled or reset');

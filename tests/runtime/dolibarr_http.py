@@ -195,6 +195,23 @@ class Browser:
                                          headers={"Content-Type": "application/x-www-form-urlencoded"})
         return self._open(request, follow)
 
+    def post_multipart(self, path: str, fields: list[tuple[str, str]], files: list[tuple[str, str, bytes]],
+                       follow: bool = True) -> Page:
+        """A form with enctype multipart/form-data, as a browser sends a file upload."""
+        boundary = "----mahnwesen-runtime-" + hashlib.sha256(repr(fields).encode("utf-8")).hexdigest()[:24]
+        body = bytearray()
+        for name, value in fields:
+            body += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n"
+                     f"{value}\r\n").encode("utf-8")
+        for name, filename, data in files:
+            body += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{filename}\"\r\n"
+                     "Content-Type: application/zip\r\n\r\n").encode("utf-8")
+            body += data + b"\r\n"
+        body += f"--{boundary}--\r\n".encode("utf-8")
+        request = urllib.request.Request(self._url(path), data=bytes(body), method="POST",
+                                         headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+        return self._open(request, follow)
+
     def submit(self, form: Form, changes: dict | None = None, drop: tuple = (),
                button: tuple[str, str] | None = None, follow: bool = True) -> Page:
         """Submit a form as a browser would, with some values changed or removed."""

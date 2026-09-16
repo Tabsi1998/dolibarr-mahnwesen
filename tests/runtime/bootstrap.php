@@ -1,8 +1,9 @@
 <?php
 /*
  * Shared start of the runtime check scripts. They run with the PHP CLI inside
- * a disposable Dolibarr container and must never answer a web request: a Git
- * checkout under htdocs/custom would otherwise expose them.
+ * a disposable Dolibarr container, mounted outside the web root, and must never
+ * answer a web request: a Git checkout under htdocs/custom would otherwise
+ * expose them. RT_DOLIBARR_ROOT names the Dolibarr htdocs folder.
  */
 
 if (PHP_SAPI !== 'cli') {
@@ -17,9 +18,9 @@ define('NOREQUIREMENU', 1);
 define('NOREQUIREHTML', 1);
 define('NOREQUIREAJAX', 1);
 
-$dolibarrRoot = dirname(__DIR__, 4);
+$dolibarrRoot = getenv('RT_DOLIBARR_ROOT') ?: '/var/www/html';
 if (!is_file($dolibarrRoot.'/master.inc.php')) {
-    fwrite(STDERR, "Dolibarr was not found above ".__DIR__."\n");
+    fwrite(STDERR, "Dolibarr was not found in ".$dolibarrRoot."\n");
     exit(2);
 }
 require_once $dolibarrRoot.'/master.inc.php';
