@@ -84,6 +84,29 @@ trait DunningManagerMethods5
         return true;
     }
 
+    /** Remember which email template a stage uses: native:auto or native:<id>. */
+    public function saveRuleTemplate($level, $templateRef, $user)
+    {
+        global $conf;
+        $level = max(1, min(4, (int) $level));
+        if (!preg_match('/^native:(auto|\d+)$/', (string) $templateRef)) {
+            $this->error = 'Invalid template reference';
+            return false;
+        }
+        if (!$this->ensureRuleRows($user)) {
+            return false;
+        }
+        $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
+        $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_rule SET email_template = '".$this->db->escape((string) $templateRef)."', fk_user_modif = ".$uid;
+        $sql .= ' WHERE entity = '.((int) $conf->entity).' AND level = '.$level;
+        if (!$this->db->query($sql)) {
+            $this->error = $this->db->lasterror();
+            return false;
+        }
+        $this->rulesCache = null;
+        return true;
+    }
+
     /**
      * Classify a Dolibarr third party for SAFE fee automation. This is a
      * master-data heuristic, not a legal determination of the transaction.

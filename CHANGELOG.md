@@ -7,6 +7,33 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-09-16
+
+Email templates as you would expect them, and updates that keep manual sending.
+
+### Fixed
+
+- The composer's template list showed the English starter template as just
+  "English": Dolibarr translates the part of a template name in parentheses.
+  Starter templates are now called "Mahnwesen - 2. Mahnung - English";
+  existing ones are renamed when the module is activated or starter templates
+  are created (#53).
+- A template you wrote yourself lost against the module's starter template.
+  Now your own template of a stage wins, as long as its language fits the
+  customer or it has no language (#53).
+- Every activation created English starter templates, even when nobody writes
+  English. Starter templates are now created only for German and English as
+  far as the company or a customer uses them, and not for a stage that already
+  has a template in that language (#53).
+- Disabling and enabling the module - the usual update step - switched manual
+  sending off. It now keeps its setting; automatic sending is still switched
+  off, and the setup says so (#54).
+
+### Added
+
+- The templates tab of the setup lets you fix the template of each stage, or
+  leave it on automatic (#53).
+
 ## [1.0.3] - 2026-09-16
 
 Clean file names for dunning PDFs, and delivery evidence kept apart.
@@ -199,7 +226,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.4
 [1.0.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.3
 [1.0.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.2
 [1.0.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.1

@@ -76,6 +76,33 @@ if ($action === 'create_starter_templates') {
     mw4_redirect('templates');
 }
 
+if ($action === 'save_templates') {
+    $choices = array();
+    $errors = array();
+    for ($level = 1; $level <= 4; $level++) {
+        $choice = GETPOST('template_'.$level, 'aZ09');
+        if ($choice === 'auto' || $choice === '') {
+            $choices[$level] = 'native:auto';
+        } elseif (ctype_digit($choice) && $notice->getNativeTemplateById((int) $choice, $level, $user) !== false) {
+            $choices[$level] = 'native:'.((int) $choice);
+        } else {
+            $errors[] = $langs->trans('MahnwesenTemplateInvalid', $langs->trans($manager->getStageLabelKey($level)));
+        }
+    }
+    if (empty($errors)) {
+        $db->begin();
+        $ok = true;
+        foreach ($choices as $level => $ref) {
+            if (!$manager->saveRuleTemplate($level, $ref, $user)) { $ok = false; break; }
+        }
+        if ($ok) { $db->commit(); setEventMessages($langs->trans('SetupSaved'), null, 'mesgs'); }
+        else { $db->rollback(); setEventMessages($manager->error ?: $langs->trans('Error'), null, 'errors'); }
+        mw4_redirect('templates');
+    }
+    setEventMessages('', $errors, 'errors');
+    $tab = 'templates';
+}
+
 if ($action === 'save_general') {
     $minAmount = (float) price2num(GETPOST('min_amount', 'alpha'));
     $maxScan = GETPOSTINT('max_scan');
@@ -118,7 +145,9 @@ if ($action === 'save_stages') {
         $db->begin();
         $ok = true;
         for ($level = 1; $level <= 4; $level++) {
-            if (!$manager->saveRule($level, $days[$level], $businessFees[$level], $send[$level], 'native:auto', $user, $enabledStages[$level])) { $ok = false; break; }
+            // Keep the template chosen on the templates tab.
+            $currentTemplate = (string) $manager->getRuleByLevel($level)['email_template'];
+            if (!$manager->saveRule($level, $days[$level], $businessFees[$level], $send[$level], $currentTemplate, $user, $enabledStages[$level])) { $ok = false; break; }
             if (!mw4_set_const($db, 'MAHNWESEN_PRIVATE_FEE_'.$level, $privateStageFees[$level], $conf->entity)) { $ok = false; break; }
         }
         if ($ok) { $ok = mw4_set_const($db, 'MAHNWESEN_PRIVATE_FEES_ALLOWED', $privateFeesAllowed, $conf->entity); }
@@ -269,24 +298,34 @@ if ($tab === 'templates') {
         3 => 'EmailTemplateTypeDunning2',
         4 => 'EmailTemplateTypeDunning3',
     );
+    print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=templates">';
+    print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="save_templates">';
     print '<div class="div-table-responsive"><table class="noborder centpercent">';
-    print '<tr class="liste_titre"><th>'.$langs->trans('DunningStage').'</th><th>'.$langs->trans('MahnwesenDolibarrTemplateType').'</th><th>'.$langs->trans('MahnwesenTemplateUsed').'</th><th>'.$langs->trans('MahnwesenTemplateState').'</th></tr>';
+    print '<tr class="liste_titre"><th>'.$langs->trans('DunningStage').'</th><th>'.$langs->trans('MahnwesenDolibarrTemplateType').'</th><th>'.$langs->trans('MahnwesenTemplateChoice').'</th><th>'.$langs->trans('MahnwesenTemplateUsed').'</th><th>'.$langs->trans('MahnwesenTemplateState').'</th></tr>';
     for ($level = 1; $level <= 4; $level++) {
         $type = $notice->getTemplateTypeForLevel($level);
-        $stageTemplates = $notice->getNativeTemplates($level);
+        $stageTemplates = $notice->getNativeTemplates($level, $user);
         $selectedTemplate = $notice->getTemplate($level, $langs->defaultlang, $user);
         $selectedName = ($selectedTemplate !== false && !empty($selectedTemplate['label'])) ? (string) $selectedTemplate['label'] : '-';
-        $extraCount = max(0, count($stageTemplates) - ($selectedName !== '-' ? 1 : 0));
+        $currentRef = (string) $rules[$level]['email_template'];
         print '<tr class="oddeven">';
         print '<td><strong>'.$langs->trans($manager->getStageLabelKey($level)).'</strong></td>';
         print '<td>'.$langs->trans($typeLabels[$level]).'<br><span class="opacitymedium"><code>'.dol_escape_htmltag($type).'</code></span></td>';
-        print '<td>'.dol_escape_htmltag($selectedName); 
-        if ($extraCount > 0) { print '<br><span class="opacitymedium">'.$langs->trans('MahnwesenTemplateAdditionalCount', $extraCount).'</span>'; }
-        print '</td>';
+        print '<td><select name="template_'.$level.'" id="template_'.$level.'" class="minwidth200">';
+        print '<option value="auto"'.(strpos($currentRef, 'native:') !== 0 || $currentRef === 'native:auto' ? ' selected' : '').'>'.dol_escape_htmltag($langs->trans('MahnwesenTemplateAuto')).'</option>';
+        foreach ($stageTemplates as $templateRow) {
+            $optionLabel = (string) $templateRow['label'].($templateRow['lang'] !== '' ? ' ('.$templateRow['lang'].')' : '');
+            if ($templateRow['module'] === 'mahnwesen') { $optionLabel .= ' - '.$langs->trans('MahnwesenTemplateStarterMark'); }
+            print '<option value="'.((int) $templateRow['id']).'"'.($currentRef === 'native:'.((int) $templateRow['id']) ? ' selected' : '').'>'.dol_escape_htmltag($optionLabel).'</option>';
+        }
+        print '</select></td>';
+        print '<td>'.dol_escape_htmltag($selectedName).'</td>';
         print '<td>'.(!empty($stageTemplates) ? '<span class="badge badge-status4">'.$langs->trans('MahnwesenTemplateReady').'</span>' : '<span class="badge badge-status1">'.$langs->trans('MahnwesenTemplateMissing').'</span>').'</td>';
         print '</tr>';
     }
-    print '</table></div><br>';
+    print '</table></div>';
+    print '<div class="opacitymedium margintoponly">'.$langs->trans('MahnwesenTemplateChoiceHelp').'</div>';
+    print '<div class="center margintoponly"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button></div></form><br>';
 
     $tokenRows = array(
         '__MAHNWESEN_STAGE__' => 'MahnwesenTokenStageDesc',
@@ -336,6 +375,7 @@ if ($tab === 'automation') {
     print '<tr><td>'.$langs->trans('MahnwesenAutoSendConfirmation').'</td><td><input type="checkbox" name="auto_send_confirm" value="1"></td><td><strong>'.$langs->trans('MahnwesenAutoSendConfirmationHelp').'</strong></td></tr>';
     print '</table>';
     print '<div class="warning margintoponly">'.$langs->trans('MahnwesenAutomationSafetyHelp').'</div>';
+    print '<div class="info margintoponly">'.$langs->trans('MahnwesenReactivationHelp').'</div>';
     print '<div class="center"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button></div></form>';
 }
 

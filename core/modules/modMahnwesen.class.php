@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '1.0.3';
+        $this->version = '1.0.4';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -75,8 +75,9 @@ class modMahnwesen extends DolibarrModules
         // Add a dedicated Mahnwesen tab to customer invoices.
         $this->tabs = array();
         $this->tabs[] = array('data' => 'invoice:+mahnwesen:Mahnwesen:mahnwesen@mahnwesen:$user->hasRight(\'mahnwesen\', \'dashboard\', \'read\'):/mahnwesen/invoice.php?id=__ID__');
-        // Defaults. Safety-critical real-send switches reset to OFF when the
-        // module is disabled/re-enabled. Business configuration is retained.
+        // Defaults. Automatic sending resets to OFF when the module is disabled,
+        // so an update never resumes unattended mail. Manual sending is asked
+        // for per notice anyway and keeps the administrator's choice (#54).
         $this->const = array(
             1 => array('MAHNWESEN_MODE', 'chaine', 'controlled', 'Mahnwesen runtime mode', 0, 'current', 0),
             2 => array('MAHNWESEN_STAGE1_DAYS', 'chaine', '3', 'Days after due date for stage 1', 0, 'current', 0),
@@ -87,7 +88,7 @@ class modMahnwesen extends DolibarrModules
             7 => array('MAHNWESEN_MAX_SCAN', 'chaine', '500', 'Maximum invoices scanned per run', 0, 'current', 0),
             8 => array('MAHNWESEN_INCLUDE_DEPOSITS', 'chaine', '0', 'Include deposit invoices in dunning scan', 0, 'current', 0),
             9 => array('MAHNWESEN_FROM_EMAIL', 'chaine', '', 'Sender email for dunning notices', 0, 'current', 0),
-            10 => array('MAHNWESEN_MANUAL_SEND_ENABLED', 'chaine', '0', 'Allow explicitly approved manual dunning email sends', 0, 'current', 1),
+            10 => array('MAHNWESEN_MANUAL_SEND_ENABLED', 'chaine', '0', 'Allow explicitly approved manual dunning email sends', 0, 'current', 0),
             11 => array('MAHNWESEN_AUTO_SEND_ENABLED', 'chaine', '0', 'Allow cron to send configured dunning levels automatically', 0, 'current', 1),
             12 => array('MAHNWESEN_AUTO_SEND_MAX', 'chaine', '10', 'Maximum automatic sends per cron run', 0, 'current', 0),
             13 => array('MAHNWESEN_AUTO_RECIPIENT_POLICY', 'chaine', 'single_billing', 'Automatic recipient resolution policy', 0, 'current', 0),

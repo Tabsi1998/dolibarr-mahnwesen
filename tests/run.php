@@ -86,6 +86,27 @@ $templates = new TemplatePolicyFixture(null, null);
 $selected = $templates->getDefaultNativeTemplateForLevel(1, 'en_GB');
 mwAssert($selected !== false && $selected['label'] === 'EN', 'same-language template must beat another-language default');
 
+class OwnTemplateFixture
+{
+    use DunningNoticeServiceMethods1;
+    public $db;
+    public $manager;
+    public $error = '';
+    public $rows = array();
+    public function getNativeTemplates($level = 0, $user = null) { return $this->rows; }
+}
+$own = new OwnTemplateFixture(null, null);
+$own->rows = array(
+    1 => array('lang' => 'de_DE', 'defaultfortype' => 1, 'module' => 'mahnwesen', 'label' => 'Starter DE'),
+    2 => array('lang' => '', 'defaultfortype' => 0, 'module' => '', 'label' => 'Own without language'),
+    3 => array('lang' => 'en_US', 'defaultfortype' => 1, 'module' => '', 'label' => 'Own English'),
+);
+$selected = $own->getDefaultNativeTemplateForLevel(3, 'de_DE');
+mwAssert($selected !== false && $selected['label'] === 'Own without language', 'an own template without language must beat the German starter');
+$own->rows[2]['lang'] = 'fr_FR';
+$selected = $own->getDefaultNativeTemplateForLevel(3, 'de_DE');
+mwAssert($selected !== false && $selected['label'] === 'Starter DE', 'an own template in another language must not beat a fitting starter');
+
 class FailingRecipientDb
 {
     public function query($sql) { return false; }
