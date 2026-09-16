@@ -15,6 +15,7 @@ GitHub Actions is the second confirmation. Before every push:
 python scripts/local_check.py                 # everything but extra
 python scripts/local_check.py --all           # plus the gates GitHub does not run
 python scripts/local_check.py --only php,package
+python scripts/local_check.py --only runtime --keep-services   # leave the Dolibarrs running
 python scripts/local_check.py --list          # the steps, without running them
 ```
 
@@ -26,24 +27,57 @@ ignored by Git.
 | --- | --- | --- |
 | repository | - | every `*.sh` parses, no CRLF in the index, `git diff --check` over every tracked line, Gitleaks over the history and over uncommitted files |
 | php | ci.yml `php-lint` matrix | `scripts/check-module.sh` in `php:7.4-cli` to `php:8.4-cli`, and proof that its lint, policy tests, language keys and contracts really ran (it skips them silently without php) |
-| dolibarr | ci.yml `dolibarr-api` matrix | `scripts/check-dolibarr-api.sh` for 21.0, 22.0 and 23.0 |
+| dolibarr | ci.yml `dolibarr-api` matrix | `scripts/check-dolibarr-api.sh` for 21.0, 22.0, 23.0 and 24.0 |
 | package | ci.yml `build-package` | `scripts/build-release.sh` in `local-ci/mahnwesen-zip:8.2` (php:8.2-cli plus zip, built on first use), the ZIP checked file by file, and the Windows fallback of the script compared with it byte by byte |
 | release | release.yml | module version is x.y.z and matches the newest changelog entry and any tag; `phpmin` and `need_dolibarr_version` equal the lowest entry of each matrix |
+| runtime | - | the module in a running Dolibarr 21.0, 22.0, 23.0 and 24.0 (official images, MariaDB, Mailpit), driven through its pages and the Dolibarr cron; see below |
 | extra | - | PHP 8.4 deprecations and warnings in `tests/run.php`, printf placeholders that differ between de_DE and en_US, ShellCheck, OSV |
 
 Tools the checks expect: Docker Desktop, Git for Windows, gitleaks. A missing
 tool skips its steps with a hint.
 
-The php, dolibarr and package steps run against `.local-testing/snapshot`, a
-copy of what Git would commit with LF line endings, as the Linux runner checks
-it out.
+The php, dolibarr, package and runtime steps run against
+`.local-testing/snapshot`, a copy of what Git would commit with LF line endings,
+as the Linux runner checks it out.
+
+## Runtime checks
+
+`tests/runtime/` holds a real Dolibarr test. For every version in
+`RUNTIME_IMAGES` (header of `scripts/local_check.py`) the check starts, all at
+once, a `dolibarr/dolibarr` container with the snapshot mounted read-only as
+`custom/mahnwesen`, a MariaDB and a Mailpit, each on its own network. Database
+and documents live in tmpfs, passwords are new each run, and everything is
+removed afterwards. Ports: web 18021-18024, Mailpit 18121-18124.
+
+- `fixtures.php` runs with the PHP CLI in the container: company in Austria,
+  SMTP to Mailpit, modules Societe/Facture/Agenda/Cron/Mahnwesen, an admin, a
+  sales representative `rtsales` for the company customer, a second
+  representative `rtother` without customers, a company with a BILLING
+  contact, a private customer and three validated overdue invoices with PDFs.
+  It prints the ids as JSON. `bootstrap.php` refuses to run outside the CLI.
+- `scenarios.py` drives the pages with `dolibarr_http.py` (sessions, CSRF
+  tokens, forms submitted as a browser submits them - an unticked checkbox is
+  not sent), reads Mailpit's API and the database, and runs the Dolibarr cron
+  runner. Each entry of `SCENARIOS` becomes one step per version; `needs`
+  keeps their order.
+- `php-check.ini` logs every PHP message; the `php-messages` step collects
+  those from module code through the ratchet (`runtime-php-<version>`).
+
+With `--keep-services` the stacks stay up and
+`.local-testing/runtime-<version>-access.json` holds the URL, the Mailpit URL
+and the throwaway passwords. A bug fix gets a scenario that fails before the
+fix; a new Dolibarr major gets a line in `RUNTIME_IMAGES`, `DOLIBARR_VERSIONS`,
+`scripts/check-dolibarr-api.sh` and the CI matrix.
 
 ## Keep in step
 
 - Raising the PHP or Dolibarr minimum means changing `phpmin` or
   `need_dolibarr_version`, the matrix in `.github/workflows/ci.yml`, and
-  `PHP_VERSIONS` or `DOLIBARR_VERSIONS` in the header of
+  `PHP_VERSIONS` or `DOLIBARR_VERSIONS` (with `RUNTIME_IMAGES`) in the header of
   `scripts/local_check.py` together; the release check fails otherwise.
+- `scripts/check-module.sh` holds static contracts. A contract that only greps
+  the start of a call proves nothing: the one for `restrictedArea()` did so and
+  kept every user locked out until the runtime checks ran (#44).
 - `build-release.sh` packs every file it does not exclude. Local-only folders
   such as `.ci-panel/` must stay out of Git, or the release ZIP carries them.
   `CONTRIBUTING.md` and `CLAUDE.md` are excluded; a new developer document

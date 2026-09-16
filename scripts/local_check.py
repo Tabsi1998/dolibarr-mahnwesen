@@ -12,13 +12,19 @@ Groups:
     php         scripts/check-module.sh on PHP 7.4, 8.1, 8.2, 8.3 and 8.4 -
                 the CI matrix, in the official PHP images - and proof that the
                 lint and the policy tests really ran
-    dolibarr    the source and API compatibility check against Dolibarr 21.0,
-                22.0 and 23.0
+    dolibarr    the source and API compatibility check against Dolibarr 21.0 to
+                24.0
     package     the installable ZIP as the Linux runner builds it, checked file
                 by file, and the Windows build path checked for the same result
     release     the module version, the changelog, the minimum PHP and
                 Dolibarr versions and any tag agree with each other and with
                 the CI matrix
+    runtime     the module in a running Dolibarr 21, 22, 23 and 24 - official
+                images with MariaDB and Mailpit - driven through its pages and
+                the Dolibarr cron: activation, synchronisation, access rules,
+                a real send with the attachment hashes checked against the
+                delivered bytes, automatic sending, and PHP messages from
+                module code (tests/runtime/)
     extra       what GitHub does not run: PHP 8.4 deprecations in the policy
                 tests, placeholders that differ between the German and English
                 texts, ShellCheck, and OSV over the lockfiles
@@ -61,13 +67,32 @@ LOGS = STATE / "logs"
 BASELINE = ROOT / "scripts" / "ci-baseline.json"
 WINDOWS = platform.system() == "Windows"
 
-GROUPS = ("repository", "php", "dolibarr", "package", "release", "extra")
-DEFAULT_GROUPS = ("repository", "php", "dolibarr", "package", "release")
+GROUPS = ("repository", "php", "dolibarr", "package", "release", "runtime", "extra")
+DEFAULT_GROUPS = ("repository", "php", "dolibarr", "package", "release", "runtime")
 
 # The CI matrices. The lowest entry of each must match what the module declares.
 PHP_VERSIONS = ("7.4", "8.1", "8.2", "8.3", "8.4")
-DOLIBARR_VERSIONS = ("21.0", "22.0", "23.0")
+DOLIBARR_VERSIONS = ("21.0", "22.0", "23.0", "24.0")
 RELEASE_PHP = "8.2"
+
+# The running Dolibarr of each supported version: the official image, pinned to
+# a release, and the host ports of its web server and of its Mailpit.
+RUNTIME_IMAGES = {
+    "21.0": ("dolibarr/dolibarr:21.0.4", 18021, 18121),
+    "22.0": ("dolibarr/dolibarr:22.0.5", 18022, 18122),
+    "23.0": ("dolibarr/dolibarr:23.0.4", 18023, 18123),
+    "24.0": ("local-ci/dolibarr:24.0.1", 18024, 18124),
+}
+# Releases without an official image yet, built from Dolibarr's own docker
+# repository at a pinned commit. 24.0.0 ends every cron run with a fatal error
+# in Dolibarr's cron shutdown handler (Dolibarr #39801, fixed in 24.0.1).
+RUNTIME_BUILDS = {
+    "local-ci/dolibarr:24.0.1": "https://github.com/Dolibarr/dolibarr-docker.git"
+                                "#ec6b10487e52244b64142b6d8806eb26409ac406:images/24.0.1-php8.2",
+}
+MARIADB_IMAGE = "mariadb:11.4.13"
+MAILPIT_IMAGE = "axllent/mailpit:v1.31.1"
+RUNTIME_TESTS = ROOT / "tests" / "runtime"
 
 MODULE = ROOT / "core" / "modules" / "modMahnwesen.class.php"
 SNAPSHOT = STATE / "snapshot"
@@ -1119,6 +1144,179 @@ def release_steps() -> list:
     return [Step("release", "metadata", "Version, changelog, minimums and tag agree", release_metadata)]
 
 
+# ------------------------------------------------------------------- runtime
+
+def runtime_module():
+    """tests/runtime/scenarios.py, imported from the working copy."""
+    folder = str(RUNTIME_TESTS)
+    if folder not in sys.path:
+        sys.path.insert(0, folder)
+    import scenarios  # noqa: E402 - lives next to the PHP fixtures it drives
+    return scenarios
+
+
+def runtime_name(version: str, part: str) -> str:
+    return f"mahnwesen-rt-{version.replace('.', '')}-{part}"
+
+
+def start_runtime_stack(context: Context, version: str):
+    """One Dolibarr with MariaDB and Mailpit, the module mounted read-only, fixtures loaded.
+
+    Databases and documents live in tmpfs, so every run starts from an empty
+    Dolibarr and nothing is left behind. Passwords are new for every run and
+    never written to a log.
+    """
+    import secrets
+    scenarios = runtime_module()
+    binary = docker(context)
+    image, web_port, mail_port = RUNTIME_IMAGES[version]
+    if image in RUNTIME_BUILDS and context.run(binary, "image", "inspect", image, check=False,
+                                               timeout=60).returncode != 0:
+        built = context.run(binary, "build", "--tag", image, RUNTIME_BUILDS[image], check=False, timeout=2400)
+        context.log(f"runtime-{version}-image", built.stdout + built.stderr)
+        if built.returncode != 0:
+            raise StepFailed(f"building {image} failed:\n" + tail(built))
+    network = runtime_name(version, "net")
+    names = {part: runtime_name(version, part) for part in ("db", "mail", "web")}
+    for name in names.values():
+        context.run(binary, "rm", "--force", "--volumes", name, check=False, timeout=120)
+    context.run(binary, "network", "rm", network, check=False, timeout=60)
+    for port in (web_port, mail_port):
+        if port_open(port):
+            raise StepSkipped(f"port {port} is taken by something else; stop it and run again")
+    stack = scenarios.Stack(
+        version=version, image=image, web=names["web"], db=names["db"], mail=names["mail"],
+        web_port=web_port, mail_port=mail_port, admin_password=secrets.token_urlsafe(18),
+        sales_password=secrets.token_urlsafe(18), other_password=secrets.token_urlsafe(18),
+        db_password=secrets.token_urlsafe(18), cron_key=secrets.token_hex(16),
+        run=context.run, docker=binary)
+    context.cache.setdefault("runtime-networks", []).append(network)
+    context.run(binary, "network", "create", network, timeout=60)
+    # The images declare volumes; these containers are removed with theirs.
+    context.cache.setdefault("runtime-containers", []).extend([names["db"], names["mail"], names["web"]])
+    context.run(binary, "run", "--detach", "--name", names["db"], "--network", network,
+                "--network-alias", "db", "--tmpfs", "/var/lib/mysql",
+                "--env", f"MARIADB_ROOT_PASSWORD={stack.db_password}", "--env", "MARIADB_DATABASE=dolibarr",
+                "--env", "MARIADB_USER=dolibarr", "--env", f"MARIADB_PASSWORD={stack.db_password}",
+                MARIADB_IMAGE, timeout=900)
+    context.run(binary, "run", "--detach", "--name", names["mail"], "--network", network,
+                "--network-alias", "mail", "--publish", f"127.0.0.1:{mail_port}:8025", MAILPIT_IMAGE,
+                timeout=900)
+    context.run(binary, "run", "--detach", "--name", names["web"], "--network", network,
+                "--publish", f"127.0.0.1:{web_port}:80", "--tmpfs", "/var/www/documents",
+                "--mount", f"type=bind,source={SNAPSHOT},target=/var/www/html/custom/mahnwesen,readonly",
+                "--mount", f"type=bind,source={SNAPSHOT / 'tests' / 'runtime' / 'php-check.ini'},"
+                           "target=/usr/local/etc/php/conf.d/zz-mahnwesen-check.ini,readonly",
+                "--env", "DOLI_DB_HOST=db", "--env", "DOLI_DB_NAME=dolibarr", "--env", "DOLI_DB_USER=dolibarr",
+                "--env", f"DOLI_DB_PASSWORD={stack.db_password}", "--env", "DOLI_ADMIN_LOGIN=admin",
+                "--env", f"DOLI_ADMIN_PASSWORD={stack.admin_password}", "--env", "DOLI_INSTALL_AUTO=1",
+                "--env", f"DOLI_URL_ROOT=http://127.0.0.1:{web_port}", "--env", "DOLI_COMPANY_COUNTRYCODE=AT",
+                "--env", "DOLI_COMPANY_NAME=Runtime Verein", "--env", "DOLI_PROD=0",
+                "--env", "PHP_INI_DATE_TIMEZONE=Europe/Vienna", image, timeout=900)
+    scenarios.wait_http(f"{stack.url}/index.php", 420)
+    completed = context.run(binary, "exec", "-u", "www-data",
+                            "--env", f"RT_SALES_PASSWORD={stack.sales_password}",
+                            "--env", f"RT_OTHER_PASSWORD={stack.other_password}",
+                            "--env", f"RT_CRON_KEY={stack.cron_key}", names["web"], "php",
+                            "/var/www/html/custom/mahnwesen/tests/runtime/fixtures.php",
+                            check=False, timeout=600)
+    context.log(f"runtime-{version}-fixtures", completed.stdout + completed.stderr)
+    if completed.returncode != 0:
+        raise StepFailed(f"fixtures.php failed on Dolibarr {version}:\n" + tail(completed))
+    stack.fixtures = scenarios.parse_fixtures(completed.stdout)
+    # Throwaway accounts of throwaway containers, for --keep-services. The
+    # folder is ignored by Git.
+    access = STATE / f"runtime-{version}-access.json"
+    access.write_text(json.dumps({"url": stack.url, "mailpit": f"http://127.0.0.1:{mail_port}",
+                                  "admin": stack.admin_password, "rtsales": stack.sales_password,
+                                  "rtother": stack.other_password}, indent=2), encoding="utf-8")
+    return stack
+
+
+def runtime_stacks(context: Context) -> dict:
+    """Start every version at once; each version's first step waits for its own."""
+    if "runtime-threads" in context.cache:
+        return context.cache["runtime-threads"]
+    import threading
+    runtime_module()
+    docker(context)
+    started: dict = {}
+
+    def launch(version: str) -> None:
+        try:
+            started[version] = ("ok", start_runtime_stack(context, version))
+        except StepSkipped as reason:
+            started[version] = ("skip", str(reason))
+        except Exception as reason:  # reported by the version's install step
+            started[version] = ("fail", str(reason))
+
+    threads = {version: threading.Thread(target=launch, args=(version,), daemon=True)
+               for version in DOLIBARR_VERSIONS}
+    for thread in threads.values():
+        thread.start()
+    context.cache["runtime-threads"] = (threads, started)
+    return context.cache["runtime-threads"]
+
+
+def runtime_step(version: str, name: str, action):
+    def run(context: Context) -> str:
+        scenarios = runtime_module()
+        threads, started = runtime_stacks(context)
+        # The first run may build an image; later runs start in under a minute.
+        threads[version].join(timeout=2700)
+        state, value = started.get(version, ("fail", "the stack did not start within 45 minutes"))
+        if state == "skip":
+            raise StepSkipped(value)
+        if state == "fail":
+            raise StepFailed(f"Dolibarr {version} did not start: {value}")
+        try:
+            return action(value)
+        except scenarios.CheckFailed as reason:
+            raise StepFailed(f"{reason}\nLogs: docker logs {value.web} (use --keep-services to inspect)") from reason
+    return run
+
+
+def runtime_php_messages(version: str):
+    def run(context: Context) -> str:
+        threads, started = runtime_stacks(context)
+        state, stack = started.get(version, ("fail", None))
+        if state != "ok":
+            raise StepSkipped(f"Dolibarr {version} did not start")
+        found = runtime_module().php_messages(stack)
+        context.log(f"runtime-{version}-web", stack.log())
+        return ratchet(context, f"runtime-php-{version}", found,
+                       f"PHP errors, warnings and deprecations from module code on Dolibarr {version}")
+    return run
+
+
+def runtime_steps() -> list:
+    scenarios = runtime_module()
+    steps = []
+    for version in DOLIBARR_VERSIONS:
+        group = "runtime"
+        prefix = f"{version}-"
+        for name, describe, action, needs in scenarios.SCENARIOS:
+            requirements = tuple(f"{prefix}{need}" for need in needs) or ("repository/snapshot",)
+            steps.append(Step(group, f"{prefix}{name}", f"Dolibarr {version}: {describe}",
+                              runtime_step(version, name, action), requirements))
+        steps.append(Step(group, f"{prefix}php-messages",
+                          f"Dolibarr {version}: no PHP messages from module code",
+                          runtime_php_messages(version), (f"{prefix}install",)))
+    return steps
+
+
+def remove_runtime_stacks(context: Context) -> None:
+    binary = shutil.which("docker", path=context.env.get("PATH"))
+    if not binary:
+        return
+    for name in context.cache.pop("runtime-containers", []):
+        subprocess.run([binary, "rm", "--force", "--volumes", name], capture_output=True, text=True, timeout=180)
+    for network in context.cache.pop("runtime-networks", []):
+        subprocess.run([binary, "network", "rm", network], capture_output=True, text=True, timeout=120)
+    for access in STATE.glob("runtime-*-access.json"):
+        access.unlink(missing_ok=True)
+
+
 # --------------------------------------------------------------------- extra
 
 def php_deprecations(context: Context) -> str:
@@ -1185,9 +1383,10 @@ def extra_steps() -> list:
 
 def plan(groups: set) -> list:
     builders = {"repository": repository_steps, "php": php_steps, "dolibarr": dolibarr_steps,
-                "package": package_steps, "release": release_steps, "extra": extra_steps}
+                "package": package_steps, "release": release_steps, "runtime": runtime_steps,
+                "extra": extra_steps}
     steps: list = []
-    if groups & {"php", "dolibarr", "package", "extra"}:
+    if groups & {"php", "dolibarr", "package", "runtime", "extra"}:
         steps.append(snapshot_step())
     for group in GROUPS:
         if group in groups:
@@ -1201,6 +1400,7 @@ def build_context(record: bool = False) -> Context:
 
 def tear_down(context: Context) -> None:
     stop_everything(context)
+    remove_runtime_stacks(context)
 
 
 if __name__ == "__main__":

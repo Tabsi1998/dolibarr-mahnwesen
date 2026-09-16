@@ -2,7 +2,7 @@
 set -euo pipefail
 VERSION="${1:-22.0}"
 case "$VERSION" in
-  21.0|22.0|23.0) ;;
+  21.0|22.0|23.0|24.0) ;;
   *) echo "Unsupported CI compatibility target: $VERSION" >&2; exit 1 ;;
 esac
 

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed: the invoice Mahnwesen tab, the dunning composer, pausing from the dashboard, resolving delivery attempts and settling fees were denied for every user, administrators included, because the access check asked for a permission Dolibarr does not have (#44).
+- Fixed: the dunning action buttons were never shown on the invoice card; the hook now prints them the way Dolibarr expects (#45).
+- Added Dolibarr 24.0 to the compatibility checks (#3).
+- Added runtime checks that install the module into running Dolibarr 21, 22, 23 and 24 instances and exercise its pages, access rules, a real send and automatic sending (#4).
+
 ## 1.0.0
 
 - Replaced the custom mail-form imitation with Dolibarr's native `FormMail` component for templates, sender profiles, recipients, CC/BCC, delivery receipts and HTML editing.

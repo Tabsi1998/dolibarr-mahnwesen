@@ -2,7 +2,7 @@
 
 Custom-Modul für ein kontrolliertes Mahnwesen bei überfälligen Kundenrechnungen in Dolibarr.
 
-> **Status:** erstes stabiles Release `1.0.0`. Dolibarr 22 wurde praktisch getestet; die CI prüft die tatsächlich verwendeten Dolibarr-21/22/23-Mail-, Rechnungs- und FormMail-APIs. Der konkrete Produktivbetrieb bleibt vor Ort per Staging-Smoke-Test zu bestätigen.
+> **Status:** stabile Linie `1.0.x`. Automatische Laufzeittests installieren das Modul in Dolibarr 21.0.4, 22.0.5, 23.0.4 und 24.0.1 und prüfen Aktivierung, Zugriffsrechte, einen echten Versand und den automatischen Versand; die CI prüft die verwendeten Dolibarr-21–24-APIs. Der konkrete Produktivbetrieb bleibt vor Ort per Staging-Smoke-Test mit dem eigenen Mailserver zu bestätigen.
 
 ## Ziele
 
