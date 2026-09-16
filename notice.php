@@ -33,6 +33,25 @@ $invoice->fetch_thirdparty();
 
 $manager = new DunningManager($db);
 $service = new DunningNoticeService($db, $manager);
+
+// Deliver a generated preview PDF behind the checks above. document.php cannot
+// serve it: Dolibarr loads the document hook context only after its own access
+// check, and the module has no plain read right that check would accept.
+// No "action" parameter, so the page-wide CSRF token rule does not apply to
+// this read-only request.
+if (GETPOSTISSET('preview_pdf')) {
+    if (!$user->hasRight('mahnwesen', 'notice', 'send')) { accessforbidden(); }
+    $previewPath = $service->getPreviewPdfPath($invoice, GETPOSTINT('preview_pdf'));
+    if ($previewPath === '') { http_response_code(404); print 'Preview not found'; exit; }
+    header('Content-Type: application/pdf');
+    header('Content-Disposition: inline; filename="'.basename($previewPath).'"');
+    header('Content-Length: '.filesize($previewPath));
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: private, no-store');
+    readfile($previewPath);
+    exit;
+}
+
 $trackid = 'mahnwesen'.$id.'u'.((int) $user->id);
 $formmailSession = new FormMail($db);
 $formmailSession->trackid = $trackid;
@@ -148,7 +167,9 @@ $cc = trim(GETPOST('sendtocc', 'nohtml'));
 $bcc = trim(GETPOST('sendtoccc', 'nohtml'));
 $invoicePdf = $service->getInvoicePdfPath($invoice);
 $templateAttachDefault = ($template !== false && $template['source'] === 'native') ? ((string) ($template['joinfiles'] ?? '') === '1') : (getDolGlobalInt('MAHNWESEN_ATTACH_INVOICE_DEFAULT', 1) > 0);
-$attachInvoice = (GETPOSTISSET('attach_invoice') && !$templateApply) ? (GETPOSTINT('attach_invoice') > 0) : ($invoicePdf !== '' && $templateAttachDefault);
+// A browser does not send an unticked checkbox, so the hidden marker tells a
+// deliberate "no invoice PDF" apart from a first view of the composer.
+$attachInvoice = (GETPOSTISSET('attach_invoice_shown') && !$templateApply) ? ($invoicePdf !== '' && GETPOSTINT('attach_invoice') > 0) : ($invoicePdf !== '' && $templateAttachDefault);
 $deliveryReceipt = GETPOSTINT('deliveryreceipt') > 0;
 $previewInfo = null;
 
@@ -235,12 +256,12 @@ if (empty($recipientOptions)) { print '<div class="error">'.$langs->trans('Notic
 if ($level > 0 && !empty($workflow['required_at']) && ((int) $db->jdate($workflow['required_at'])) > dol_now()) { print '<div class="info">'.$langs->trans('MahnwesenSequentialCooldownInfo', $langs->trans($manager->getStageLabelKey($level)), dol_print_date($db->jdate($workflow['required_at']), 'day')).'</div><br>'; }
 
 $attachmentHtml = '<div class="mahnwesen-fixed-document">'.img_mime($expectedDunningFilename).' <strong>'.dol_escape_htmltag($expectedDunningFilename).'</strong> <span class="badge badge-status4">'.$langs->trans('MahnwesenMandatoryAttachment').'</span>';
-if ($previewInfo && !empty($previewInfo['preview'])) { $previewUrl = DOL_URL_ROOT.'/document.php?modulepart=mahnwesen&file='.urlencode($previewInfo['relative']); $attachmentHtml .= ' <a target="_blank" rel="noopener" href="'.dol_escape_htmltag($previewUrl).'">'.img_picto($langs->trans('View'), 'view').'</a>'; }
+if ($previewInfo && !empty($previewInfo['preview'])) { $previewUrl = dol_buildpath('/mahnwesen/notice.php?id='.$id.'&preview_pdf='.$level, 1); $attachmentHtml .= ' <a target="_blank" rel="noopener" href="'.dol_escape_htmltag($previewUrl).'">'.img_picto($langs->trans('View'), 'view').'</a>'; }
 $attachmentHtml .= '</div>';
 if ($invoicePdf !== '') {
-    $invoiceRelative = !empty($invoice->last_main_doc) ? ltrim((string) $invoice->last_main_doc, '/') : dol_sanitizeFileName($invoice->ref).'/'.dol_sanitizeFileName($invoice->ref).'.pdf';
-    $invoiceUrl = DOL_URL_ROOT.'/document.php?modulepart=invoice&file='.urlencode($invoiceRelative);
-    $attachmentHtml .= '<div><label><input type="checkbox" name="attach_invoice" value="1"'.($attachInvoice ? ' checked' : '').'> '.img_mime(basename($invoicePdf)).' <strong>'.dol_escape_htmltag(basename($invoicePdf)).'</strong></label> <a target="_blank" rel="noopener" href="'.dol_escape_htmltag($invoiceUrl).'">'.img_picto($langs->trans('View'), 'view').'</a></div>';
+    $invoiceRelative = $service->getInvoicePdfRelativePath($invoice);
+    $invoiceUrl = DOL_URL_ROOT.'/document.php?modulepart=invoice&file='.urlencode($invoiceRelative).((int) $invoice->entity > 1 ? '&entity='.((int) $invoice->entity) : '');
+    $attachmentHtml .= '<div><input type="hidden" name="attach_invoice_shown" value="1"><label><input type="checkbox" name="attach_invoice" value="1"'.($attachInvoice ? ' checked' : '').'> '.img_mime(basename($invoicePdf)).' <strong>'.dol_escape_htmltag(basename($invoicePdf)).'</strong></label> <a target="_blank" rel="noopener" href="'.dol_escape_htmltag($invoiceUrl).'">'.img_picto($langs->trans('View'), 'view').'</a></div>';
 }
 $attachmentFormFile = new FormFile($db);
 foreach ($extraAttachments as $key => $extra) {
@@ -297,7 +318,7 @@ if ($canOperate && $manualSendEnabled && !$sendPending && $selectedFrom !== '' &
 print '<a class="button button-cancel" href="'.dol_escape_htmltag(dol_buildpath('/mahnwesen/invoice.php?id='.$id, 1)).'">'.$langs->trans('Cancel').'</a></div></form>';
 
 if ($previewInfo && !empty($previewInfo['preview'])) {
-    $previewUrl = DOL_URL_ROOT.'/document.php?modulepart=mahnwesen&file='.urlencode($previewInfo['relative']);
+    $previewUrl = dol_buildpath('/mahnwesen/notice.php?id='.$id.'&preview_pdf='.$level, 1);
     print '<br>'.load_fiche_titre($langs->trans('MahnwesenCompleteMailPreview'), '', 'view');
     print '<div class="mahnwesen-preview-grid"><section class="mahnwesen-mail-preview"><div><strong>'.$langs->trans('MailFrom').':</strong> '.dol_escape_htmltag($selectedFrom).'</div><div><strong>'.$langs->trans('MailTo').':</strong> '.dol_escape_htmltag($selectedRecipient).'</div><div><strong>'.$langs->trans('MailTopicShort').':</strong> '.dol_escape_htmltag($subject).'</div><hr><div class="mahnwesen-mail-body">'.$service->asHtml($body).'</div></section>';
     print '<section class="mahnwesen-document-preview"><iframe title="'.dol_escape_htmltag($langs->trans('MahnwesenDocumentPreview')).'" src="'.dol_escape_htmltag($previewUrl).'#view=FitH"></iframe><div class="center"><a class="button" target="_blank" rel="noopener" href="'.dol_escape_htmltag($previewUrl).'">'.img_picto('', 'pdf').' '.$langs->trans('MahnwesenOpenPreview').'</a></div></section></div>';

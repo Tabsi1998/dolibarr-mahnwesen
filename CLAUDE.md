@@ -53,8 +53,9 @@ removed afterwards. Ports: web 18021-18024, Mailpit 18121-18124.
   SMTP to Mailpit, modules Societe/Facture/Agenda/Cron/Mahnwesen, an admin, a
   sales representative `rtsales` for the company customer, a second
   representative `rtother` without customers, a company with a BILLING
-  contact, a private customer and three validated overdue invoices with PDFs.
-  It prints the ids as JSON. `bootstrap.php` refuses to run outside the CLI.
+  contact, a private customer and four validated overdue invoices with PDFs -
+  one of them renamed the way other PDF models name files. It prints the ids
+  as JSON. `bootstrap.php` refuses to run outside the CLI.
 - `scenarios.py` drives the pages with `dolibarr_http.py` (sessions, CSRF
   tokens, forms submitted as a browser submits them - an unticked checkbox is
   not sent), reads Mailpit's API and the database, and runs the Dolibarr cron

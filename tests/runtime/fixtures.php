@@ -165,7 +165,19 @@ $invoices = array(
     'company_overdue' => rt_invoice($db, $admin, $company, 100, 35, (int) $contact->id),
     'company_recent' => rt_invoice($db, $admin, $company, 50, 1, (int) $contact->id),
     'private_overdue' => rt_invoice($db, $admin, $private, 80, 12),
+    'company_renamed' => rt_invoice($db, $admin, $company, 30, 20, (int) $contact->id),
 );
+
+// PDF models and document settings can name the invoice PDF differently from
+// REF/REF.pdf. Rename one and point last_main_doc at it, as such a model would.
+$renamed = $invoices['company_renamed'];
+$oldPath = DOL_DATA_ROOT.'/'.$renamed['last_main_doc'];
+$newRelative = dirname($renamed['last_main_doc']).'/'.$renamed['ref'].'-signed.pdf';
+if (!rename($oldPath, DOL_DATA_ROOT.'/'.$newRelative)) {
+    rt_fail('could not rename '.$oldPath);
+}
+rt_exec($db, "UPDATE ".MAIN_DB_PREFIX."facture SET last_main_doc = '".$db->escape($newRelative)."' WHERE rowid = ".((int) $renamed['id']));
+$invoices['company_renamed']['last_main_doc'] = $newRelative;
 
 $cronId = (int) rt_value($db, "SELECT rowid FROM ".MAIN_DB_PREFIX."cronjob WHERE classesname = '/mahnwesen/class/dunningmanager.class.php' AND methodename = 'doScheduledJob'");
 
