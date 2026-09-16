@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from dolibarr_http import Browser, Mailpit, Page
+from dolibarr_http import Browser, Mailpit, Page, token_of
 
 MODULE_TABLES = ("mahnwesen_case", "mahnwesen_history", "mahnwesen_rule", "mahnwesen_attempt",
                  "mahnwesen_attempt_file", "mahnwesen_fee", "mahnwesen_pause", "mahnwesen_run")
@@ -164,12 +164,14 @@ def install(stack: Stack) -> str:
     missing = [name for name in MODULE_TABLES if f"llx_{name}" not in tables]
     expect(not missing, f"tables missing after activation: {', '.join(missing)}")
     expect(int(stack.fixtures.get("cron_job") or 0) > 0, "the daily Mahnwesen cron job was not registered")
-    templates = int(stack.value("SELECT COUNT(*) FROM llx_c_email_templates WHERE module = 'mahnwesen'") or 0)
-    expect(templates == 8, f"expected 8 starter email templates (4 stages, de_DE and en_US), found {templates}")
+    starters = stack.sql("SELECT lang, label FROM llx_c_email_templates WHERE module = 'mahnwesen' ORDER BY rowid")
+    expect(len(starters) == 4 and all(row[0] == "de_DE" for row in starters),
+           f"a German company without English customers should get the 4 German starter templates only, found {starters} (#53)")
+    expect(not any("(" in row[1] for row in starters), f"a starter label contains parentheses: {starters} (#53)")
     hooks = stack.value("SELECT value FROM llx_const WHERE name = 'MAIN_MODULE_MAHNWESEN_HOOKS' AND entity = 1") or ""
     expect("invoicecard" in hooks and "emailtemplates" in hooks, f"hooks not registered: {hooks!r}")
     return (f"Dolibarr {stack.fixtures['dolibarr']} on PHP {stack.fixtures['php']}: module active, "
-            f"{len(MODULE_TABLES)} tables, cron job, 8 templates")
+            f"{len(MODULE_TABLES)} tables, cron job, 4 German starter templates")
 
 
 def synchronise(stack: Stack) -> str:
@@ -492,6 +494,82 @@ def php_messages(stack: Stack) -> set:
     return found
 
 
+def reactivation(stack: Stack) -> str:
+    """Disabling and enabling the module keeps manual sending and the data, and stops automatic sending (#54)."""
+    def counts() -> list:
+        return stack.sql("SELECT (SELECT COUNT(*) FROM llx_mahnwesen_case), (SELECT COUNT(*) FROM llx_mahnwesen_history), "
+                         "(SELECT COUNT(*) FROM llx_mahnwesen_attempt), (SELECT COUNT(*) FROM llx_c_email_templates WHERE module = 'mahnwesen')")[0]
+
+    def setting(name: str) -> str | None:
+        return stack.value(f"SELECT value FROM llx_const WHERE name = '{name}' AND entity = 1")
+
+    expect(setting("MAHNWESEN_MANUAL_SEND_ENABLED") == "1" and setting("MAHNWESEN_AUTO_SEND_ENABLED") == "1",
+           "manual and automatic sending should both be on before the module is disabled")
+    before = counts()
+    browser = stack.browser()
+    modules = page_ok(browser.get("/admin/modules.php?search_keyword=mahnwesen"), "module list")
+    token = token_of(modules)
+    browser.get(f"/admin/modules.php?action=reset&value=modMahnwesen&confirm=yes&token={token}&search_keyword=mahnwesen")
+    expect(stack.value("SELECT value FROM llx_const WHERE name = 'MAIN_MODULE_MAHNWESEN' AND entity = 1") in (None, "0"),
+           "the module list did not disable Mahnwesen")
+    token = token_of(browser.get("/admin/modules.php?search_keyword=mahnwesen"))
+    browser.get(f"/admin/modules.php?action=set&value=modMahnwesen&token={token}&search_keyword=mahnwesen")
+    expect(stack.value("SELECT value FROM llx_const WHERE name = 'MAIN_MODULE_MAHNWESEN' AND entity = 1") == "1",
+           "the module list did not enable Mahnwesen again")
+    expect(setting("MAHNWESEN_MANUAL_SEND_ENABLED") == "1", "re-activating the module switched manual sending off (#54)")
+    expect(setting("MAHNWESEN_AUTO_SEND_ENABLED") in (None, "0"), "re-activating the module kept automatic sending on")
+    after = counts()
+    expect(after == before, f"cases, history, attempts and starter templates changed on re-activation: {before} -> {after}")
+    page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard after re-activation")
+    return "manual sending kept, automatic sending off, cases, history, attempts and templates unchanged"
+
+
+def templates(stack: Stack) -> str:
+    """Own templates beat starters, a stage's template can be fixed, starters follow the languages in use (#53)."""
+    company = invoice(stack, "company_overdue")
+    private = stack.fixtures["customers"]["private"]
+    browser = stack.browser()
+
+    def preselected() -> tuple[str, str]:
+        form = page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={company['id']}"), "composer").form(name="mailform")
+        return form.value("modelmailselected") or "", form.value("subject") or ""
+
+    stack.sql("INSERT INTO llx_c_email_templates (entity, module, type_template, lang, private, fk_user, datec, label, position, "
+              "defaultfortype, enabled, active, email_from, topic, joinfiles, content) VALUES (1, NULL, 'mahnwesen_dunning1', '', 0, NULL, "
+              "NOW(), 'Eigene 1. Mahnung', 0, 0, '1', 1, '', 'Eigene 1. Mahnung zu {INVOICE_REF}', '1', '<p>Eigener Text {INVOICE_REF}</p>')")
+    own = stack.value("SELECT rowid FROM llx_c_email_templates WHERE label = 'Eigene 1. Mahnung'")
+    starter = stack.value("SELECT rowid FROM llx_c_email_templates WHERE module = 'mahnwesen' AND type_template = 'mahnwesen_dunning1' AND lang = 'de_DE'")
+    chosen, subject = preselected()
+    expect(chosen == own and subject == f"Eigene 1. Mahnung zu {company['ref']}",
+           f"the composer preselects template {chosen} ({subject!r}) instead of the own template {own}")
+
+    setup = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=templates"), "templates setup")
+    page_ok(browser.submit(form_with_action(setup, "save_templates", "templates setup"), {"template_2": starter}),
+            "fix the 1st dunning notice template")
+    chosen, _ = preselected()
+    expect(chosen == starter, f"after fixing the starter template the composer preselects {chosen}, not {starter}")
+    stages = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=stages"), "stages setup")
+    page_ok(browser.submit(form_with_action(stages, "save_stages", "stages setup")), "save the stages")
+    kept = stack.value("SELECT email_template FROM llx_mahnwesen_rule WHERE level = 2 AND entity = 1")
+    expect(kept == f"native:{starter}", f"saving the stages replaced the chosen template with {kept!r}")
+    setup = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=templates"), "templates setup")
+    page_ok(browser.submit(form_with_action(setup, "save_templates", "templates setup"), {"template_2": "auto"}),
+            "back to automatic")
+
+    stack.sql("INSERT INTO llx_c_email_templates (entity, module, type_template, lang, private, fk_user, datec, label, position, "
+              "defaultfortype, enabled, active, email_from, topic, joinfiles, content) VALUES (1, 'mahnwesen', 'mahnwesen_dunning3', 'en_US', "
+              "0, NULL, NOW(), 'Mahnwesen - 3. Mahnung (English)', 40, 1, '1', 1, '', 'Third reminder', '1', '<p>Legacy</p>')")
+    stack.sql(f"UPDATE llx_societe SET default_lang = 'en_US' WHERE rowid = {int(private)}")
+    setup = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=templates"), "templates setup")
+    page_ok(browser.submit(form_with_action(setup, "create_starter_templates", "templates setup")), "create starter templates")
+    english = stack.sql("SELECT type_template, label FROM llx_c_email_templates WHERE module = 'mahnwesen' AND lang = 'en_US' ORDER BY type_template")
+    expected = [["mahnwesen_dunning2", "Mahnwesen - 2. Mahnung - English"], ["mahnwesen_dunning3", "Mahnwesen - 3. Mahnung - English"],
+                ["mahnwesen_reminder", "Mahnwesen - Zahlungserinnerung - English"]]
+    expect(english == expected,
+           f"with an English customer the English starters should be those without an own neutral template, the old label renamed; found {english}")
+    return "own template preselected, fixed choice kept across stage saves, English starters only where needed, old labels renamed"
+
+
 SCENARIOS = (
     ("install", "Module, tables, cron job and templates after activation", install, ()),
     ("synchronise", "Synchronise creates the expected cases", synchronise, ("install",)),
@@ -505,6 +583,8 @@ SCENARIOS = (
     ("documents", "One dunning PDF per stage in the invoice documents", documents, ("pages",)),
     ("automation", "The cron sends automatically only when switched on, once", automation,
      ("manual-send", "attachment-choice")),
+    ("reactivation", "Re-activation keeps manual sending and data, stops automation", reactivation, ("automation",)),
+    ("templates", "Own templates first, fixed choice, starters by language", templates, ("reactivation",)),
 )
 
 

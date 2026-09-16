@@ -168,9 +168,13 @@ trait DunningNoticeServiceMethods1
     }
 
     /**
-     * Pick the native default template for a level. Preference order is:
-     * customer language + default, customer language, neutral default,
-     * neutral language, then an explicitly configured cross-language fallback.
+     * Pick the template for a level automatically.
+     *
+     * A template the administrator wrote beats the module's starter templates,
+     * as long as its language fits the customer: the same language, the same
+     * language family, or no language at all. Within that, the closer language
+     * wins, then "default for type", then Dolibarr's order. A template in
+     * another language is used only with the explicit cross-language fallback.
      *
      * @param int $level Level 1..4
      * @param string $lang Customer language
@@ -185,24 +189,60 @@ trait DunningNoticeServiceMethods1
         }
         $lang = (string) $lang;
         $langFamily = strtolower((string) preg_replace('/[_-].*$/', '', $lang));
-        $groups = array();
+        $best = false;
+        $bestRank = null;
+        $index = 0;
         foreach ($templates as $tpl) {
-            $tplFamily = strtolower((string) preg_replace('/[_-].*$/', '', (string) $tpl['lang']));
-            if ($tpl['lang'] === $lang && !empty($tpl['defaultfortype'])) { $groups[1][] = $tpl; }
-            elseif ($tpl['lang'] === $lang) { $groups[2][] = $tpl; }
-            elseif ($langFamily !== '' && $tplFamily === $langFamily && !empty($tpl['defaultfortype'])) { $groups[3][] = $tpl; }
-            elseif ($langFamily !== '' && $tplFamily === $langFamily) { $groups[4][] = $tpl; }
-            elseif ($tpl['lang'] === '' && !empty($tpl['defaultfortype'])) { $groups[5][] = $tpl; }
-            elseif ($tpl['lang'] === '') { $groups[6][] = $tpl; }
-            elseif (getDolGlobalInt('MAHNWESEN_ALLOW_LANGUAGE_FALLBACK', 0) && !empty($tpl['defaultfortype'])) { $groups[7][] = $tpl; }
-        }
-        for ($i = 1; $i <= 7; $i++) {
-            if (!empty($groups[$i])) {
-                return $groups[$i][0];
+            $index++;
+            $tplLang = (string) $tpl['lang'];
+            $tplFamily = strtolower((string) preg_replace('/[_-].*$/', '', $tplLang));
+            if ($tplLang === $lang) { $match = 1; }
+            elseif ($langFamily !== '' && $tplFamily === $langFamily) { $match = 2; }
+            elseif ($tplLang === '') { $match = 3; }
+            elseif (getDolGlobalInt('MAHNWESEN_ALLOW_LANGUAGE_FALLBACK', 0) && !empty($tpl['defaultfortype'])) { $match = 4; }
+            else { continue; }
+            $starter = ((string) ($tpl['module'] ?? '') === 'mahnwesen') ? 1 : 0;
+            // The fallback to another language comes last, whoever wrote it.
+            $rank = array($match === 4 ? 1 : 0, $starter, $match, empty($tpl['defaultfortype']) ? 1 : 0, $index);
+            if ($bestRank === null || $rank < $bestRank) {
+                $best = $tpl;
+                $bestRank = $rank;
             }
+        }
+        if ($best !== false) {
+            return $best;
         }
         $this->error = 'No active dunning template matches customer language '.$lang.'.';
         return false;
+    }
+
+    /**
+     * Languages the module writes starter templates for: German and English,
+     * as far as the company or a customer uses them. German when neither does.
+     *
+     * @return string[]
+     */
+    public function getStarterLanguages()
+    {
+        $families = array();
+        $default = strtolower(getDolGlobalString('MAIN_LANG_DEFAULT'));
+        foreach (array('de' => 'de_DE', 'en' => 'en_US') as $family => $language) {
+            if (strpos($default, $family) === 0) {
+                $families[$language] = true;
+                continue;
+            }
+            $sql = 'SELECT COUNT(*) as nb FROM '.MAIN_DB_PREFIX.'societe WHERE entity IN ('.getEntity('societe').")";
+            $sql .= " AND client > 0 AND default_lang LIKE '".$this->db->escape($family)."%'";
+            $res = $this->db->query($sql);
+            if ($res) {
+                $row = $this->db->fetch_object($res);
+                $this->db->free($res);
+                if ($row && (int) $row->nb > 0) {
+                    $families[$language] = true;
+                }
+            }
+        }
+        return empty($families) ? array('de_DE') : array_keys($families);
     }
 
     /**
@@ -223,13 +263,28 @@ trait DunningNoticeServiceMethods1
             3 => 'Mahnwesen - 2. Mahnung',
             4 => 'Mahnwesen - 3. Mahnung',
         );
+        // Dolibarr's template list translates a label's part in parentheses,
+        // which turned "Mahnwesen - 2. Mahnung (English)" into "English".
+        foreach ($labels as $label) {
+            $sql = 'UPDATE '.MAIN_DB_PREFIX."c_email_templates SET label = '".$this->db->escape($label.' - English')."'";
+            $sql .= ' WHERE entity = '.((int) $conf->entity)." AND module = 'mahnwesen' AND label = '".$this->db->escape($label.' (English)')."'";
+            if (!$this->db->query($sql)) {
+                $this->error = $this->db->lasterror();
+                return false;
+            }
+        }
         $created = 0;
         $existing = 0;
-        foreach (array('de_DE', 'en_US') as $starterLang) {
+        foreach ($this->getStarterLanguages() as $starterLang) {
+          $family = substr($starterLang, 0, 2);
           for ($level = 1; $level <= 4; $level++) {
             $type = $types[$level];
+            // Any template of the stage that already serves the language - its
+            // own, one of the family, or one without language - makes a starter
+            // unnecessary, active or not.
             $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'c_email_templates WHERE entity = '.((int) $conf->entity);
-            $sql .= " AND type_template = '".$this->db->escape($type)."' AND lang = '".$this->db->escape($starterLang)."'".$this->db->plimit(1);
+            $sql .= " AND type_template = '".$this->db->escape($type)."'";
+            $sql .= " AND (lang IS NULL OR lang = '' OR lang LIKE '".$this->db->escape($family)."%')".$this->db->plimit(1);
             $res = $this->db->query($sql);
             if (!$res) {
                 $this->error = $this->db->lasterror();
@@ -242,7 +297,7 @@ trait DunningNoticeServiceMethods1
                 continue;
             }
             $tpl = $this->getDefaultTemplate($level, $starterLang);
-            $starterLabel = $labels[$level].($starterLang === 'en_US' ? ' (English)' : '');
+            $starterLabel = $labels[$level].($starterLang === 'en_US' ? ' - English' : '');
             $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'c_email_templates (entity, module, type_template, lang, private, fk_user, datec, label, position, defaultfortype, enabled, active, email_from, topic, joinfiles, content) VALUES (';
             $sql .= ((int) $conf->entity).", 'mahnwesen', '".$this->db->escape($type)."', '".$this->db->escape($starterLang)."', 0, NULL, '".$this->db->escape($this->db->idate(dol_now()))."', '".$this->db->escape($starterLabel)."', ".($level * 10).", 1, '1', 1, '', '".$this->db->escape($tpl['subject'])."', '1', '".$this->db->escape($tpl['body'])."')";
             if (!$this->db->query($sql)) {
