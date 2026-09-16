@@ -420,10 +420,10 @@ trait DunningManagerMethods1
         $resPause = $this->db->query($sqlPause);
         if ($resPause) {
             $pause = $this->db->fetch_object($resPause);
-            if ($pause) { $caseData['pause_until'] = $pause->pause_until; $caseData['pause_reason'] = (string) $pause->reason; }
+            if ($pause) { $caseData['pause_until'] = $pause->pause_until; $caseData['pause_reason'] = (string) $pause->reason; $caseData['pause_active'] = 1; }
             $this->db->free($resPause);
         }
-        if (!array_key_exists('pause_until', $caseData)) { $caseData['pause_until'] = null; $caseData['pause_reason'] = ''; }
+        if (!array_key_exists('pause_until', $caseData)) { $caseData['pause_until'] = null; $caseData['pause_reason'] = ''; $caseData['pause_active'] = 0; }
         return $caseData;
     }
 

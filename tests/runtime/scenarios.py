@@ -9,17 +9,21 @@ Dolibarr cron runner, the mail server and the database.
 
 from __future__ import annotations
 
+import datetime
+import html
 import json
 import re
 import subprocess
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from dolibarr_http import Browser, Mailpit, Page
 
 MODULE_TABLES = ("mahnwesen_case", "mahnwesen_history", "mahnwesen_rule", "mahnwesen_attempt",
                  "mahnwesen_attempt_file", "mahnwesen_fee", "mahnwesen_pause", "mahnwesen_run")
+LANGS = Path(__file__).resolve().parents[2] / "langs"
 PHP_PROBLEM = re.compile(r"PHP (Fatal error|Parse error|Warning|Notice|Deprecated|Recoverable fatal error):"
                          r"\s*(.+?) in (/var/www/html/custom/mahnwesen/\S+) on line \d+")
 
@@ -107,6 +111,24 @@ def invoice(stack: Stack, key: str) -> dict:
     return stack.fixtures["invoices"][key]
 
 
+def translations(key: str) -> list[str]:
+    """The German and English text of a module language key."""
+    found = []
+    for language in ("de_DE", "en_US"):
+        for line in (LANGS / language / "mahnwesen.lang").read_text(encoding="utf-8").splitlines():
+            if line.startswith(key + "="):
+                found.append(line.split("=", 1)[1].strip())
+    if not found:
+        raise CheckFailed(f"language key {key} not found")
+    return found
+
+
+def form_with_action(page: Page, action: str, what: str):
+    form = next((form for form in page.forms() if form.value("action") == action), None)
+    expect(form is not None, f"{what}: no form with action {action}")
+    return form
+
+
 def page_ok(page: Page, what: str) -> Page:
     expect(page.status == 200, f"{what}: HTTP {page.status}")
     expect(not page.denied(), f"{what}: access denied")
@@ -145,14 +167,14 @@ def synchronise(stack: Stack) -> str:
     cases = {row[0]: row for row in stack.sql(
         "SELECT fk_facture, current_level, status, paused, ROUND(remaining_amount, 2) FROM llx_mahnwesen_case")}
     expectations = {"company_overdue": ("4", "120.00"), "private_overdue": ("2", "96.00"),
-                    "company_recent": ("0", "60.00")}
+                    "company_recent": ("0", "60.00"), "company_renamed": ("3", "36.00")}
     for key, (level, amount) in expectations.items():
         row = cases.get(str(invoice(stack, key)["id"]))
         expect(row is not None, f"no case for {key}")
         expect(row[1] == level and row[2] == "open" and row[3] == "0" and row[4] == amount,
                f"case for {key} is {row[1:]}, expected level {level}, open, not paused, {amount}")
     created = int(stack.value("SELECT COUNT(*) FROM llx_mahnwesen_history WHERE action = 'case_created'") or 0)
-    expect(created == 3, f"expected 3 case_created history rows, found {created}")
+    expect(created == 4, f"expected 4 case_created history rows, found {created}")
     # Dolibarr stores the element type of an invoice event as 'invoice'.
     linked = {row[0]: int(row[1]) for row in stack.sql(
         "SELECT fk_element, COUNT(*) FROM llx_actioncomm WHERE ref_ext LIKE 'mahnwesen-history-%' "
@@ -160,7 +182,7 @@ def synchronise(stack: Stack) -> str:
     unlinked = [key for key in expectations if linked.get(str(invoice(stack, key)["id"]), 0) < 1]
     expect(not unlinked, f"no agenda event on the invoice for {', '.join(unlinked)}")
     agenda = sum(linked.values())
-    return f"3 cases with the expected stages and balances, {agenda} agenda events"
+    return f"4 cases with the expected stages and balances, {agenda} agenda events"
 
 
 def pages(stack: Stack) -> str:
@@ -228,7 +250,7 @@ def manual_send(stack: Stack) -> str:
     expect(recipients == ["berta.billing@runtime-gmbh.test"], f"sent to {recipients}, not the billing contact")
     expect(company["ref"] in message["Subject"], f"subject {message['Subject']!r} lacks the invoice reference")
     received = mailpit.attachment_hashes(message["ID"])
-    attempts = stack.sql("SELECT rowid, status, mode, level FROM llx_mahnwesen_attempt")
+    attempts = stack.sql(f"SELECT rowid, status, mode, level FROM llx_mahnwesen_attempt WHERE fk_facture = {company['id']}")
     expect(len(attempts) == 1 and attempts[0][1:] == ["sent", "manual", "1"],
            f"expected one sent manual attempt at stage 1, found {attempts}")
     recorded = {row[0]: row[1] for row in stack.sql(
@@ -245,9 +267,99 @@ def manual_send(stack: Stack) -> str:
                            button=("sendmail", "1"))
     expect(again.status == 200, f"the repeated send answered HTTP {again.status}")
     expect(len(mailpit.messages()) == 1, "submitting the same composer twice sent a second email")
-    count = stack.value("SELECT COUNT(*) FROM llx_mahnwesen_attempt")
+    count = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_attempt WHERE fk_facture = {company['id']}")
     expect(count == "1", f"the repeated send created another attempt ({count} in total)")
     return f"one email to the billing contact, {len(received)} attachments with matching SHA-256, repeat refused"
+
+
+def preview(stack: Stack) -> str:
+    """A generated preview PDF opens for the sender and his sales team, not for others (#5)."""
+    company = invoice(stack, "company_overdue")
+    contact = str(stack.fixtures["contacts"]["billing"])
+    browser = stack.browser()
+    composer = page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={company['id']}"), "composer")
+    shown = page_ok(browser.submit(composer.form(name="mailform"),
+                                   {"action": "generate_preview", "receiver[]": contact}), "generate preview")
+    section = shown.text.find('class="mahnwesen-document-preview"')
+    expect(section >= 0, "the composer shows no document preview after generating the preview")
+    match = re.search(r'<iframe[^>]+src="([^"#]+)', shown.text[section:])
+    expect(match is not None, "the composer shows no preview frame after generating the preview")
+    url = html.unescape(match.group(1))
+    for who, client in (("the administrator", browser), ("the sales representative", stack.browser("rtsales"))):
+        pdf = client.get(url)
+        expect(pdf.status == 200 and pdf.body.startswith(b"%PDF"),
+               f"{who} cannot open the preview PDF at {url} (HTTP {pdf.status}, access denied: {pdf.denied()})")
+    stranger = stack.browser("rtother").get(url)
+    expect(not stranger.body.startswith(b"%PDF"), "a user outside the customer scope opens the preview PDF")
+    return "preview PDF opens for administrator and sales representative, not for another user"
+
+
+def attachment_choice(stack: Stack) -> str:
+    """A differently named invoice PDF is found, and an unticked invoice PDF stays out of the email (#6, #8)."""
+    renamed = invoice(stack, "company_renamed")
+    contact = str(stack.fixtures["contacts"]["billing"])
+    mailpit = stack.mailpit()
+    mailpit.clear()
+    browser = stack.browser()
+    composer = page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={renamed['id']}"), "composer")
+    form = composer.form(name="mailform")
+    expect(form.has("attach_invoice"),
+           f"the composer does not offer the invoice PDF {renamed['last_main_doc']} that last_main_doc names")
+    link = re.search(r'href="([^"]*document\.php\?modulepart=invoice[^"]*)"', composer.text)
+    expect(link is not None, "the composer has no link to the invoice PDF")
+    pdf = browser.get(html.unescape(link.group(1)))
+    expect(pdf.status == 200 and pdf.body.startswith(b"%PDF"),
+           f"the invoice PDF link does not open the PDF (HTTP {pdf.status}): {html.unescape(link.group(1))}")
+    sent = browser.submit(form, {"action": "send_notice", "confirm_send": "1", "receiver[]": contact},
+                          drop=("attach_invoice",), button=("sendmail", "1"))
+    page_ok(sent, "send with the invoice PDF unticked")
+    messages = mailpit.messages()
+    expect(len(messages) == 1, f"expected one email, Mailpit received {len(messages)}")
+    names = sorted(mailpit.attachment_hashes(messages[0]["ID"]))
+    expect(len(names) == 1 and "Zahlungserinnerung" in names[0],
+           f"with the invoice PDF unticked the email carried {names}")
+    roles = [row[0] for row in stack.sql(
+        "SELECT f.file_role FROM llx_mahnwesen_attempt_file f JOIN llx_mahnwesen_attempt a ON a.rowid = f.fk_attempt "
+        f"WHERE a.fk_facture = {renamed['id']}")]
+    expect(roles == ["dunning"], f"the attempt recorded the attachments {roles}")
+    return "renamed invoice PDF offered and opens; unticked, the email carries only the dunning PDF"
+
+
+def pause_label(stack: Stack) -> str:
+    """An indefinite pause reads as indefinite, a dated one shows its date, closing ends the pause (#7)."""
+    recent = invoice(stack, "company_recent")
+    indefinite = translations("MahnwesenPauseIndefinite")
+    until = translations("MahnwesenPauseUntil")
+    browser = stack.browser()
+    tab_url = f"/custom/mahnwesen/invoice.php?id={recent['id']}"
+
+    editor = page_ok(browser.get(tab_url + "&edit=pause"), "pause editor")
+    page_ok(browser.submit(form_with_action(editor, "pause_case", "pause editor"),
+                           {"pause_reason": "Runtime check: dispute", "pause_until": ""}), "pause indefinitely")
+    tab = page_ok(browser.get(tab_url), "tab of the indefinitely paused case")
+    readable = html.unescape(tab.text)
+    expect(any(f"<strong>{label}</strong>" in readable for label in indefinite),
+           "an indefinite pause is not shown as indefinite")
+    expect(not any(f"{label} <strong>" in readable for label in until),
+           "an indefinite pause is shown with an end date")
+
+    page_ok(browser.submit(form_with_action(tab, "resume_case", "paused tab")), "resume")
+    editor = page_ok(browser.get(tab_url + "&edit=pause"), "pause editor")
+    end = (datetime.date.today() + datetime.timedelta(days=10)).isoformat()
+    page_ok(browser.submit(form_with_action(editor, "pause_case", "pause editor"),
+                           {"pause_reason": "Runtime check: promise to pay", "pause_until": end}), "pause until a date")
+    readable = html.unescape(page_ok(browser.get(tab_url), "tab of the dated pause").text)
+    expect(any(f"{label} <strong>" in readable for label in until), "a dated pause does not show its end date")
+
+    stack.sql(f"UPDATE llx_facture SET fk_statut = 2, paye = 1 WHERE rowid = {recent['id']}")
+    dashboard = page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard")
+    page_ok(browser.submit(form_with_action(dashboard, "sync_cases", "dashboard")), "synchronise")
+    case = stack.sql(f"SELECT status, paused FROM llx_mahnwesen_case WHERE fk_facture = {recent['id']}")
+    expect(case and case[0] == ["closed", "0"], f"the paid invoice's case is {case}, expected closed and not paused")
+    active = stack.value("SELECT COUNT(*) FROM llx_mahnwesen_pause p JOIN llx_mahnwesen_case c ON c.rowid = p.fk_case "
+                         f"WHERE c.fk_facture = {recent['id']} AND p.status = 'active'")
+    expect(active == "0", f"closing the case left {active} active pause rows")
+    return "indefinite and dated pause labelled correctly, closing the case ends its pause"
 
 
 def automation(stack: Stack) -> str:
@@ -291,8 +403,12 @@ SCENARIOS = (
     ("synchronise", "Synchronise creates the expected cases", synchronise, ("install",)),
     ("pages", "Every page and integration point renders", pages, ("synchronise",)),
     ("access", "Sales representatives only reach their customers", access, ("synchronise",)),
+    ("preview", "The preview PDF opens for permitted users only", preview, ("pages",)),
     ("manual-send", "The composer sends one reminder with verified attachments", manual_send, ("pages",)),
-    ("automation", "The cron sends automatically only when switched on, once", automation, ("manual-send",)),
+    ("attachment-choice", "Renamed invoice PDF found, unticked PDF not sent", attachment_choice, ("pages",)),
+    ("pause-label", "Pause labels are right and closing ends the pause", pause_label, ("synchronise",)),
+    ("automation", "The cron sends automatically only when switched on, once", automation,
+     ("manual-send", "attachment-choice")),
 )
 
 

@@ -33,11 +33,10 @@ trait DunningNoticeServiceMethods4
         $stagePart = $this->getStageFilenamePart((int) $level);
         $modulepart = $preview ? 'mahnwesen' : 'invoice';
         if ($preview) {
-            $entity = !empty($invoice->entity) ? (int) $invoice->entity : (int) $conf->entity;
-            $root = !empty($conf->mahnwesen->multidir_output[$entity]) ? $conf->mahnwesen->multidir_output[$entity] : (!empty($conf->mahnwesen->dir_output) ? $conf->mahnwesen->dir_output : DOL_DATA_ROOT.'/mahnwesen');
-            $dir = rtrim($root, '/').'/notices/'.$safeRef;
-            $filename = $safeRef.'_'.$stagePart.'_preview.pdf';
-            $relative = 'notices/'.$safeRef.'/'.$filename;
+            $location = $this->getPreviewPdfLocation($invoice, (int) $level);
+            $dir = $location['dir'];
+            $filename = $location['filename'];
+            $relative = $location['relative'];
         } else {
             $root = $this->getInvoiceDocumentRoot($invoice);
             if ($root === '') { $this->error = 'Invoice document output directory is unavailable'; return false; }
