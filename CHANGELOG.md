@@ -8,6 +8,7 @@
 - Fixed: unticking the invoice PDF in the composer was ignored and the PDF was attached anyway (#6).
 - Fixed: an indefinite pause was shown with the due date of the next stage as its end; closing a case now also ends its pause (#7).
 - Fixed: the invoice PDF was looked up relative to the wrong directory, so the composer's view link failed and a differently named invoice PDF counted as missing (#8).
+- Every merge to `main` now publishes an installable development package in the pre-release "Entwicklungsstand (main)"; releases are published with `scripts/publish.py`, built locally and verified file by file by a second build on GitHub (#49).
 - Added Dolibarr 24.0 to the compatibility checks (#3).
 - Added runtime checks that install the module into running Dolibarr 21, 22, 23 and 24 instances and exercise its pages, access rules, a real send and automatic sending (#4).
 

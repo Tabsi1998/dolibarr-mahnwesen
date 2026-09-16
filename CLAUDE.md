@@ -28,7 +28,7 @@ ignored by Git.
 | repository | - | every `*.sh` parses, no CRLF in the index, `git diff --check` over every tracked line, Gitleaks over the history and over uncommitted files |
 | php | ci.yml `php-lint` matrix | `scripts/check-module.sh` in `php:7.4-cli` to `php:8.4-cli`, and proof that its lint, policy tests, language keys and contracts really ran (it skips them silently without php) |
 | dolibarr | ci.yml `dolibarr-api` matrix | `scripts/check-dolibarr-api.sh` for 21.0, 22.0, 23.0 and 24.0 |
-| package | ci.yml `build-package` | `scripts/build-release.sh` in `local-ci/mahnwesen-zip:8.2` (php:8.2-cli plus zip, built on first use), the ZIP checked file by file, and the Windows fallback of the script compared with it byte by byte |
+| package | ci.yml `build-package` | `scripts/build-release.sh` in `local-ci/mahnwesen-zip:8.2` (php:8.2-cli plus zip, built on first use), the ZIP checked file by file, the Windows fallback of the script compared with it, a second build byte-identical, and the development package (version inside, installer file name) |
 | release | release.yml | module version is x.y.z and matches the newest changelog entry and any tag; `phpmin` and `need_dolibarr_version` equal the lowest entry of each matrix |
 | runtime | - | the module in a running Dolibarr 21.0, 22.0, 23.0 and 24.0 (official images, MariaDB, Mailpit), driven through its pages and the Dolibarr cron; see below |
 | extra | - | PHP 8.4 deprecations and warnings in `tests/run.php`, printf placeholders that differ between de_DE and en_US, ShellCheck, OSV |
@@ -69,6 +69,22 @@ With `--keep-services` the stacks stay up and
 and the throwaway passwords. A bug fix gets a scenario that fails before the
 fix; a new Dolibarr major gets a line in `RUNTIME_IMAGES`, `DOLIBARR_VERSIONS`,
 `scripts/check-dolibarr-api.sh` and the CI matrix.
+
+## Publishing packages
+
+Fabian only merges. After his merge Claude runs, from an up-to-date `main`:
+
+```bash
+python scripts/publish.py dev        # development package into "Entwicklungsstand (main)"
+python scripts/publish.py release    # after a merged version bump: release vX.Y.Z
+```
+
+It runs the local check when it has not passed for that commit, builds from
+`git archive` in the ZIP image and uploads, or - when GitHub's `publish-dev`
+job or `release.yml` was first - compares its build with the published ZIP file
+by file. Details and the release steps: `docs/RELEASES.md`. File names must stay
+`mahnwesen-<digits and dots>.zip`; Dolibarr's installer derives the module
+folder from them.
 
 ## Keep in step
 

@@ -59,3 +59,23 @@ jobs:
             dist/mahnwesen-*.zip
             dist/mahnwesen-*.zip.sha256
           if-no-files-found: error
+
+  publish-dev:
+    # After a merge, once every check passed: the development package of main
+    # in the pre-release "Entwicklungsstand (main)". If a local run published
+    # it first, this build is compared with it file by file instead.
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    needs: [php-lint, dolibarr-api, runtime, build-package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-dev
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish.py dev --ci

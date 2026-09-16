@@ -71,7 +71,7 @@ For a Git checkout, clone the repository into Dolibarr's custom directory using 
 git clone https://github.com/Tabsi1998/dolibarr-mahnwesen.git htdocs/custom/mahnwesen
 ```
 
-For a release ZIP, upload `mahnwesen-x.y.z.zip` through Dolibarr's external module installer.
+For a release ZIP, upload `mahnwesen-x.y.z.zip` from the [releases](https://github.com/Tabsi1998/dolibarr-mahnwesen/releases) through Dolibarr's external module installer. The pre-release "Entwicklungsstand (main)" always holds the newest `main` as `mahnwesen-x.y.z.n.zip` for testing; see [docs/RELEASES.md](docs/RELEASES.md).
 
 After upgrading to `1.0.0`, disable and re-enable the module once. This also creates attachment-evidence and automation-run tables; existing cases/history are retained. Keep automatic sending disabled until a staging smoke test has completed.
 
