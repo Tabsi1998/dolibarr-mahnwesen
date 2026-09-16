@@ -423,17 +423,18 @@ trait DunningManagerMethods3
         return true;
     }
 
-    /** Return immutable attachment metadata for one attempt in the active entity. */
-    public function getNoticeAttemptFiles($attemptId)
+    /** Return one evidence file of the active entity with its attempt's invoice. */
+    public function getNoticeAttemptFile($fileId)
     {
         global $conf;
-        $rows = array();
-        $sql = 'SELECT rowid, file_role, display_name, snapshot_path, sha256, mime_type, size_bytes, date_creation FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt_file WHERE entity = '.((int) $conf->entity).' AND fk_attempt = '.((int) $attemptId).' ORDER BY rowid';
+        $sql = 'SELECT f.rowid, f.fk_attempt, f.file_role, f.display_name, f.snapshot_path, f.sha256, f.mime_type, f.size_bytes, a.fk_facture';
+        $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt_file f INNER JOIN '.MAIN_DB_PREFIX.'mahnwesen_attempt a ON a.rowid = f.fk_attempt AND a.entity = f.entity';
+        $sql .= ' WHERE f.entity = '.((int) $conf->entity).' AND f.rowid = '.((int) $fileId).$this->db->plimit(1);
         $res = $this->db->query($sql);
         if (!$res) { $this->error = $this->db->lasterror(); return false; }
-        while ($o = $this->db->fetch_object($res)) { $rows[] = (array) $o; }
+        $o = $this->db->fetch_object($res);
         $this->db->free($res);
-        return $rows;
+        return $o ? (array) $o : null;
     }
 
     /** Return attachment metadata grouped by attempt id in one bounded query. */

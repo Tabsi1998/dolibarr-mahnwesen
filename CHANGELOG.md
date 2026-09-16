@@ -7,6 +7,26 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-09-16
+
+Clean file names for dunning PDFs, and delivery evidence kept apart.
+
+### Fixed
+
+- Dunning PDFs in the invoice documents and in the email carried a timestamp
+  or an attempt id (`IN2607-0052_2.Mahnung_20260916_143901.pdf`). They are
+  now called like Dolibarr's own documents, `IN2607-0052_2.Mahnung.pdf`, one
+  per stage, replaced when generated again (#52).
+
+### Changed
+
+- The exact files of every delivery - dunning PDF, invoice PDF and extra
+  attachments - are kept in the module's folder `mahnwesen/attempts/<id>/`
+  instead of the invoice documents, where they could be deleted with the
+  invoice's other files. The delivery attempts page offers them for download
+  to users who may see the invoice. Files of earlier attempts stay where they
+  are and remain downloadable (#19).
+
 ## [1.0.2] - 2026-09-16
 
 Small fixes found while testing 1.0.1.
@@ -179,7 +199,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.3
 [1.0.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.2
 [1.0.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.0

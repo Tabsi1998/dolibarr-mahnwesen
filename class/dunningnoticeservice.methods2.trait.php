@@ -463,31 +463,9 @@ trait DunningNoticeServiceMethods2
     }
 
     /**
-     * Return deterministic final dunning PDF information when the document
-     * already exists in the invoice document directory.
-     *
-     * @param Facture $invoice Invoice
-     * @param int $level Stage
-     * @return array|false
-     */
-    public function getExistingFinalPdfInfo($invoice, $level)
-    {
-        global $conf;
-        $root = $this->getInvoiceDocumentRoot($invoice);
-        if ($root === '') { return false; }
-        $sql = 'SELECT pdf_path FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE entity = '.((int) $conf->entity).' AND fk_facture = '.((int) $invoice->id).' AND level = '.((int) $level)." AND status = 'sent' AND pdf_path IS NOT NULL AND pdf_path <> '' ORDER BY rowid DESC".$this->db->plimit(1);
-        $res = $this->db->query($sql);
-        if (!$res) { return false; }
-        $o = $this->db->fetch_object($res); $this->db->free($res);
-        if (!$o) { return false; }
-        $relative = ltrim((string) $o->pdf_path, '/');
-        $fullpath = rtrim($root, '/').'/'.$relative;
-        if (!is_file($fullpath) || !is_readable($fullpath) || filesize($fullpath) <= 0) { return false; }
-        return array('fullpath'=>$fullpath, 'relative'=>$relative, 'filename'=>basename($fullpath), 'modulepart'=>'invoice', 'preview'=>0);
-    }
-
-    /**
-     * Return the deterministic final filename even before a PDF exists.
+     * The file name of a stage's dunning PDF, as the customer and the invoice
+     * documents see it: IN2607-0052_1.Mahnung.pdf. Dolibarr shows each file's
+     * date itself, so the name carries neither a date nor an attempt id.
      *
      * @param Facture $invoice Invoice
      * @param int $level Stage
@@ -495,7 +473,82 @@ trait DunningNoticeServiceMethods2
      */
     public function getFinalPdfFilename($invoice, $level)
     {
-        return dol_sanitizeFileName($invoice->ref).'_'.$this->getStageFilenamePart((int) $level).'_A<id>.pdf';
+        return dol_sanitizeFileName($invoice->ref).'_'.$this->getStageFilenamePart((int) $level).'.pdf';
+    }
+
+    /**
+     * The module's document directory of the active entity.
+     *
+     * @return string
+     */
+    public function getModuleDocumentRoot()
+    {
+        global $conf;
+        $entity = (int) $conf->entity;
+        if (!empty($conf->mahnwesen->multidir_output[$entity])) {
+            return rtrim((string) $conf->mahnwesen->multidir_output[$entity], '/');
+        }
+        return !empty($conf->mahnwesen->dir_output) ? rtrim((string) $conf->mahnwesen->dir_output, '/') : DOL_DATA_ROOT.'/mahnwesen';
+    }
+
+    /**
+     * Where the exact files of one delivery attempt are kept: outside the
+     * invoice documents, so nobody deletes the evidence there by accident.
+     *
+     * @param int $attemptId Attempt id
+     * @return string
+     */
+    public function getAttemptEvidenceDir($attemptId)
+    {
+        return $this->getModuleDocumentRoot().'/attempts/'.((int) $attemptId);
+    }
+
+    /**
+     * An evidence file of an attempt, if its recorded path lies in a place the
+     * module writes evidence to: its attempt directory, or - for attempts of
+     * 1.0.1 and earlier - the invoice documents.
+     *
+     * @param array $file Row of llx_mahnwesen_attempt_file
+     * @param Facture $invoice Invoice of the attempt
+     * @return string
+     */
+    public function getAttemptEvidencePath($file, $invoice)
+    {
+        $path = (string) ($file['snapshot_path'] ?? '');
+        foreach (array($this->getAttemptEvidenceDir((int) ($file['fk_attempt'] ?? 0)), $this->getInvoiceDocumentRoot($invoice)) as $root) {
+            if ($root !== '' && ($found = $this->fileInsideRoot($path, $root)) !== '') {
+                return $found;
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Put a dunning PDF into the invoice documents under its stage name,
+     * replacing the earlier one of that stage, as Dolibarr does with the
+     * invoice PDF.
+     *
+     * @param Facture $invoice Invoice
+     * @param int $level Stage
+     * @param string $source Generated PDF
+     * @return string Relative path inside the invoice documents, or '' on failure
+     */
+    public function publishToInvoiceDocuments($invoice, $level, $source)
+    {
+        $root = $this->getInvoiceDocumentRoot($invoice);
+        if ($root === '' || !is_file($source)) {
+            return '';
+        }
+        $invoicePdfPath = $this->getInvoicePdfPath($invoice);
+        $dir = ($invoicePdfPath !== '') ? dirname($invoicePdfPath) : $root.'/'.dol_sanitizeFileName($invoice->ref);
+        if (!is_dir($dir) && dol_mkdir($dir) < 0) {
+            return '';
+        }
+        $target = $dir.'/'.$this->getFinalPdfFilename($invoice, $level);
+        if (realpath($source) !== realpath($target) && !@copy($source, $target)) {
+            return '';
+        }
+        return ltrim(str_replace('\\', '/', substr($target, strlen($root))), '/');
     }
 
     /**
