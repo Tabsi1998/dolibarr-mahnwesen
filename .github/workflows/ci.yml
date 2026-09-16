@@ -46,36 +46,25 @@ jobs:
             .local-testing/logs/
           if-no-files-found: ignore
 
-  build-package:
+  package:
+    name: Package and release metadata
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
-      - run: bash scripts/check-module.sh
-      - run: bash scripts/build-release.sh
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Release metadata agrees
+        run: python scripts/release.py --metadata
+      - name: Build twice, byte for byte identical
+        run: |
+          python scripts/build_release.py --out dist-a
+          python scripts/build_release.py --out dist-b
+          cmp dist-a/module_mahnwesen-*.zip dist-b/module_mahnwesen-*.zip
+          mkdir -p dist && cp dist-a/* dist/
       - uses: actions/upload-artifact@v7.0.1
         with:
-          name: mahnwesen-installable-${{ github.sha }}
-          path: |
-            dist/mahnwesen-*.zip
-            dist/mahnwesen-*.zip.sha256
+          name: module_mahnwesen-${{ github.sha }}
+          path: dist/
           if-no-files-found: error
-
-  publish-dev:
-    # After a merge, once every check passed: the development package of main
-    # in the pre-release "Entwicklungsstand (main)". If a local run published
-    # it first, this build is compared with it file by file instead.
-    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
-    needs: [php-lint, dolibarr-api, runtime, build-package]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    concurrency:
-      group: publish-dev
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 0
-      - env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/publish.py dev --ci
+          retention-days: 14

@@ -77,17 +77,24 @@ Mahnspesen sind pro Stufe und Kundentyp konfigurierbar. Ein Dolibarr-Drittpartei
 
 Die Spesen verändern **nicht** den Originalbetrag der Dolibarr-Rechnung und erzeugen keinen Buchungssatz. Nach erfolgreichem Versand werden sie in einem eigenen Nebenbuch geführt und müssen ausdrücklich als bezahlt oder erlassen verbucht werden. Der technische Standardwert ist 0,00.
 
-## Installation
+## Voraussetzungen
 
-Git-Checkout direkt in den Custom-Ordner:
+| | Mindestens | Getestet |
+| --- | --- | --- |
+| Dolibarr | 21.0 | 21.0.4, 22.0.5, 23.0.4, 24.0.1 |
+| PHP | 7.4 | 7.4, 8.1, 8.2, 8.3, 8.4 |
+| Dolibarr-Module | Rechnungen | Agenda für den Verlauf an der Rechnung, Cron für die Automatik |
 
-```bash
-git clone https://github.com/Tabsi1998/dolibarr-mahnwesen.git htdocs/custom/mahnwesen
-```
+## Installation und Updates
 
-Release-ZIPs verwenden das Format `mahnwesen-x.y.z.zip` mit dem Ordner `mahnwesen/` als ZIP-Wurzel und liegen unter [Releases](https://github.com/Tabsi1998/dolibarr-mahnwesen/releases). Die Vorabversion „Entwicklungsstand (main)“ enthält nach jedem Merge den neuesten Stand als `mahnwesen-x.y.z.n.zip` - nur zum Testen, nicht für den Produktivbetrieb. Details: [docs/RELEASES.md](docs/RELEASES.md).
+Jede Änderung erscheint als eigenes Release „Mahnwesen vX.Y.Z“ mit Patchnotes auf der [Release-Seite](https://github.com/Tabsi1998/dolibarr-mahnwesen/releases).
 
-Nach dem Upgrade auf `1.0.0` das Modul einmal deaktivieren und wieder aktivieren. Dadurch werden auch die Tabellen für vollständige Anhangsnachweise und Automatikläufe angelegt; Mahnfälle und Historie bleiben erhalten. Die Automatik erst nach einem Staging-Smoke-Test aktivieren.
+1. `module_mahnwesen-x.y.z.zip` herunterladen. Nicht umbenennen: Dolibarr nimmt nur diesen Namen an und leitet daraus den Modulordner ab.
+2. In Dolibarr *Start > Einstellungen > Module > Externes Modul bereitstellen* öffnen und das ZIP hochladen. Ein vorhandener Ordner `custom/mahnwesen` wird dabei ersetzt.
+3. **Mahnwesen** in der Modulliste aktivieren - bei einem Update einmal deaktivieren und wieder aktivieren. Mahnfälle, Historie und Einstellungen bleiben erhalten.
+4. Die Automatik erst nach einem Test auf einem Test-System einschalten.
+
+Wer lieber mit Git arbeitet, klont das Repository als `htdocs/custom/mahnwesen` und aktualisiert mit `git pull`; ein ZIP-Upload über diesen Ordner würde den `.git`-Ordner löschen.
 
 ## Kompatibilität
 
@@ -100,6 +107,7 @@ Das Projekt wird nicht auf eine einzelne Dolibarr-Version gebrandet. Zielmatrix 
 - [Mahnworkflow](docs/WORKFLOW.md)
 - [Kompatibilität](docs/COMPATIBILITY.md)
 - [Betrieb / Upgrade](docs/OPERATIONS.md)
+- [Versionen und Releases](docs/RELEASES.md)
 - [E-Mail-/PDF-Variablen](docs/VARIABLES.md)
 - [Sicherheitsmodell](SECURITY.md)
 - [Versionshistorie](CHANGELOG.md)
@@ -107,5 +115,3 @@ Das Projekt wird nicht auf eine einzelne Dolibarr-Version gebrandet. Zielmatrix 
 ## Lizenz
 
 GPL-3.0-or-later, siehe [LICENSE](LICENSE).
-
-- [Release-Strategie](docs/RELEASES.md)

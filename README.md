@@ -63,17 +63,24 @@ Mahnwesen integrates with Dolibarr's native **Email setup -> Email templates** p
 
 See [docs/VARIABLES.md](docs/VARIABLES.md).
 
-## Installation
+## Requirements
 
-For a Git checkout, clone the repository into Dolibarr's custom directory using the directory name `mahnwesen`:
+| | Minimum | Tested |
+| --- | --- | --- |
+| Dolibarr | 21.0 | 21.0.4, 22.0.5, 23.0.4, 24.0.1 |
+| PHP | 7.4 | 7.4, 8.1, 8.2, 8.3, 8.4 |
+| Dolibarr modules | Invoices | Agenda for the invoice history, Cron for automatic sending |
 
-```bash
-git clone https://github.com/Tabsi1998/dolibarr-mahnwesen.git htdocs/custom/mahnwesen
-```
+## Installation and updates
 
-For a release ZIP, upload `mahnwesen-x.y.z.zip` from the [releases](https://github.com/Tabsi1998/dolibarr-mahnwesen/releases) through Dolibarr's external module installer. The pre-release "Entwicklungsstand (main)" always holds the newest `main` as `mahnwesen-x.y.z.n.zip` for testing; see [docs/RELEASES.md](docs/RELEASES.md).
+Every change is published as a release "Mahnwesen vX.Y.Z" with patch notes on the [releases page](https://github.com/Tabsi1998/dolibarr-mahnwesen/releases).
 
-After upgrading to `1.0.0`, disable and re-enable the module once. This also creates attachment-evidence and automation-run tables; existing cases/history are retained. Keep automatic sending disabled until a staging smoke test has completed.
+1. Download `module_mahnwesen-x.y.z.zip`. Do not rename it: Dolibarr accepts only this name and derives the module folder from it.
+2. In Dolibarr open *Home > Setup > Modules > Deploy an external module* and upload the ZIP. An existing `custom/mahnwesen` folder is replaced.
+3. Enable **Mahnwesen** in the module list - for an update, disable and enable it once. Cases, history and settings are kept.
+4. Switch on automatic sending only after a test on a staging system.
+
+With Git, clone the repository as `htdocs/custom/mahnwesen` and update with `git pull`; uploading a ZIP over that folder would delete its `.git` folder.
 
 ## Compatibility
 

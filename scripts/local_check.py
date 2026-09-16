@@ -2,7 +2,7 @@
 """Run every check the CI runs, on this computer - and the ones it skips.
 
 GitHub is the second, independent confirmation. This is the first: every job of
-.github/workflows/ci.yml and the checks of release.yml, with the developer's
+.github/workflows/ci.yml and of release-verify.yml, with the developer's
 own tools and processor, plus the gates the CI never runs.
 
 Groups:
@@ -14,11 +14,12 @@ Groups:
                 lint and the policy tests really ran
     dolibarr    the source and API compatibility check against Dolibarr 21.0 to
                 24.0
-    package     the installable ZIP as the Linux runner builds it, checked file
-                by file, and the Windows build path checked for the same result
-    release     the module version, the changelog, the minimum PHP and
-                Dolibarr versions and any tag agree with each other and with
-                the CI matrix
+    package     scripts/build_release.py from the working copy and from the
+                snapshot: byte for byte identical, checked file by file, named
+                the way Dolibarr's installer accepts
+    release     scripts/release.py --metadata: version, dated changelog section
+                and support matrix agree; any tag matches; a package changed
+                since the newest release needs a new version
     runtime     the module in a running Dolibarr 21, 22, 23 and 24 - official
                 images with MariaDB and Mailpit - driven through its pages and
                 the Dolibarr cron: activation, synchronisation, access rules,
@@ -94,20 +95,8 @@ MARIADB_IMAGE = "mariadb:11.4.13"
 MAILPIT_IMAGE = "axllent/mailpit:v1.31.1"
 RUNTIME_TESTS = ROOT / "tests" / "runtime"
 
-MODULE = ROOT / "core" / "modules" / "modMahnwesen.class.php"
 SNAPSHOT = STATE / "snapshot"
-WINDOWS_SNAPSHOT = STATE / "snapshot-windows"
-
-# The Linux runner has zip; the PHP image does not. This image adds it, and
-# nothing else, so the ZIP is built the way the release workflow builds it.
-ZIP_IMAGE = f"local-ci/mahnwesen-zip:{RELEASE_PHP}"
-ZIP_DOCKERFILE = (f"FROM php:{RELEASE_PHP}-cli\n"
-                  "RUN apt-get update && apt-get install -y --no-install-recommends zip unzip "
-                  "&& rm -rf /var/lib/apt/lists/*\n")
-
-# What scripts/build-release.sh leaves out of the package.
-PACKAGE_EXCLUDES = (".git", ".github", "dist", "build", "scripts", "tests", ".gitignore",
-                    ".gitattributes", ".editorconfig", "CONTRIBUTING.md", "CLAUDE.md")
+PACKAGE_OUT = STATE / "package"
 
 # The lines scripts/check-module.sh prints when each part really ran. It skips
 # the lint and the policy tests silently when php is missing, so exit code 0
@@ -971,229 +960,75 @@ def dolibarr_steps() -> list:
 
 # ------------------------------------------------------------------- package
 
-def ensure_zip_image(context: Context) -> None:
-    binary = docker(context)
-    if context.run(binary, "image", "inspect", ZIP_IMAGE, check=False, timeout=60).returncode == 0:
-        return
-    completed = context.run(binary, "build", "--tag", ZIP_IMAGE, "-", stdin=ZIP_DOCKERFILE,
-                            check=False, timeout=1800)
-    if completed.returncode != 0:
-        raise StepFailed("the build image could not be created:\n" + tail(completed))
+def scripts_module(name: str):
+    """A helper script of scripts/, imported from the working copy."""
+    folder = str(ROOT / "scripts")
+    if folder not in sys.path:
+        sys.path.insert(0, folder)
+    return __import__(name)
 
 
-def zip_names(archive: Path) -> tuple[list, str | None]:
-    with zipfile.ZipFile(archive) as bundle:
-        return [info.filename for info in bundle.infolist()], bundle.testzip()
+def package(context: Context) -> str:
+    """The installable ZIP, built two ways, byte for byte identical and complete.
 
-
-def package_problems(archive: Path, source: Path) -> tuple[list, int]:
-    """Everything that would make the ZIP a bad thing to install."""
-    problems = []
-    names, corrupt = zip_names(archive)
-    if corrupt:
-        problems.append(f"corrupt member: {corrupt}")
-    backslashed = [name for name in names if "\\" in name]
-    if backslashed:
-        problems.append(f"{len(backslashed)} entries use backslashes, which a Linux server unpacks "
-                        f"as flat file names, for example {backslashed[0]!r}")
-    normal = [name.replace("\\", "/") for name in names]
-    tops = {name.split("/", 1)[0] for name in normal}
-    if tops != {"mahnwesen"}:
-        problems.append(f"the top level is {sorted(tops)}, not only mahnwesen/")
-    files = {name[len("mahnwesen/"):] for name in normal
-             if name.startswith("mahnwesen/") and not name.endswith("/")}
-    for required in ("core/modules/modMahnwesen.class.php", "langs/de_DE/mahnwesen.lang",
-                     "langs/en_US/mahnwesen.lang"):
-        if required not in files:
-            problems.append(f"missing {required}")
-
-    def excluded(name: str) -> bool:
-        return any(name == item or name.startswith(item + "/") for item in PACKAGE_EXCLUDES)
-
-    leaked = sorted(name for name in files if excluded(name))
-    if leaked:
-        problems.append(f"contains what the release script excludes: {', '.join(leaked[:5])}")
-    expected = {path.relative_to(source).as_posix() for path in source.rglob("*") if path.is_file()}
-    expected = {name for name in expected if not excluded(name)}
-    absent = sorted(expected - files)
-    if absent:
-        problems.append(f"{len(absent)} files of the module are missing: {', '.join(absent[:5])}")
-    foreign = sorted(files - expected - set(leaked))
-    if foreign:
-        problems.append(f"{len(foreign)} files are not part of the module: {', '.join(foreign[:5])}")
-    checksum = archive.with_name(archive.name + ".sha256")
-    if not checksum.is_file():
-        problems.append(f"no {checksum.name} next to the ZIP")
-    else:
-        recorded = checksum.read_text(encoding="utf-8").split()[0].lower()
-        actual = hashlib.sha256(archive.read_bytes()).hexdigest()
-        if recorded != actual:
-            problems.append(f"{checksum.name} does not match the ZIP")
-    return problems, len(files)
-
-
-def linux_package(context: Context) -> str:
-    """The installable ZIP as the Linux runner builds it: with zip, no fallback."""
-    ensure_zip_image(context)
-    dist = SNAPSHOT / "dist"
-    if dist.exists():
-        shutil.rmtree(dist)
-    completed = in_php(context, RELEASE_PHP, "bash scripts/build-release.sh", image=ZIP_IMAGE)
-    path = context.log("build-release-linux", completed.stdout + completed.stderr)
-    if completed.returncode != 0:
-        raise StepFailed(f"scripts/build-release.sh failed. Full output: {path}\n" + tail(completed))
-    archives = sorted(dist.glob("mahnwesen-*.zip"))
-    if len(archives) != 1:
-        raise StepFailed(f"expected one ZIP in dist/, found {len(archives)}")
-    source = STATE / "package-source"
-    if source.exists():
-        shutil.rmtree(source)
-    shutil.copytree(SNAPSHOT, source, ignore=shutil.ignore_patterns("dist"))
-    problems, count = package_problems(archives[0], source)
+    The first build runs in the Git working copy with its output inside the
+    repository, as ci.yml does on GitHub; only tracked files may reach it. The
+    second runs from the snapshot, which has no .git, as release.py builds from
+    git archive. Both must be the same package.
+    """
+    builder = scripts_module("build_release")
+    inside = ROOT / "dist-local-check"
+    for folder in (PACKAGE_OUT, inside):
+        if folder.exists():
+            shutil.rmtree(folder)
+    try:
+        try:
+            working, digest = builder.build(ROOT, inside)
+            archive, again = builder.build(SNAPSHOT, PACKAGE_OUT / "snapshot")
+        except builder.BuildError as error:
+            raise StepFailed(str(error)) from error
+        if digest != again or working.read_bytes() != archive.read_bytes():
+            raise StepFailed(f"the working copy and the snapshot give different packages: {digest} / {again}")
+        problems = builder.verify(working, ROOT) + builder.verify(archive, SNAPSHOT)
+    finally:
+        if inside.exists():
+            shutil.rmtree(inside)
     if problems:
         raise StepFailed("the ZIP is not what Dolibarr should install:\n  " + "\n  ".join(problems))
-    context.cache["linux-zip"] = archives[0]
-    return f"{archives[0].name}: {count} files, checksum matches"
-
-
-def windows_package(context: Context) -> str:
-    """The same ZIP through the Windows path of build-release.sh.
-
-    Git for Windows has no zip, so the script falls back to PowerShell's
-    Compress-Archive. A developer who builds a release on this machine ships
-    that ZIP, so it has to hold exactly what the Linux build holds.
-    """
-    linux = context.cache.get("linux-zip")
-    if not linux:
-        raise StepSkipped("the Linux package has to be built first")
-    count = snapshot(context, WINDOWS_SNAPSHOT)
-    completed = context.run(posix_bash(context), "scripts/build-release.sh", cwd=WINDOWS_SNAPSHOT,
-                            check=False, timeout=1800)
-    path = context.log("build-release-windows", completed.stdout + completed.stderr)
-    if completed.returncode != 0:
-        raise StepFailed(f"scripts/build-release.sh failed on Windows. Full output: {path}\n"
-                         + tail(completed))
-    archives = sorted((WINDOWS_SNAPSHOT / "dist").glob("mahnwesen-*.zip"))
-    if len(archives) != 1:
-        raise StepFailed(f"expected one ZIP in dist/, found {len(archives)}")
-    problems, _ = package_problems(archives[0], STATE / "package-source")
-    with zipfile.ZipFile(linux) as first, zipfile.ZipFile(archives[0]) as second:
-        left = {info.filename.replace("\\", "/"): info for info in first.infolist() if not info.is_dir()}
-        right = {info.filename.replace("\\", "/"): info for info in second.infolist()
-                 if not info.filename.endswith(("/", "\\"))}
-        differ = sorted(name for name in left.keys() & right.keys()
-                        if first.read(left[name]) != second.read(right[name]))
-    if differ:
-        problems.append(f"{len(differ)} files differ in content from the Linux build, "
-                        f"for example {differ[0]}")
-    if problems:
-        raise StepFailed("a release built on Windows would differ from the CI's:\n  " + "\n  ".join(problems))
-    return f"identical to the Linux build ({count} files in the working copy)"
-
-
-def publishing_package(context: Context) -> str:
-    """What scripts/publish.py uploads: the same bytes every build, names Dolibarr accepts.
-
-    Dolibarr's installer takes the module folder from the file name, so a
-    package called anything but mahnwesen-<digits and dots>.zip cannot be
-    installed. The development package carries its version inside as well.
-    """
-    linux = context.cache.get("linux-zip")
-    if not linux:
-        raise StepSkipped("the Linux package has to be built first")
-    sys.path.insert(0, str(ROOT / "scripts"))
-    import publish  # noqa: E402 - the publishing script lives next to this one
-    match = re.search(r"\$this->version\s*=\s*'([^']+)'", MODULE.read_text(encoding="utf-8"))
-    version = match.group(1) if match else ""
-    problems = []
-    first = hashlib.sha256(linux.read_bytes()).hexdigest()
-    again = in_php(context, RELEASE_PHP, "bash scripts/build-release.sh", image=ZIP_IMAGE)
-    if again.returncode != 0:
-        raise StepFailed("the second release build failed:\n" + tail(again))
-    if hashlib.sha256(linux.read_bytes()).hexdigest() != first:
-        problems.append("two builds of the same files differ byte for byte; the packaging is not reproducible")
-    dev_version = f"{version}.7"
-    dev = in_php(context, RELEASE_PHP, f"PACKAGE_VERSION={dev_version} bash scripts/build-release.sh", image=ZIP_IMAGE)
-    context.log("build-release-dev", dev.stdout + dev.stderr)
-    dev_zip = SNAPSHOT / "dist" / f"mahnwesen-{dev_version}.zip"
-    if dev.returncode != 0 or not dev_zip.is_file():
-        raise StepFailed("the development package did not build:\n" + tail(dev))
-    for name in (linux.name, dev_zip.name):
-        if publish.installer_module_name(name) != "mahnwesen":
-            problems.append(f"Dolibarr's installer would not install {name} as module mahnwesen")
-    if publish.installer_module_name("mahnwesen-main.zip") is not None:
-        problems.append("the installer rule in publish.py accepts a name Dolibarr refuses")
-    release_files = publish.fingerprint(linux)
-    dev_files = publish.fingerprint(dev_zip)
-    descriptor = "mahnwesen/core/modules/modMahnwesen.class.php"
-    if set(release_files) != set(dev_files):
-        problems.append("the development package holds other files than the release package")
-    differing = sorted(name for name in release_files if release_files[name] != dev_files.get(name))
-    if differing != [descriptor]:
-        problems.append(f"the development package should differ only in its descriptor, differs in {differing[:4]}")
-    with zipfile.ZipFile(dev_zip) as bundle:
-        if f"$this->version = '{dev_version}'" not in bundle.read(descriptor).decode("utf-8", "replace"):
-            problems.append(f"the development package does not carry version {dev_version} inside")
-    for leftover in (dev_zip, dev_zip.with_name(dev_zip.name + ".sha256")):
-        leftover.unlink(missing_ok=True)
-    if problems:
-        raise StepFailed("the published packages would be wrong:\n  " + "\n  ".join(problems))
-    return f"reproducible, {linux.name} and {dev_zip.name} install as mahnwesen, development version inside"
+    with zipfile.ZipFile(archive) as bundle:
+        files = sum(1 for info in bundle.infolist() if not info.is_dir())
+    context.cache["package"] = archive
+    return f"{archive.name}: {files} files, identical from working copy and snapshot, sha256 {digest[:16]}"
 
 
 def package_steps() -> list:
-    return [
-        Step("package", "linux", "The installable ZIP as the Linux runner builds it", linux_package,
-             ("repository/snapshot",)),
-        Step("package", "windows", "The Windows build path yields the same ZIP", windows_package,
-             ("linux",)),
-        Step("package", "publishing", "Published packages are reproducible and installable", publishing_package,
-             ("linux",)),
-    ]
+    return [Step("package", "zip", "Reproducible installable ZIP, checked file by file", package,
+                 ("repository/snapshot",))]
 
 
 # ------------------------------------------------------------------- release
 
 def release_metadata(context: Context) -> str:
-    """The module, the changelog, the matrices and any tag tell one story."""
-    text = MODULE.read_text(encoding="utf-8", errors="replace")
-    problems = []
-    version_match = re.search(r"\$this->version\s*=\s*'([^']+)'", text)
-    version = version_match.group(1) if version_match else ""
-    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
-        problems.append(f"the module version {version!r} is not a release version x.y.z")
-    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8", errors="replace")
-    released = [heading for heading in re.findall(r"^##\s+(\S+)", changelog, re.MULTILINE)
-                if heading.lower() != "unreleased"]
-    if not released or released[0] != version:
-        problems.append(f"the newest changelog entry is {released[0] if released else 'missing'}, "
-                        f"the module says {version}")
-
-    def declared(pattern: str) -> tuple | None:
-        match = re.search(pattern, text)
-        return (int(match.group(1)), int(match.group(2))) if match else None
-
-    php = declared(r"\$this->phpmin\s*=\s*array\((\d+)\s*,\s*(\d+)\)")
-    lowest_php = tuple(int(part) for part in PHP_VERSIONS[0].split("."))
-    if php != lowest_php:
-        problems.append(f"phpmin is {php}, but the CI matrix starts at PHP {PHP_VERSIONS[0]}")
-    dolibarr = declared(r"\$this->need_dolibarr_version\s*=\s*array\((\d+)\s*,\s*(\d+)\)")
-    lowest_dolibarr = tuple(int(part) for part in DOLIBARR_VERSIONS[0].split("."))
-    if dolibarr != lowest_dolibarr:
-        problems.append(f"need_dolibarr_version is {dolibarr}, but the CI checks from Dolibarr "
-                        f"{DOLIBARR_VERSIONS[0]}")
+    releaser = scripts_module("release")
+    try:
+        info = releaser.metadata()
+    except releaser.ReleaseRefused as error:
+        raise StepFailed(str(error)) from error
     tags = context.run(git(context), "tag", "--points-at", "HEAD", "--list", "v*").stdout.split()
-    for tag in tags:
-        if tag != f"v{version}" and not tag.startswith(f"v{version}-"):
-            problems.append(f"HEAD is tagged {tag}, but the module version is {version}")
-    if problems:
-        raise StepFailed("the release metadata disagrees:\n  " + "\n  ".join(problems))
-    note = f"version {version}, PHP >= {PHP_VERSIONS[0]}, Dolibarr >= {DOLIBARR_VERSIONS[0]}"
-    return note + (f", tagged {', '.join(tags)}" if tags else "")
+    wrong = [tag for tag in tags if tag != info["tag"]]
+    if wrong:
+        raise StepFailed(f"HEAD is tagged {', '.join(wrong)}, but the module version gives {info['tag']}")
+    try:
+        progress = releaser.version_progress(info["version"])
+    except releaser.ReleaseRefused as error:
+        raise StepFailed(str(error)) from error
+    kind = "pre-release" if info["prerelease"] else "release"
+    return (f"{info['tag']} ({kind}), changelog of {info['date']}, {progress}, "
+            f"PHP >= {PHP_VERSIONS[0]}, Dolibarr >= {DOLIBARR_VERSIONS[0]}")
 
 
 def release_steps() -> list:
-    return [Step("release", "metadata", "Version, changelog, minimums and tag agree", release_metadata)]
+    return [Step("release", "metadata", "Version, changelog and support matrix agree", release_metadata)]
 
 
 # ------------------------------------------------------------------- runtime

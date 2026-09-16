@@ -1,18 +1,51 @@
 # Changelog
 
-## Unreleased
+All notable changes to the Mahnwesen module. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
+[Semantic Versioning](https://semver.org/), with `-beta` marking pre-releases.
+The section of a version is the text of its GitHub release.
 
-- Fixed: the invoice Mahnwesen tab, the dunning composer, pausing from the dashboard, resolving delivery attempts and settling fees were denied for every user, administrators included, because the access check asked for a permission Dolibarr does not have (#44).
-- Fixed: the dunning action buttons were never shown on the invoice card; the hook now prints them the way Dolibarr expects (#45).
-- Fixed: users other than administrators could not open the generated preview PDF; the composer now serves it behind its own access checks (#5).
-- Fixed: unticking the invoice PDF in the composer was ignored and the PDF was attached anyway (#6).
-- Fixed: an indefinite pause was shown with the due date of the next stage as its end; closing a case now also ends its pause (#7).
-- Fixed: the invoice PDF was looked up relative to the wrong directory, so the composer's view link failed and a differently named invoice PDF counted as missing (#8).
-- Every merge to `main` now publishes an installable development package in the pre-release "Entwicklungsstand (main)"; releases are published with `scripts/publish.py`, built locally and verified file by file by a second build on GitHub (#49).
-- Added Dolibarr 24.0 to the compatibility checks (#3).
-- Added runtime checks that install the module into running Dolibarr 21, 22, 23 and 24 instances and exercise its pages, access rules, a real send and automatic sending (#4).
+## [Unreleased]
 
-## 1.0.0
+## [1.0.1] - 2026-09-16
+
+Bugfix release. The dunning tab, the composer and the dunning buttons work again
+for everyone allowed to use them, and from now on every change is released as a
+version of its own, built locally and verified by GitHub.
+
+### Fixed
+
+- The invoice's Mahnwesen tab, the dunning composer, pausing from the dashboard,
+  resolving delivery attempts and settling fees were denied for every user,
+  administrators included: the access check asked for a permission Dolibarr
+  does not have (#44).
+- The dunning buttons never appeared on the invoice card; the hook now prints
+  them the way Dolibarr expects (#45).
+- Users other than administrators could not open the preview PDF; the composer
+  now serves it behind its own access checks (#5).
+- Unticking the invoice PDF in the composer was ignored and the PDF was attached
+  anyway (#6).
+- An indefinite pause was shown with the due date of the next stage as its end;
+  closing a case now also ends its pause (#7).
+- The invoice PDF was looked up in the wrong directory, so the composer's view
+  link failed and a differently named invoice PDF counted as missing (#8).
+
+### Added
+
+- Dolibarr 24.0 in the compatibility checks (#3).
+- Runtime checks that run the module in real Dolibarr 21, 22, 23 and 24
+  installations: activation, access rules, preview, a real send with the
+  attachment hashes compared against the delivered bytes, and automatic
+  sending (#4).
+
+### Changed
+
+- Every merged pull request that changes the module is released as
+  "Mahnwesen vX.Y.Z". The package is now called `module_mahnwesen-x.y.z.zip`,
+  is built reproducibly from the tagged commit, and GitHub rebuilds it to prove
+  the published file byte for byte (#51).
+
+## [1.0.0] - 2026-08-27
 
 - Replaced the custom mail-form imitation with Dolibarr's native `FormMail` component for templates, sender profiles, recipients, CC/BCC, delivery receipts and HTML editing.
 - Added a combined rendered-email and embedded PDF preview plus mandatory, invoice and user-uploaded document controls.
@@ -25,7 +58,7 @@
 - Added native FormMail/upload API contracts to the Dolibarr 21/22/23 compatibility checks.
 - Updated installation, upgrade, architecture, security and release documentation for the first stable line.
 
-## 0.6.0
+## [0.6.0]
 
 - Enforced Dolibarr invoice read/restricted-area permissions and active-entity isolation.
 - Added one atomic send gate that revalidates current balance, fee, stage, cooldown, pause, recipient and duplicate state under a case lock.
@@ -40,19 +73,19 @@
 - Added policy tests, stronger language/security contracts, real Dolibarr 21/22/23 source/API checks and release tag/version validation.
 - Raised the declared PHP minimum to 7.4 and set all new default dunning fees to zero.
 
-## 0.5.4 (release candidate)
+## [0.5.4]
 
 - Cleaned the dunning PDF total area: one full-width closing rule and a borderless, right-aligned total replace the previous visually half-open amount box.
 - Kept generated notices in the Sponge-style one-page layout where content permits.
 - Release ZIP version now follows module version `0.5.4`.
 
-## 0.5.3
+## [0.5.3]
 
 - Completed the repository source baseline used for the first GitHub-managed module build.
 - Added main-branch CI, Dolibarr compatibility checks and automatic installable ZIP artifacts.
 - Added tag-driven GitHub release ZIP generation.
 
-## 0.5.2 (test build / intended `v0.5.2-rc.1`)
+## [0.5.2]
 
 - Kept normal Sponge-style dunning letters on one page by reserving footer space and disabling TCPDF auto page-break while drawing the standard footer.
 - Renamed generated invoice-linked dunning PDFs to stable, human-readable names such as `IN2607-0054_Zahlungserinnerung.pdf`, `IN2607-0054_1.Mahnung.pdf`, etc.
@@ -77,7 +110,7 @@
 - Added pre-send revalidation of workflow stage and remaining amount so stale email/PDF content is never sent after the invoice state changed.
 - Mirrored immutable Mahnwesen history idempotently into the invoice's normal Dolibarr Events/Agenda via `ActionComm`; the module history remains the workflow source of truth.
 
-## 0.4.2
+## [0.4.2]
 
 - Fixed Dolibarr 22 native email-template hook registration by using the direct `emailtemplates` hook context format.
 - Automatically creates one editable starter template per dunning stage when missing; no separate creation button.
@@ -86,7 +119,7 @@
 - Added a Cyan-inspired dunning PDF using Dolibarr PDF margins, company logo, address blocks and a financial summary.
 - Kept private-person dunning fees safe at zero by default while remaining configurable per stage.
 
-## 0.4.1
+## [0.4.1]
 
 - Replaced the former single Mahnwesen email-template type with four real native Dolibarr types: payment reminder, 1st, 2nd and 3rd dunning notice.
 - Added explicit/self-healing registration of the `emailtemplates` hook on module activation for Dolibarr 22.
@@ -100,12 +133,12 @@
 - Retained timed/indefinite pause, automatic resume, controlled automatic sending and duplicate-send safeguards.
 - Invoices and invoice amounts are never modified by dunning fees.
 
-## 0.4.0
+## [0.4.0]
 
 - Added native HTML email template integration, configurable dunning fees, timed pauses and controlled automatic sending.
 - Added customer master-data classification and separate module-only dunning totals.
 
-## 0.3.0
+## [0.3.0]
 
 - Added manual dunning notice preview/send workflow.
 - Added BILLING-contact-first recipient resolution with third-party fallback.
@@ -113,19 +146,23 @@
 - Added explicit send confirmation, duplicate-send guard per dunning level, and send audit history.
 - Separated persistent internal case note from pause/resume reasons.
 
-## 0.2.2
+## [0.2.2]
 
 - Fixed synchronization success-message crash on Dolibarr 22 / PHP 8.
 
-## 0.2.1
+## [0.2.1]
 
 - Added persistent synchronization of dunning cases, case lifecycle, history and pause/resume.
 - Added a Mahnwesen tab to customer invoices.
 
-## 0.1.1
+## [0.1.1]
 
 - Added detailed scan diagnostics and optional deposit invoice inclusion.
 
-## 0.1.0
+## [0.1.0]
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
+
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.1
+[1.0.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.0
