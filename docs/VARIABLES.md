@@ -13,6 +13,10 @@ Mahnwesen templates can use normal Dolibarr email substitutions plus module-spec
 | `__MAHNWESEN_CUSTOMER_CLASS__` | private/business/unknown classification |
 | `__MAHNWESEN_NEXT_STAGE_DATE__` | next threshold date |
 | `__MAHNWESEN_FEE_PARAGRAPH__` | optional rendered fee paragraph |
+| `__MAHNWESEN_PAYMENT_DEADLINE__` | payment deadline: the day the notice is written plus the stage's payment period, in the customer's date format; empty when the stage has no period |
+| `__MAHNWESEN_PAYMENT_DAYS__` | the stage's payment period in days; empty when the stage has none |
+
+The payment period is set per stage under *Setup > Stages & fees* (0 = none, the default). The dunning PDF shows the same deadline below the total, the history of a sent notice records it, and the next stage becomes due no earlier than the day after it. `__MAHNWESEN_NEXT_STAGE_DATE__` takes that into account.
 
 ## Compatibility aliases
 

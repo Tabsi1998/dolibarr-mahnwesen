@@ -319,11 +319,20 @@ trait DunningNoticeServiceMethods2
         $classLabel = $outputlangs->trans($this->manager->getCustomerClassLabelKey($breakdown['classification']['class']));
         $stageLabel = $outputlangs->trans($this->manager->getStageLabelKey((int) $level));
         $next = '';
+        $nextTs = 0;
         $nextLevel = $this->manager->getNextFutureLevel((int) $level);
         $dueYmd = !empty($invoice->date_lim_reglement) ? dol_print_date($invoice->date_lim_reglement, '%Y-%m-%d', 'tzserver') : '';
         if ($nextLevel > 0 && $dueYmd !== '') {
             $nextAt = $this->manager->calculateWorkflowStageDueAt(!empty($case['id']) ? (int) $case['id'] : 0, $dueYmd, $nextLevel);
-            if ($nextAt) { $next = dol_print_date($this->db->jdate($nextAt), 'day', 'tzserver', $outputlangs); }
+            if ($nextAt) { $nextTs = (int) $this->db->jdate($nextAt); }
+        }
+        $deadline = $this->manager->getPaymentDeadline((int) $level);
+        $paymentDeadline = $deadline ? dol_print_date($deadline, 'day', 'tzserver', $outputlangs) : '';
+        $paymentDays = $deadline ? (string) $this->manager->getPaymentDaysForLevel((int) $level) : '';
+        if (!empty($nextTs)) {
+            // The next stage waits until the day after this notice's deadline (#64).
+            if ($deadline && dol_print_date($nextTs, '%Y-%m-%d', 'tzserver') <= dol_print_date($deadline, '%Y-%m-%d', 'tzserver')) { $nextTs = (int) strtotime('+1 day', $deadline); }
+            $next = dol_print_date($nextTs, 'day', 'tzserver', $outputlangs);
         }
         $feeParagraph = '';
         if ($breakdown['fee'] > 0.000001) {
@@ -334,7 +343,8 @@ trait DunningNoticeServiceMethods2
         $custom = array(
             '__MAHNWESEN_STAGE__' => $stageLabel, '__MAHNWESEN_OPEN_AMOUNT__' => $openAmount, '__MAHNWESEN_FEE__' => $feeAmount,
             '__MAHNWESEN_TOTAL__' => $totalAmount, '__MAHNWESEN_CUSTOMER_CLASS__' => $classLabel, '__MAHNWESEN_NEXT_STAGE_DATE__' => $next,
-            '__MAHNWESEN_FEE_PARAGRAPH__' => $feeParagraph, '{INVOICE_REF}' => (string) $invoice->ref,
+            '__MAHNWESEN_FEE_PARAGRAPH__' => $feeParagraph, '__MAHNWESEN_PAYMENT_DEADLINE__' => $paymentDeadline,
+            '__MAHNWESEN_PAYMENT_DAYS__' => $paymentDays, '{INVOICE_REF}' => (string) $invoice->ref,
             '{CUSTOMER_NAME}' => !empty($invoice->thirdparty) ? (string) $invoice->thirdparty->name : '',
             '{INVOICE_DATE}' => dol_print_date($invoice->date, 'day', 'tzserver', $outputlangs), '{DUE_DATE}' => dol_print_date($invoice->date_lim_reglement, 'day', 'tzserver', $outputlangs),
             '{OPEN_AMOUNT}' => $openAmount, '{DUNNING_FEE}' => $feeAmount, '{DUNNING_TOTAL}' => $totalAmount, '{CUSTOMER_CLASS}' => $classLabel,

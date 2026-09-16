@@ -124,14 +124,15 @@ if ($action === 'save_general') {
 }
 
 if ($action === 'save_stages') {
-    $days = array(); $businessFees = array(); $privateStageFees = array(); $send = array(); $enabledStages = array(); $errors = array();
+    $days = array(); $paymentDays = array(); $businessFees = array(); $privateStageFees = array(); $send = array(); $enabledStages = array(); $errors = array();
     for ($level = 1; $level <= 4; $level++) {
         $days[$level] = GETPOSTINT('stage_days_'.$level);
+        $paymentDays[$level] = GETPOSTINT('stage_payment_days_'.$level);
         $businessFees[$level] = (float) price2num(GETPOST('stage_business_fee_'.$level, 'alpha'));
         $privateStageFees[$level] = (float) price2num(GETPOST('stage_private_fee_'.$level, 'alpha'));
         $send[$level] = GETPOSTINT('stage_auto_send_'.$level) > 0 ? 1 : 0;
         $enabledStages[$level] = GETPOSTINT('stage_enabled_'.$level) > 0 ? 1 : 0;
-        if ($days[$level] < 0 || $businessFees[$level] < 0 || $privateStageFees[$level] < 0) {
+        if ($days[$level] < 0 || $paymentDays[$level] < 0 || $paymentDays[$level] > 365 || $businessFees[$level] < 0 || $privateStageFees[$level] < 0) {
             $errors[] = $langs->trans('MahnwesenStageValuesInvalid', $level);
         }
     }
@@ -149,6 +150,7 @@ if ($action === 'save_stages') {
             $currentTemplate = (string) $manager->getRuleByLevel($level)['email_template'];
             if (!$manager->saveRule($level, $days[$level], $businessFees[$level], $send[$level], $currentTemplate, $user, $enabledStages[$level])) { $ok = false; break; }
             if (!mw4_set_const($db, 'MAHNWESEN_PRIVATE_FEE_'.$level, $privateStageFees[$level], $conf->entity)) { $ok = false; break; }
+            if (!mw4_set_const($db, 'MAHNWESEN_PAYMENT_DAYS_'.$level, $paymentDays[$level], $conf->entity)) { $ok = false; break; }
         }
         if ($ok) { $ok = mw4_set_const($db, 'MAHNWESEN_PRIVATE_FEES_ALLOWED', $privateFeesAllowed, $conf->entity); }
         if ($ok) { $ok = mw4_set_const($db, 'MAHNWESEN_UNKNOWN_FEES_ALLOWED', $unknownFees, $conf->entity); }
@@ -251,6 +253,7 @@ if ($tab === 'stages') {
     print '<tr class="liste_titre">';
     print '<th>'.$langs->trans('DunningStage').'</th>';
     print '<th>'.$langs->trans('MahnwesenDaysAfterDue').'</th>';
+    print '<th>'.$langs->trans('MahnwesenPaymentDays').'</th>';
     print '<th>'.$langs->trans('MahnwesenPrivatePersonFee').'</th>';
     print '<th>'.$langs->trans('MahnwesenBusinessFee').'</th>';
     print '<th>'.$langs->trans('MahnwesenAutoSendAtStage').'</th>';
@@ -261,12 +264,14 @@ if ($tab === 'stages') {
         $privateFee = $manager->getPrivateFeeForLevel($level);
         print '<tr class="oddeven"><td><strong>'.$langs->trans($manager->getStageLabelKey($level)).'</strong></td>';
         print '<td><input class="width75" type="number" min="0" name="stage_days_'.$level.'" value="'.((int) $rule['days_after_due']).'"> '.$langs->trans('Days').'</td>';
+        print '<td><input class="width75" type="number" min="0" max="365" name="stage_payment_days_'.$level.'" value="'.((int) $manager->getPaymentDaysForLevel($level)).'"> '.$langs->trans('Days').'</td>';
         print '<td><input class="width100" type="text" name="stage_private_fee_'.$level.'" value="'.dol_escape_htmltag(price($privateFee, 0, $langs, 0, -1, -1, $conf->currency)).'"> '.$conf->currency.'</td>';
         print '<td><input class="width100" type="text" name="stage_business_fee_'.$level.'" value="'.dol_escape_htmltag(price($rule['fee_amount'], 0, $langs, 0, -1, -1, $conf->currency)).'"> '.$conf->currency.'</td>';
         print '<td><input type="checkbox" name="stage_auto_send_'.$level.'" value="1"'.(!empty($rule['send_email']) ? ' checked' : '').'> '.$langs->trans('MahnwesenAutoSendAtStageHelp').'</td>';
         print '<td><input type="checkbox" name="stage_enabled_'.$level.'" value="1"'.(!empty($rule['enabled']) ? ' checked' : '').'></td></tr>';
     }
-    print '</table></div><br>';
+    print '</table></div>';
+    print '<div class="opacitymedium margintoponly">'.$langs->trans('MahnwesenPaymentDaysHelp').'</div><br>';
     print '<div class="info">'.$langs->trans('MahnwesenFeePresetExplanation').'</div>';
     print '<table class="border centpercent tableforfield margintoponly">';
     print '<tr><td class="titlefield">'.$langs->trans('MahnwesenPrivateFees').'</td><td><input type="checkbox" name="private_fees_allowed" value="1"'.($privateFeesAllowed ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenPrivateFeesHelp').'</td></tr>';
@@ -335,6 +340,8 @@ if ($tab === 'templates') {
         '__MAHNWESEN_CUSTOMER_CLASS__' => 'MahnwesenTokenCustomerClassDesc',
         '__MAHNWESEN_NEXT_STAGE_DATE__' => 'MahnwesenTokenNextStageDesc',
         '__MAHNWESEN_FEE_PARAGRAPH__' => 'MahnwesenTokenFeeParagraphDesc',
+        '__MAHNWESEN_PAYMENT_DEADLINE__' => 'MahnwesenTokenPaymentDeadlineDesc',
+        '__MAHNWESEN_PAYMENT_DAYS__' => 'MahnwesenTokenPaymentDaysDesc',
         '{INVOICE_REF}' => 'MahnwesenTokenInvoiceRefDesc',
         '{CUSTOMER_NAME}' => 'MahnwesenTokenCustomerNameDesc',
         '{INVOICE_DATE}' => 'MahnwesenTokenInvoiceDateDesc',

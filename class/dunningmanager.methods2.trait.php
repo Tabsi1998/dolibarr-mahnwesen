@@ -414,6 +414,24 @@ trait DunningManagerMethods2
         return ($obj && !empty($obj->date_creation)) ? (int) $this->db->jdate($obj->date_creation) : null;
     }
 
+    /** When the last successful notice of a stage was sent, null if none was. */
+    public function getStageNoticeTimestamp($caseId, $level)
+    {
+        if ((int) $caseId <= 0 || (int) $level <= 0) { return null; }
+        $sql = 'SELECT date_creation FROM '.MAIN_DB_PREFIX.'mahnwesen_history';
+        $sql .= ' WHERE fk_case = '.((int) $caseId).' AND level = '.((int) $level);
+        $sql .= " AND result = 'success' AND action = 'notice_sent'";
+        $sql .= ' ORDER BY rowid DESC'.$this->db->plimit(1);
+        $resql = $this->db->query($sql);
+        if (!$resql) {
+            $this->errors[] = 'Unable to read the dunning notice date: '.$this->db->lasterror();
+            return null;
+        }
+        $obj = $this->db->fetch_object($resql);
+        $this->db->free($resql);
+        return ($obj && !empty($obj->date_creation)) ? (int) $this->db->jdate($obj->date_creation) : null;
+    }
+
     /** Return the closest earlier enabled stage, or 0 if this is the first one. */
     public function getPreviousEnabledLevel($level)
     {
@@ -433,6 +451,9 @@ trait DunningManagerMethods2
      * the 1st dunning notice becomes actionable no earlier than day 21, not the
      * next cron run. This prevents a delayed case from receiving several escalating
      * notices in rapid succession.
+     *
+     * A sent notice that named a payment deadline also holds the next stage
+     * back until the day after that deadline (#64).
      */
     public function calculateWorkflowStageDueAt($caseId, $dueYmd, $level)
     {
@@ -447,6 +468,12 @@ trait DunningManagerMethods2
         $thresholds = $this->getStageThresholds();
         $gapDays = max(0, ((int) ($thresholds[(int) $level] ?? 0)) - ((int) ($thresholds[$previous] ?? 0)));
         $afterPrevious = date('Y-m-d H:i:s', strtotime('+'.$gapDays.' days', $completedAt));
+        $paymentDays = $this->getPaymentDaysForLevel($previous);
+        $sentAt = $paymentDays > 0 ? $this->getStageNoticeTimestamp((int) $caseId, $previous) : null;
+        if ($sentAt) {
+            $afterDeadline = date('Y-m-d 00:00:00', strtotime('+'.($paymentDays + 1).' days', $sentAt));
+            if ((int) $this->db->jdate($afterDeadline) > (int) $this->db->jdate($afterPrevious)) { $afterPrevious = $afterDeadline; }
+        }
         $calendarTs = (int) $this->db->jdate($calendarDue);
         $afterPreviousTs = (int) $this->db->jdate($afterPrevious);
         return ($afterPreviousTs > $calendarTs) ? $afterPrevious : $calendarDue;

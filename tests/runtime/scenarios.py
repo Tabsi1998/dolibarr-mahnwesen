@@ -16,6 +16,7 @@ import json
 import re
 import subprocess
 import time
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -144,6 +145,25 @@ def invoice_documents(stack: "Stack", key: str) -> list[str]:
     return stack.files(f"{DOCUMENTS}/facture/{invoice(stack, key)['ref']}")
 
 
+def container_date(stack: "Stack", days: int, pattern: str = "d.m.Y") -> str:
+    """Today plus some days as PHP in the Dolibarr container formats it."""
+    completed = stack.run(stack.docker, "exec", stack.web, "php", "-r",
+                          f"echo date('{pattern}', strtotime('+{days} days'));", check=False, timeout=60)
+    expect(completed.returncode == 0 and completed.stdout.strip(), f"PHP in the container gave no date: {completed.stderr}")
+    return completed.stdout.strip()
+
+
+def pdf_text(data: bytes) -> str:
+    """The content streams of a PDF, inflated, as Latin-1 text for simple searches."""
+    parts = []
+    for match in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", data, re.S):
+        try:
+            parts.append(zlib.decompress(match.group(1)).decode("latin-1"))
+        except zlib.error:
+            parts.append(match.group(1).decode("latin-1"))
+    return "\n".join(parts)
+
+
 def page_ok(page: Page, what: str) -> Page:
     expect(page.status == 200, f"{what}: HTTP {page.status}")
     expect(not page.denied(), f"{what}: access denied")
@@ -253,6 +273,40 @@ def access(stack: Stack) -> str:
     return "own customer open, other customers denied on dashboard, tab and composer"
 
 
+PAYMENT_TEMPLATE_LINE = ("<p>Frist: __MAHNWESEN_PAYMENT_DEADLINE__ (__MAHNWESEN_PAYMENT_DAYS__ Tage), "
+                         "naechste Stufe __MAHNWESEN_NEXT_STAGE_DATE__</p>")
+
+
+def payment_deadline(stack: Stack) -> str:
+    """A stage's payment period reaches the template variables and refuses nonsense (#64)."""
+    company = invoice(stack, "company_overdue")
+    browser = stack.browser()
+    stages = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=stages"), "stages setup")
+    page_ok(browser.submit(form_with_action(stages, "save_stages", "stages setup"), {"stage_payment_days_1": "10"}),
+            "set a payment period of 10 days for the payment reminder")
+    saved = stack.value("SELECT value FROM llx_const WHERE name = 'MAHNWESEN_PAYMENT_DAYS_1' AND entity = 1")
+    expect(saved == "10", f"the payment period of the payment reminder is {saved!r} after saving 10")
+    stages = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=stages"), "stages setup")
+    refused = browser.submit(form_with_action(stages, "save_stages", "stages setup"), {"stage_payment_days_2": "400"})
+    messages = [label.replace("%s", "2") for label in translations("MahnwesenStageValuesInvalid")]
+    expect(any(message in html.unescape(refused.text) for message in messages),
+           "a payment period of 400 days was not refused with a message")
+    kept = stack.value("SELECT value FROM llx_const WHERE name = 'MAHNWESEN_PAYMENT_DAYS_2' AND entity = 1")
+    expect(kept in (None, "0"), f"a refused payment period was saved anyway: {kept!r}")
+    variables = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=templates"), "templates setup")
+    expect("__MAHNWESEN_PAYMENT_DEADLINE__" in variables.text and "__MAHNWESEN_PAYMENT_DAYS__" in variables.text,
+           "the variable help of the setup does not list the payment deadline variables")
+
+    stack.sql("UPDATE llx_c_email_templates SET content = CONCAT(content, '" + PAYMENT_TEMPLATE_LINE + "') "
+              "WHERE module = 'mahnwesen' AND type_template = 'mahnwesen_reminder' AND lang = 'de_DE'")
+    body = page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={company['id']}"), "composer").form(name="mailform").value("message") or ""
+    deadline, after = container_date(stack, 10), container_date(stack, 11)
+    expected = f"Frist: {deadline} (10 Tage), naechste Stufe {after}"
+    expect(expected in body, f"the composer's reminder text lacks {expected!r}: "
+           f"{re.search(r'Frist:[^<]*', body).group(0) if 'Frist:' in body else body[-300:]}")
+    return f"10 days saved, 400 refused, composer says pay by {deadline} and next stage {after}"
+
+
 def manual_send(stack: Stack) -> str:
     """The composer delivers exactly one reminder with the recorded attachments."""
     company = invoice(stack, "company_overdue")
@@ -304,6 +358,22 @@ def manual_send(stack: Stack) -> str:
     history = stack.value("SELECT COUNT(*) FROM llx_mahnwesen_history WHERE action = 'notice_sent' "
                           f"AND result = 'success' AND level = 1 AND fk_facture = {company['id']}")
     expect(history == "1", "no notice_sent history row for the reminder")
+
+    deadline = container_date(stack, 10)
+    expect(f"Frist: {deadline} (10 Tage)" in (mailpit.message(message["ID"]).get("HTML") or ""),
+           f"the sent email does not name the payment deadline {deadline} (#64)")
+    recorded_text = stack.value("SELECT message FROM llx_mahnwesen_history WHERE action = 'notice_sent' "
+                                f"AND level = 1 AND fk_facture = {company['id']}") or ""
+    expect(f"Payment deadline: {container_date(stack, 10, 'Y-m-d')}" in recorded_text,
+           f"the history of the sent reminder does not record its payment deadline: {recorded_text!r} (#64)")
+    letter = stack.value(f"SELECT rowid FROM llx_mahnwesen_attempt_file WHERE fk_attempt = {attempt_id} "
+                         f"AND display_name = '{company['ref']}_Zahlungserinnerung.pdf'")
+    content = pdf_text(browser.get(f"/custom/mahnwesen/attempts.php?evidence={letter}").body)
+    expect("Zahlbar bis" in content and deadline in content,
+           f"the dunning PDF does not show 'Zahlbar bis {deadline}' (#64)")
+    tab = html.unescape(page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={company['id']}"), "invoice tab").text)
+    after = container_date(stack, 11)
+    expect(after in tab, f"the invoice tab does not hold the next stage back until {after}, the day after the deadline (#64)")
 
     again = browser.submit(form, {"action": "send_notice", "confirm_send": "1", "receiver[]": contact},
                            button=("sendmail", "1"))
@@ -577,7 +647,8 @@ SCENARIOS = (
     ("access", "Sales representatives only reach their customers", access, ("synchronise",)),
     ("preview", "The preview PDF opens for permitted users only", preview, ("pages",)),
     ("failure-reason", "A refused action says why", failure_reason, ("pages",)),
-    ("manual-send", "The composer sends one reminder with verified attachments", manual_send, ("pages",)),
+    ("payment-deadline", "A stage's payment period reaches the templates", payment_deadline, ("pages",)),
+    ("manual-send", "The composer sends one reminder with verified attachments", manual_send, ("payment-deadline",)),
     ("attachment-choice", "Renamed invoice PDF found, unticked PDF not sent", attachment_choice, ("pages",)),
     ("pause-label", "Pause labels are right and closing ends the pause", pause_label, ("synchronise",)),
     ("documents", "One dunning PDF per stage in the invoice documents", documents, ("pages",)),

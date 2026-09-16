@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '1.0.4';
+        $this->version = '1.0.5';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -103,6 +103,10 @@ class modMahnwesen extends DolibarrModules
             23 => array('MAHNWESEN_AUTO_MAX_PER_CUSTOMER', 'chaine', '1', 'Maximum automatic delivery attempts per customer and cron run', 0, 'current', 0),
             24 => array('MAHNWESEN_MAX_EXTRA_ATTACHMENTS', 'chaine', '5', 'Maximum manually uploaded email attachments', 0, 'current', 0),
             25 => array('MAHNWESEN_MAX_EXTRA_ATTACHMENT_MB', 'chaine', '10', 'Maximum size of one manually uploaded attachment', 0, 'current', 0),
+            26 => array('MAHNWESEN_PAYMENT_DAYS_1', 'chaine', '0', 'Payment period in days granted by the payment reminder, 0 for none', 0, 'current', 0),
+            27 => array('MAHNWESEN_PAYMENT_DAYS_2', 'chaine', '0', 'Payment period in days granted by the first dunning notice, 0 for none', 0, 'current', 0),
+            28 => array('MAHNWESEN_PAYMENT_DAYS_3', 'chaine', '0', 'Payment period in days granted by the second dunning notice, 0 for none', 0, 'current', 0),
+            29 => array('MAHNWESEN_PAYMENT_DAYS_4', 'chaine', '0', 'Payment period in days granted by the third dunning notice, 0 for none', 0, 'current', 0),
         );
 
         // Daily worker. Case synchronization and timed pause release are safe
