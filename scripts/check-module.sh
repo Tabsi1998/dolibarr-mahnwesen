@@ -41,8 +41,15 @@ if grep -RInE "(UPDATE|INSERT INTO|DELETE FROM)[^;]*(llx_facture([[:space:]]|$)|
 fi
 echo "Invoice write guard: OK"
 
-grep -q "restrictedArea(\$user, 'facture'" invoice.php
-grep -q "restrictedArea(\$user, 'facture'" notice.php
+# Dolibarr's invoice pages check read access this way. A fifth argument
+# 'facture' asks for the non-existent right facture->facture->lire and locks
+# every user out, the administrator included.
+grep -q "restrictedArea(\$user, 'facture', \$invoice->id, '', '', 'fk_soc', 'rowid')" invoice.php
+grep -q "restrictedArea(\$user, 'facture', \$invoice->id, '', '', 'fk_soc', 'rowid')" notice.php
+if grep -RIn --include='*.php' --exclude-dir=.local-testing "restrictedArea([^)]*'facture'[^)]*'facture'" .; then
+  echo "restrictedArea() with feature2 'facture' denies every user" >&2
+  exit 1
+fi
 grep -q "new FormMail" notice.php
 grep -q "get_form('addfile', 'remove_extra')" notice.php
 grep -q "GETPOST('message', 'restricthtml')" notice.php

@@ -29,7 +29,7 @@ if ($action === 'resolve_attempt' && $attemptId > 0) {
     if ($invoiceId <= 0) { accessforbidden(); }
     $permissionInvoice = new Facture($db);
     if ($permissionInvoice->fetch($invoiceId) <= 0) { accessforbidden(); }
-    $result = restrictedArea($user, 'facture', $permissionInvoice->id, 'facture', 'facture');
+    $result = restrictedArea($user, 'facture', $permissionInvoice->id, '', '', 'fk_soc', 'rowid');
     if ($manager->resolveNoticeAttempt($attemptId, $resolution, $reason, $user)) {
         setEventMessages($langs->trans('MahnwesenAttemptResolved'), null, 'mesgs');
     } else {
@@ -44,7 +44,7 @@ if ($action === 'settle_fee' && $feeId > 0) {
     $permissionFee = $manager->getFeeClaim($feeId); $invoiceId = is_array($permissionFee) ? (int) $permissionFee['fk_facture'] : 0;
     if ($invoiceId <= 0) { accessforbidden(); }
     $permissionInvoice = new Facture($db); if ($permissionInvoice->fetch($invoiceId) <= 0) { accessforbidden(); }
-    $result = restrictedArea($user, 'facture', $permissionInvoice->id, 'facture', 'facture');
+    $result = restrictedArea($user, 'facture', $permissionInvoice->id, '', '', 'fk_soc', 'rowid');
     if ($manager->settleFeeClaim($feeId, $feeStatus, $reason, $user)) { setEventMessages($langs->trans('MahnwesenFeeSettled'), null, 'mesgs'); }
     else { setEventMessages($langs->trans('MahnwesenFeeSettleFailed'), null, 'errors'); }
     header('Location: '.dol_buildpath('/mahnwesen/attempts.php', 1)); exit;
