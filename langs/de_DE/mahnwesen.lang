@@ -254,6 +254,7 @@ MahnwesenOpenInvoiceAmount=Offener Rechnungsbetrag
 MahnwesenDunningFee=Mahnspesen
 MahnwesenDunningTotal=Gesamtbetrag des Mahnschreibens
 MahnwesenPaymentDeadline=Zahlbar bis
+MahnwesenSkipBlockedByAttempt=Überspringen nicht möglich: Der Versandversuch #%s dieser Stufe ist noch ungeklärt. Bitte zuerst unter Versandversuche klären.
 MahnwesenPaymentDays=Zahlungsfrist
 MahnwesenPaymentDaysHelp=Zahlungsfrist: so viele Tage ab dem Schreiben hat der Kunde Zeit zu zahlen. Das Datum steht im Mahn-PDF unter dem Gesamtbetrag und ist in E-Mail-Vorlagen als __MAHNWESEN_PAYMENT_DEADLINE__ verfügbar. Nach einem versendeten Schreiben wird die nächste Stufe frühestens am Tag nach der Frist fällig. 0 = keine Frist.
 MahnwesenPauseUntil=Pausiert bis

@@ -232,7 +232,10 @@ if (!$case) {
         print '<form method="POST" class="inline-block" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'">';
         print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="id" value="'.$id.'"><input type="hidden" name="action" value="generate_notice_pdf">';
         print '<button class="butAction" type="submit">'.img_picto('', 'pdf').' '.$langs->trans('MahnwesenGenerateLinkedPdf', $langs->trans($manager->getStageLabelKey($requiredLevel))).'</button></form>';
-        if ($user->hasRight('mahnwesen', 'case', 'write')) {
+        $openAttempt = !empty($case['id']) ? $manager->getOpenAttemptId((int) $case['id'], $requiredLevel) : 0;
+        if ($user->hasRight('mahnwesen', 'case', 'write') && $openAttempt) {
+            print '<a class="butActionRefused classfortooltip" href="'.dol_escape_htmltag(dol_buildpath('/mahnwesen/attempts.php', 1)).'" title="'.dol_escape_htmltag($langs->trans('MahnwesenSkipBlockedByAttempt', (int) $openAttempt)).'">'.$langs->trans('MahnwesenSkipStage').'</a>';
+        } elseif ($user->hasRight('mahnwesen', 'case', 'write')) {
             print '<form method="POST" class="inline-block" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'" onsubmit="return window.confirm(\''.dol_escape_js($langs->trans('MahnwesenSkipStageConfirm')).'\');">';
             print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="id" value="'.$id.'"><input type="hidden" name="action" value="skip_stage">';
             print '<input required type="text" name="skip_reason" maxlength="255" placeholder="'.dol_escape_htmltag($langs->trans('MahnwesenSkipReason')).'"> <button class="butActionDelete" type="submit">'.$langs->trans('MahnwesenSkipStage').'</button></form>';

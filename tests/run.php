@@ -21,6 +21,7 @@ if (!class_exists('Facture')) {
 }
 
 require_once __DIR__.'/../class/dunningmanager.methods1.trait.php';
+require_once __DIR__.'/../class/dunningmanager.methods2.trait.php';
 require_once __DIR__.'/../class/dunningmanager.methods4.trait.php';
 require_once __DIR__.'/../class/dunningmanager.methods5.trait.php';
 require_once __DIR__.'/../class/dunningnoticeservice.methods1.trait.php';
@@ -49,6 +50,35 @@ mwAssert($stage->determineStage(2) === 0, 'stage before first threshold');
 mwAssert($stage->determineStage(3) === 1, 'first stage threshold');
 mwAssert($stage->determineStage(30) === 4, 'last stage threshold');
 mwAssert(!$stage->isSupportedInvoiceType(Facture::TYPE_CREDIT_NOTE), 'credit notes must stay excluded');
+
+class DateOnlyDb
+{
+    public function jdate($value) { return strtotime((string) $value); }
+}
+class StageSpacingFixture
+{
+    use DunningManagerMethods2;
+    public $db;
+    public $completedAt;
+    public $paymentDays = 0;
+    public function getStageThresholds() { return array(1 => 3, 2 => 10, 3 => 20, 4 => 30); }
+    public function getPreviousEnabledLevel($level) { return (int) $level - 1; }
+    public function getStageCompletionTimestamp($caseId, $level) { return $this->completedAt; }
+    public function getStageNoticeTimestamp($caseId, $level) { return $this->completedAt; }
+    public function getPaymentDaysForLevel($level) { return $this->paymentDays; }
+}
+$spacing = new StageSpacingFixture();
+$spacing->db = new DateOnlyDb();
+$spacing->completedAt = strtotime('2026-01-14 14:00:00');
+mwAssert($spacing->calculateWorkflowStageDueAt(7, '2026-01-01', 2) === '2026-01-21 00:00:00',
+    'a reminder sent in the afternoon makes the next stage due at the start of the day seven days later (#18)');
+$spacing->completedAt = strtotime('2026-01-02 14:00:00');
+mwAssert($spacing->calculateWorkflowStageDueAt(7, '2026-01-01', 2) === '2026-01-11 00:00:00',
+    'an early reminder leaves the calendar threshold in charge');
+$spacing->completedAt = strtotime('2026-01-14 14:00:00');
+$spacing->paymentDays = 10;
+mwAssert($spacing->calculateWorkflowStageDueAt(7, '2026-01-01', 2) === '2026-01-25 00:00:00',
+    'a payment deadline holds the next stage back until the day after it (#64)');
 
 class RuleDefaultsFixture
 {

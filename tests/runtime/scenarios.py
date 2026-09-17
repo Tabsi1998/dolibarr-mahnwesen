@@ -175,9 +175,9 @@ def invoice_documents(stack: "Stack", key: str) -> list[str]:
 
 
 def container_date(stack: "Stack", days: int, pattern: str = "d.m.Y") -> str:
-    """Today plus some days as PHP in the Dolibarr container formats it."""
+    """Today plus (or minus) some days as PHP in the Dolibarr container formats it."""
     completed = stack.run(stack.docker, "exec", stack.web, "php", "-r",
-                          f"echo date('{pattern}', strtotime('+{days} days'));", check=False, timeout=60)
+                          f"echo date('{pattern}', strtotime('{days:+d} days'));", check=False, timeout=60)
     expect(completed.returncode == 0 and completed.stdout.strip(), f"PHP in the container gave no date: {completed.stderr}")
     return completed.stdout.strip()
 
@@ -781,6 +781,83 @@ def templates(stack: Stack) -> str:
     return "own template preselected, fixed choice kept across stage saves, English starters only where needed, old labels renamed"
 
 
+def no_payment_period(stack: Stack) -> None:
+    """Stage timing without the reminder's payment deadline, which would hold the next stage back on its own."""
+    stack.sql("UPDATE llx_const SET value = '0' WHERE name = 'MAHNWESEN_PAYMENT_DAYS_1' AND entity = 1")
+
+
+def stage_spacing(stack: Stack) -> str:
+    """The next stage is due at the start of the day the spacing ends, not at the time of day of the last notice (#18)."""
+    private = invoice(stack, "private_overdue")
+    no_payment_period(stack)
+    # The reminder went out seven days ago - the spacing between the reminder
+    # and the 1st dunning notice - late in the evening.
+    sent = container_date(stack, -7, "Y-m-d") + " 23:59:59"
+    stack.sql(f"UPDATE llx_mahnwesen_history SET date_creation = '{sent}' WHERE fk_facture = {private['id']} "
+              "AND action = 'notice_sent' AND level = 1")
+    tab = page_ok(stack.browser().get(f"/custom/mahnwesen/invoice.php?id={private['id']}"), "invoice tab")
+    ready = re.search(rf'class="butAction" href="[^"]*notice\.php\?id={private["id"]}"', tab.text)
+    waiting = re.search(r'class="butActionRefused classfortooltip" title="([^"]*)"', tab.text)
+    expect(ready is not None, "a reminder sent seven days ago at 23:59 does not make the 1st dunning notice due today: "
+           f"{html.unescape(waiting.group(1)) if waiting else 'no send action'} (#18)")
+    return f"reminder sent {sent}, the 1st dunning notice is due today"
+
+
+def open_attempt(stack: Stack) -> str:
+    """An unresolved attempt blocks skipping its stage; confirming it late keeps the higher fee and the latest notice date (#17)."""
+    renamed = invoice(stack, "company_renamed")
+    browser = stack.browser()
+    no_payment_period(stack)
+    case = stack.value(f"SELECT rowid FROM llx_mahnwesen_case WHERE fk_facture = {renamed['id']}")
+    stack.sql(f"UPDATE llx_mahnwesen_history SET date_creation = '{container_date(stack, -30, 'Y-m-d H:i:s')}' "
+              f"WHERE fk_facture = {renamed['id']} AND action = 'notice_sent' AND level = 1")
+
+    def attempt(level: int, status: str, fee: str, days_ago: int) -> str:
+        stack.sql("INSERT INTO llx_mahnwesen_attempt (entity, fk_case, fk_facture, level, mode, status, recipient, sender, subject, "
+                  "amount_invoice, amount_fee, amount_total, currency_code, reserved_at) VALUES "
+                  f"(1, {case}, {renamed['id']}, {level}, 'manual', '{status}', 'berta.billing@runtime-gmbh.test', "
+                  f"'mahnwesen@runtime-verein.test', 'Runtime check stage {level}', 36, {fee}, 36 + {fee}, 'EUR', "
+                  f"'{container_date(stack, -days_ago, 'Y-m-d H:i:s')}')")
+        return stack.value(f"SELECT MAX(rowid) FROM llx_mahnwesen_attempt WHERE fk_case = {case}")
+
+    ambiguous = attempt(2, "ambiguous", "40", 20)
+    tab_url = f"/custom/mahnwesen/invoice.php?id={renamed['id']}"
+    tab = page_ok(browser.get(tab_url), "invoice tab with an unresolved attempt")
+    expect(not any(form.value("action") == "skip_stage" for form in tab.forms()),
+           f"the invoice tab offers to skip the 1st dunning notice while attempt {ambiguous} is unresolved (#17)")
+    blocked = [label.replace("%s", ambiguous) for label in translations("MahnwesenSkipBlockedByAttempt")]
+    expect(any(label in html.unescape(tab.text) for label in blocked), "the invoice tab does not say why skipping is blocked")
+    browser.post(tab_url, [("token", token_of(tab)), ("id", str(renamed["id"])), ("action", "skip_stage"),
+                           ("skip_reason", "Runtime check: skip despite the open attempt")])
+    skipped = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE fk_facture = {renamed['id']} AND action = 'stage_skipped'")
+    expect(skipped == "0", f"a stage was skipped while its attempt {ambiguous} was unresolved (#17)")
+
+    # What an earlier version allowed: the stage skipped anyway, the next stage
+    # sent with its higher fee, and only then the old attempt confirmed.
+    stack.sql("INSERT INTO llx_mahnwesen_history (entity, fk_case, fk_facture, action, level, amount_snapshot, mode, result, message, "
+              f"date_creation) VALUES (1, {case}, {renamed['id']}, 'stage_skipped', 2, 36, 'manual', 'success', 'before 1.1.0', "
+              f"'{container_date(stack, -19, 'Y-m-d H:i:s')}')")
+    higher = attempt(3, "sent", "60", 10)
+    later_notice = container_date(stack, -10, "Y-m-d H:i:s")
+    stack.sql("INSERT INTO llx_mahnwesen_fee (entity, fk_case, fk_facture, fk_attempt, level, amount, currency_code, status, date_creation) "
+              f"VALUES (1, {case}, {renamed['id']}, {higher}, 3, 60, 'EUR', 'open', '{later_notice}')")
+    stack.sql(f"UPDATE llx_mahnwesen_case SET last_notice_at = '{later_notice}' WHERE rowid = {case}")
+    attempts = page_ok(browser.get("/custom/mahnwesen/attempts.php"), "delivery attempts")
+    form = next((form for form in attempts.forms() if form.value("action") == "resolve_attempt"
+                 and form.value("attempt_id") == ambiguous), None)
+    expect(form is not None, f"the delivery attempts page offers no resolution for attempt {ambiguous}")
+    page_ok(browser.submit(form, {"resolution": "confirmed_sent", "reason": "Runtime check: found in the sent folder"}),
+            "confirm the old attempt as delivered")
+    status = stack.value(f"SELECT status FROM llx_mahnwesen_attempt WHERE rowid = {ambiguous}")
+    expect(status == "sent", f"confirming attempt {ambiguous} left it {status!r}")
+    fees = stack.sql(f"SELECT level, ROUND(amount, 2), status FROM llx_mahnwesen_fee WHERE fk_case = {case} ORDER BY level")
+    expect(fees == [["2", "40.00", "superseded"], ["3", "60.00", "open"]],
+           f"after the late confirmation the fees are {fees}, expected the 40 superseded and the 60 still open (#17)")
+    kept = stack.value(f"SELECT last_notice_at FROM llx_mahnwesen_case WHERE rowid = {case}")
+    expect(kept == later_notice, f"the late confirmation moved the case's last notice from {later_notice} to {kept} (#17)")
+    return f"skipping refused while attempt {ambiguous} was open; confirmed late, it left the 60 fee open and the last notice date"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -800,6 +877,8 @@ SCENARIOS = (
      ("manual-send", "attachment-choice")),
     ("reactivation", "Re-activation keeps manual sending and data, stops automation", reactivation, ("automation",)),
     ("templates", "Own templates first, fixed choice, starters by language", templates, ("reactivation",)),
+    ("stage-spacing", "The next stage is due at the start of the day", stage_spacing, ("automation",)),
+    ("open-attempt", "Open attempts block skipping; late confirmations keep higher fees", open_attempt, ("automation",)),
 )
 
 
