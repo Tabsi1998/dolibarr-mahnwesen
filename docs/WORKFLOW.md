@@ -104,9 +104,24 @@ currency, fee, stage, cooldown, pause and selected recipient. It then reserves a
 dedicated attempt before generating a unique PDF. Only the exact reserved body,
 recipient, amounts and hashed attachments are handed to the mailer.
 
-An SMTP error after the mailer was invoked is treated as ambiguous. It blocks a
-retry until an operator checks the mail system and records either confirmed
-delivery or permission to retry.
+A send that certainly delivered nothing is recorded as `failed`: mail is
+switched off (`MAIN_DISABLE_ALL_MAILS`), or Dolibarr's SMTP client (send mode
+`smtps`) never got the server's go-ahead for the message data because the
+connection, TLS, login, the sender or every recipient failed. A failed notice
+can be sent again; the cron retries it up to the retry limit per case and stage.
+
+Any other error after the mailer was invoked is treated as ambiguous, including
+every failure with PHP `mail()` or Swift Mailer, which leave no protocol trace.
+It blocks a retry until an operator checks the mail system and records either
+confirmed delivery or permission to retry.
+
+## One broken invoice
+
+When a single invoice cannot be read or its case cannot be written, or a dated
+pause cannot be lifted, the cron skips that invoice and goes on with the
+others. The run ends as `warning`, its summary names the invoice, and the
+Dolibarr cron job reports an error so it is noticed. Only a failure of a whole
+step - reading the invoices, the case tables - stops delivery.
 
 
 ## Late-send spacing

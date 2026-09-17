@@ -27,7 +27,7 @@ trait DunningManagerMethods2
             return false;
         }
 
-        $summary = array('created' => 0, 'updated' => 0, 'level_changed' => 0, 'reopened' => 0, 'closed' => 0, 'unchanged' => 0, 'errors' => 0);
+        $summary = array('created' => 0, 'updated' => 0, 'level_changed' => 0, 'reopened' => 0, 'closed' => 0, 'unchanged' => 0, 'errors' => 0, 'failed_invoices' => array());
 
         // Use one transaction per invoice. A single bad record must not leave
         // an open transaction or turn the whole request into a HTTP 500.
@@ -39,6 +39,7 @@ trait DunningManagerMethods2
                     $this->db->rollback();
                     $summary['errors']++;
                     $this->errors[] = 'Invoice '.$row['invoice_ref'].': '.($this->error ?: 'unknown database error');
+                    $summary['failed_invoices'][(int) $row['invoice_id']] = (string) $row['invoice_ref'];
                     continue;
                 }
                 $this->db->commit();
@@ -57,6 +58,7 @@ trait DunningManagerMethods2
                 $summary['errors']++;
                 $message = 'Invoice '.$row['invoice_ref'].': '.get_class($e).': '.$e->getMessage();
                 $this->errors[] = $message;
+                $summary['failed_invoices'][(int) $row['invoice_id']] = (string) $row['invoice_ref'];
                 dol_syslog(__METHOD__.' '.$message, LOG_ERR);
             }
         }

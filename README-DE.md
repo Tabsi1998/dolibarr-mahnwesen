@@ -63,7 +63,7 @@ Der Mahnverlauf bleibt unveränderlich in den eigenen Mahnwesen-Tabellen gespeic
 
 ## Automatischer Versand
 
-Der tägliche Dolibarr-Cronjob synchronisiert Fälle und beendet fällige Pausen. Der tatsächliche Versand ist standardmäßig **AUS** und benötigt zusätzlich die Freigabe je Mahnstufe. Konfigurierbar sind Laufmaximum, Fehlversuche je Fall/Stufe, Empfängerregel und ein Kundenlimit pro Lauf. Der Trockenlauf prüft denselben Workflow ohne E-Mail oder Falländerung. Jeder Lauf wird dauerhaft protokolliert; unklare SMTP-Ergebnisse sperren Wiederholungen bis zur manuellen Klärung.
+Der tägliche Dolibarr-Cronjob synchronisiert Fälle und beendet fällige Pausen. Der tatsächliche Versand ist standardmäßig **AUS** und benötigt zusätzlich die Freigabe je Mahnstufe. Konfigurierbar sind Laufmaximum, Fehlversuche je Fall/Stufe, Empfängerregel und ein Kundenlimit pro Lauf. Der Trockenlauf prüft denselben Workflow ohne E-Mail oder Falländerung. Jeder Lauf wird dauerhaft protokolliert; hat der Mailserver eine Nachricht nachweislich nicht erhalten, wird sie bis zum Fehlerlimit erneut versucht, unklare SMTP-Ergebnisse sperren Wiederholungen bis zur manuellen Klärung. Eine fehlerhafte Rechnung wird übersprungen und gemeldet, statt den ganzen Lauf zu stoppen.
 
 ## E-Mail-Vorlagen
 
