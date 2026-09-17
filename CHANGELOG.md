@@ -7,6 +7,23 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-17
+
+Automatic dunning on the right day, and fees that stay right after a late
+confirmation.
+
+### Fixed
+
+- The spacing between two stages counted from the time of day the previous
+  notice was sent. A reminder sent at 14:00 made the next stage due at 14:00
+  seven days later, so the nightly cron sent it a day late. The spacing now
+  counts whole days (#18).
+- A stage could be skipped while its delivery attempt was unresolved. If the
+  notice had in fact arrived and was confirmed later, its lower fee replaced
+  the fee of the higher stage sent in between. Skipping now waits until the
+  attempt is resolved, and a late confirmation never replaces the fee of a
+  higher stage; the case keeps the date of its latest notice (#17).
+
 ## [1.0.5] - 2026-09-16
 
 A payment deadline in dunning notices.
@@ -246,7 +263,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.0
 [1.0.5]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.5
 [1.0.4]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.4
 [1.0.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.3

@@ -526,13 +526,7 @@ trait DunningManagerMethods3
                 $this->db->rollback();
                 return false;
             }
-            if ((float) $attempt->amount_fee > 0.000001) {
-                $sqlSupersede = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_fee SET status = 'superseded', date_settlement = '".$this->db->escape($nowSql)."', settlement_reason = '".$this->db->escape('Replaced by attempt #'.((int) $attemptId))."', fk_user_settlement = ".$uid.' WHERE entity = '.((int) $attempt->entity).' AND fk_case = '.((int) $attempt->fk_case)." AND status = 'open'";
-                if (!$this->db->query($sqlSupersede)) { $this->error = $this->db->lasterror(); $this->db->rollback(); return false; }
-                $sqlFee = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_fee (entity, fk_case, fk_facture, fk_attempt, level, amount, currency_code, status, date_creation, fk_user_create) VALUES (';
-                $sqlFee .= ((int) $attempt->entity).', '.((int) $attempt->fk_case).', '.((int) $attempt->fk_facture).', '.((int) $attemptId).', '.((int) $attempt->level).', '.((float) $attempt->amount_fee).", '".$this->db->escape((string) $attempt->currency_code)."', 'open', '".$this->db->escape($nowSql)."', ".$uid.')';
-                if (!$this->db->query($sqlFee)) { $this->error = $this->db->lasterror(); $this->db->rollback(); return false; }
-            }
+            if (!$this->bookNoticeFee($attempt, (int) $attemptId, $uid, $nowSql)) { $this->db->rollback(); return false; }
         }
 
         $this->db->commit();
@@ -576,7 +570,7 @@ trait DunningManagerMethods3
         $this->db->begin();
         $allowedStatuses = $resolution === 'confirmed_sent' ? "('ambiguous', 'sending')" : "('ambiguous', 'failed', 'reserved', 'sending')";
         $recoveryCutoff = $this->db->idate(dol_now() - 900);
-        $sql = 'SELECT rowid, entity, fk_case, fk_facture, level, mode, recipient, amount_invoice, amount_fee, currency_code FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE rowid = '.((int) $attemptId).' AND entity = '.((int) $conf->entity).' AND status IN '.$allowedStatuses;
+        $sql = 'SELECT rowid, entity, fk_case, fk_facture, level, mode, recipient, amount_invoice, amount_fee, currency_code, reserved_at FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE rowid = '.((int) $attemptId).' AND entity = '.((int) $conf->entity).' AND status IN '.$allowedStatuses;
         $sql .= " AND (status IN ('ambiguous', 'failed') OR reserved_at <= '".$this->db->escape($recoveryCutoff)."') FOR UPDATE";
         $res = $this->db->query($sql); $attempt = $res ? $this->db->fetch_object($res) : false;
         if (!$attempt) { if ($res) { $this->db->free($res); } $this->error = 'Recoverable attempt not found or the 15-minute safety delay has not elapsed.'; $this->db->rollback(); return false; }
@@ -602,17 +596,47 @@ trait DunningManagerMethods3
         $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_history (entity, fk_case, fk_facture, action, level, amount_snapshot, mode, result, recipient, message, date_creation, fk_user_create) VALUES ('.((int) $attempt->entity).', '.((int) $attempt->fk_case).', '.((int) $attempt->fk_facture).", '".$action."', ".((int) $attempt->level).', '.((float) $attempt->amount_invoice).", 'manual', '".$result."', '".$this->db->escape((string) $attempt->recipient)."', '".$this->db->escape($msg)."', '".$this->db->escape($nowSql)."', ".$uid.')';
         if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); $this->db->rollback(); return false; }
         if ($resolution === 'confirmed_sent') {
-            $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_case SET last_notice_at = '".$this->db->escape($nowSql)."', fk_user_modif = ".$uid.' WHERE rowid = '.((int) $attempt->fk_case);
+            // The notice went out when it was attempted. A later notice of a
+            // higher stage keeps its date (#17).
+            $attemptedSql = $this->db->escape((string) $attempt->reserved_at);
+            $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_case SET last_notice_at = CASE WHEN last_notice_at IS NULL OR last_notice_at < '".$attemptedSql."' THEN '".$attemptedSql."' ELSE last_notice_at END, fk_user_modif = ".$uid.' WHERE rowid = '.((int) $attempt->fk_case);
             if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); $this->db->rollback(); return false; }
-            if ((float) $attempt->amount_fee > 0.000001) {
-                $sqlSupersede = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_fee SET status = 'superseded', date_settlement = '".$this->db->escape($nowSql)."', settlement_reason = '".$this->db->escape('Replaced by attempt #'.((int) $attemptId))."', fk_user_settlement = ".$uid.' WHERE entity = '.((int) $attempt->entity).' AND fk_case = '.((int) $attempt->fk_case)." AND status = 'open'";
-                if (!$this->db->query($sqlSupersede)) { $this->error = $this->db->lasterror(); $this->db->rollback(); return false; }
-                $sqlFee = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_fee (entity, fk_case, fk_facture, fk_attempt, level, amount, currency_code, status, date_creation, fk_user_create) VALUES ('.((int) $attempt->entity).', '.((int) $attempt->fk_case).', '.((int) $attempt->fk_facture).', '.((int) $attemptId).', '.((int) $attempt->level).', '.((float) $attempt->amount_fee).", '".$this->db->escape((string) $attempt->currency_code)."', 'open', '".$this->db->escape($nowSql)."', ".$uid.')';
-                if (!$this->db->query($sqlFee)) { $this->error = $this->db->lasterror(); $this->db->rollback(); return false; }
-            }
+            if (!$this->bookNoticeFee($attempt, (int) $attemptId, $uid, $nowSql)) { $this->db->rollback(); return false; }
         }
         $this->db->commit();
         $this->syncHistoryToAgenda((int) $attempt->fk_facture, $user);
+        return true;
+    }
+
+    /**
+     * Book the fee of a delivered notice inside the caller's transaction.
+     *
+     * The fee of a stage is the total owed from that stage on, so a new fee
+     * replaces the open fees of its own and lower stages. A notice confirmed
+     * late, after a higher stage already charged its fee, is recorded as
+     * superseded at once and never displaces the higher fee (#17).
+     */
+    protected function bookNoticeFee($attempt, $attemptId, $uid, $nowSql)
+    {
+        if ((float) $attempt->amount_fee <= 0.000001) { return true; }
+        $where = ' WHERE entity = '.((int) $attempt->entity).' AND fk_case = '.((int) $attempt->fk_case);
+        $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_fee'.$where.' AND level > '.((int) $attempt->level)." AND status <> 'superseded' ORDER BY rowid".$this->db->plimit(1);
+        $res = $this->db->query($sql);
+        if (!$res) { $this->error = $this->db->lasterror(); return false; }
+        $higher = $this->db->fetch_object($res);
+        $this->db->free($res);
+        $status = 'open';
+        $settlement = 'NULL, NULL, NULL';
+        if ($higher) {
+            $status = 'superseded';
+            $settlement = "'".$this->db->escape($nowSql)."', '".$this->db->escape('Fee #'.((int) $higher->rowid).' of a higher stage already applies')."', ".((int) $uid);
+        } else {
+            $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_fee SET status = 'superseded', date_settlement = '".$this->db->escape($nowSql)."', settlement_reason = '".$this->db->escape('Replaced by attempt #'.((int) $attemptId))."', fk_user_settlement = ".((int) $uid).$where." AND status = 'open' AND level <= ".((int) $attempt->level);
+            if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); return false; }
+        }
+        $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_fee (entity, fk_case, fk_facture, fk_attempt, level, amount, currency_code, status, date_creation, fk_user_create, date_settlement, settlement_reason, fk_user_settlement) VALUES (';
+        $sql .= ((int) $attempt->entity).', '.((int) $attempt->fk_case).', '.((int) $attempt->fk_facture).', '.((int) $attemptId).', '.((int) $attempt->level).', '.((float) $attempt->amount_fee).", '".$this->db->escape((string) $attempt->currency_code)."', '".$status."', '".$this->db->escape($nowSql)."', ".((int) $uid).', '.$settlement.')';
+        if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); return false; }
         return true;
     }
 

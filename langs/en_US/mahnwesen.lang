@@ -253,6 +253,7 @@ MahnwesenOpenInvoiceAmount=Outstanding invoice amount
 MahnwesenDunningFee=Dunning fee
 MahnwesenDunningTotal=Total requested by dunning notice
 MahnwesenPaymentDeadline=Payable by
+MahnwesenSkipBlockedByAttempt=Cannot skip: delivery attempt #%s of this stage is not resolved yet. Resolve it under delivery attempts first.
 MahnwesenPaymentDays=Payment period
 MahnwesenPaymentDaysHelp=Payment period: the number of days from the notice the customer has to pay. The date appears in the dunning PDF below the total and is available in email templates as __MAHNWESEN_PAYMENT_DEADLINE__. After a sent notice the next stage becomes due no earlier than the day after the deadline. 0 = no deadline.
 MahnwesenPauseUntil=Paused until

@@ -325,6 +325,10 @@ trait DunningManagerMethods2
         $currentCase = $workflow ? $workflow['case'] : false;
         $level = $workflow ? (int) $workflow['next_required_level'] : 0;
         if (!$workflow || empty($workflow['actionable']) || !$currentCase || $currentCase['status'] !== 'open' || !empty($currentCase['paused']) || $level <= 0) { $this->error = 'The workflow changed and no stage can be skipped now.'; $this->db->rollback(); return false; }
+        // A notice of this stage may have reached the customer (#17).
+        $openAttempt = $this->getOpenAttemptId((int) $case['id'], $level);
+        if ($openAttempt === false) { $this->db->rollback(); return false; }
+        if ($openAttempt > 0) { $this->error = 'Delivery attempt #'.$openAttempt.' of this stage is not resolved yet. Resolve it on the delivery attempts page before skipping the stage.'; $this->db->rollback(); return false; }
         if (!$this->addHistory((int) $case['entity'], (int) $case['id'], (int) $invoiceId, 'stage_skipped', $level, (float) $workflow['evaluation']['remain_to_pay'], 'manual', 'success', $reason, $user)) { $this->db->rollback(); return false; }
         $this->db->commit();
         $this->syncInvoiceCase((int) $invoiceId, $user);
@@ -414,6 +418,21 @@ trait DunningManagerMethods2
         return ($obj && !empty($obj->date_creation)) ? (int) $this->db->jdate($obj->date_creation) : null;
     }
 
+    /** Id of a reserved, sending or ambiguous attempt of a stage, 0 if none, false on a database error. */
+    public function getOpenAttemptId($caseId, $level)
+    {
+        $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE fk_case = '.((int) $caseId).' AND level = '.((int) $level);
+        $sql .= " AND status IN ('reserved', 'sending', 'ambiguous') ORDER BY rowid".$this->db->plimit(1);
+        $resql = $this->db->query($sql);
+        if (!$resql) {
+            $this->error = 'Unable to read open delivery attempts: '.$this->db->lasterror();
+            return false;
+        }
+        $obj = $this->db->fetch_object($resql);
+        $this->db->free($resql);
+        return $obj ? (int) $obj->rowid : 0;
+    }
+
     /** When the last successful notice of a stage was sent, null if none was. */
     public function getStageNoticeTimestamp($caseId, $level)
     {
@@ -448,8 +467,9 @@ trait DunningManagerMethods2
      * Besides the absolute invoice threshold, preserve the configured spacing
      * between two enabled stages after the previous stage was ACTUALLY completed.
      * Example with thresholds 3/10 days: if the reminder is sent late on day 14,
-     * the 1st dunning notice becomes actionable no earlier than day 21, not the
-     * next cron run. This prevents a delayed case from receiving several escalating
+     * the 1st dunning notice becomes actionable no earlier than the start of day
+     * 21, not the next cron run. The spacing counts whole days, so a reminder
+     * sent in the afternoon does not push the nightly cron to day 22 (#18). This prevents a delayed case from receiving several escalating
      * notices in rapid succession.
      *
      * A sent notice that named a payment deadline also holds the next stage
@@ -467,7 +487,7 @@ trait DunningManagerMethods2
 
         $thresholds = $this->getStageThresholds();
         $gapDays = max(0, ((int) ($thresholds[(int) $level] ?? 0)) - ((int) ($thresholds[$previous] ?? 0)));
-        $afterPrevious = date('Y-m-d H:i:s', strtotime('+'.$gapDays.' days', $completedAt));
+        $afterPrevious = date('Y-m-d 00:00:00', strtotime('+'.$gapDays.' days', $completedAt));
         $paymentDays = $this->getPaymentDaysForLevel($previous);
         $sentAt = $paymentDays > 0 ? $this->getStageNoticeTimestamp((int) $caseId, $previous) : null;
         if ($sentAt) {
