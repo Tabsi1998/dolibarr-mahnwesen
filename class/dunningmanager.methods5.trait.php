@@ -416,32 +416,31 @@ trait DunningManagerMethods5
             $this->finishAutomationRun($runId, 'failed', $counters, 'Unable to initialize workflow rules: '.$this->error);
             return 1;
         }
+        // Problems with single invoices or pauses end the run as a warning
+        // naming them; the other invoices are still dunned (#15). Only a
+        // failure of the whole step stops delivery.
+        $warnings = array();
         $resumed = $this->resumeExpiredPauses($actor);
         if ($resumed === false) {
             $this->finishAutomationRun($runId, 'failed', $counters, 'Unable to resume expired pauses: '.$this->error);
             return 1;
         }
-        if (!empty($this->errors)) {
-            $this->output = 'One or more expired pauses could not be resumed. Automatic delivery was stopped: '.implode(' | ', $this->errors);
-            $this->finishAutomationRun($runId, 'failed', $counters, $this->output);
-            return 1;
-        }
+        // A pause that could not be lifted keeps its case paused, so it is not sent.
+        $warnings = array_merge($warnings, $this->errors);
         $sync = $this->syncCases($actor, $this->getMaxScan());
         if ($sync === false) {
-            $this->finishAutomationRun($runId, 'failed', $counters, 'Unable to synchronize cases: '.$this->error);
+            $this->finishAutomationRun($runId, 'failed', $counters, 'Unable to synchronize cases: '.$this->error.($this->errors ? ' | '.implode(' | ', $this->errors) : ''));
             return 1;
         }
         $counters['synchronized'] = (int) $sync['created'] + (int) $sync['updated'] + (int) $sync['level_changed'] + (int) $sync['reopened'] + (int) $sync['closed'] + (int) $sync['unchanged'];
-        if (!empty($sync['errors']) || !empty($this->errors)) {
-            $counters['failed'] = max((int) $sync['errors'], count($this->errors));
-            $this->output = 'Case synchronization contained errors. Automatic delivery was stopped: '.implode(' | ', $this->errors);
-            $this->finishAutomationRun($runId, 'failed', $counters, $this->output);
-            return 1;
-        }
+        $brokenInvoices = !empty($sync['failed_invoices']) ? $sync['failed_invoices'] : array();
+        $warnings = array_merge($warnings, $this->errors);
+        $this->errors = array();
+        $warningText = $warnings ? ' Skipped because of errors: '.implode(' | ', array_unique($warnings)) : '';
 
         if (!$this->isAutomaticSendEnabled()) {
-            $this->output = 'Daily Mahnwesen workflow: resumed '.$resumed.' dated pause(s); synchronized cases: created '.$sync['created'].', level '.$sync['level_changed'].', updated '.$sync['updated'].', closed '.$sync['closed'].'. Automatic email sending is OFF.';
-            return $this->finishAutomationRun($runId, 'success', $counters, $this->output) ? 0 : 1;
+            $this->output = 'Daily Mahnwesen workflow: resumed '.$resumed.' dated pause(s); synchronized cases: created '.$sync['created'].', level '.$sync['level_changed'].', updated '.$sync['updated'].', closed '.$sync['closed'].'. Automatic email sending is OFF.'.$warningText;
+            return ($this->finishAutomationRun($runId, $warnings ? 'warning' : 'success', $counters, $this->output) && !$warnings) ? 0 : 1;
         }
 
         require_once dol_buildpath('/mahnwesen/class/dunningnotice.class.php', 0);
@@ -466,6 +465,10 @@ trait DunningManagerMethods5
             }
             $calculatedLevel = (int) $row['stage'];
             if ($calculatedLevel <= 0) { continue; }
+            if (isset($brokenInvoices[(int) $row['invoice_id']])) {
+                $skipped++;
+                continue;
+            }
             $case = $this->getCaseByInvoice((int) $row['invoice_id']);
             if (!$case || $case['status'] !== 'open' || !empty($case['paused'])) {
                 $skipped++;
@@ -529,10 +532,20 @@ trait DunningManagerMethods5
         $counters['sent'] = $sent;
         $counters['skipped'] = $skipped;
         $counters['failed'] = $failed;
+        // The second scan repeats the invoices the synchronisation could not read.
+        $warnings = array_unique(array_merge($warnings, array_filter($this->errors, function ($message) {
+            return strpos($message, 'Auto-send ') !== 0;
+        })));
+        $failures = array_filter($this->errors, function ($message) {
+            return strpos($message, 'Auto-send ') === 0;
+        });
         $this->output = 'Daily Mahnwesen workflow: resumed '.$resumed.' pause(s); synchronized cases: created '.$sync['created'].', level '.$sync['level_changed'].', updated '.$sync['updated'].', closed '.$sync['closed'].'; automatic attempts '.$attempted.', sent '.$sent.', skipped '.$skipped.', failed '.$failed.' (attempt limit '.$maxSend.', retry limit '.$maxRetry.', per-customer limit '.$maxPerCustomer.'). Invoices were not modified.';
-        $runFinalized = $this->finishAutomationRun($runId, $failed ? 'warning' : 'success', $counters, $this->output);
-        dol_syslog(__METHOD__.' '.$this->output, $failed ? LOG_WARNING : LOG_INFO);
-        return ($failed || !$runFinalized) ? 1 : 0;
+        if ($failures) { $this->output .= ' Failed: '.implode(' | ', $failures); }
+        if ($warnings) { $this->output .= ' Skipped because of errors: '.implode(' | ', $warnings); }
+        $problems = $failed || $warnings;
+        $runFinalized = $this->finishAutomationRun($runId, $problems ? 'warning' : 'success', $counters, $this->output);
+        dol_syslog(__METHOD__.' '.$this->output, $problems ? LOG_WARNING : LOG_INFO);
+        return ($problems || !$runFinalized) ? 1 : 0;
     }
 
     /**

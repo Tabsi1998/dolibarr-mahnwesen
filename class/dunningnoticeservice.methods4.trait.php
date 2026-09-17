@@ -4,6 +4,33 @@ trait DunningNoticeServiceMethods4
 {
 
     /**
+     * Whether a failed send certainly delivered nothing (#14).
+     *
+     * True when Dolibarr's mail is switched off, when the mailer could not even
+     * be built, or when Dolibarr's own SMTP client (send mode smtps) never got
+     * the server's 354 go-ahead for the message data: connection, TLS, login,
+     * sender or all recipients failed. The client records every server reply
+     * in its log. Other send modes and failures after the go-ahead may have
+     * reached the customer, so they stay ambiguous.
+     *
+     * @param CMailFile|null $mail Mailer of the failed send
+     * @return bool
+     */
+    public function failedBeforeMessageData($mail)
+    {
+        if (getDolGlobalString('MAIN_DISABLE_ALL_MAILS')) {
+            return true;
+        }
+        if (!is_object($mail)) {
+            return true;
+        }
+        if ((string) ($mail->sendmode ?? '') !== 'smtps' || empty($mail->smtps) || !is_object($mail->smtps) || !isset($mail->smtps->log)) {
+            return false;
+        }
+        return !preg_match('/^354[ -]/m', (string) $mail->smtps->log);
+    }
+
+    /**
      * Generate a dunning PDF. A preview stays in the module's notices folder.
      * The PDF of a delivery attempt (context attempt_id) goes into that
      * attempt's evidence folder of the module. Any other final PDF goes into
@@ -437,11 +464,16 @@ trait DunningNoticeServiceMethods4
             if ($this->error === '') {
                 $this->error = (is_object($mail) && !empty($mail->error)) ? $mail->error : 'CMailFile sendfile failed';
             }
+            // Only a failure that certainly delivered nothing counts as failed
+            // and may be retried; anything else stays ambiguous (#14).
+            $ambiguous = !$this->failedBeforeMessageData($mail);
             $failedMessage = $historyMessage."\nError: ".$this->error;
-            if (!$this->manager->finalizeNoticeAttempt($attemptId, false, $failedMessage, $case, $user, true)) {
+            if (!$this->manager->finalizeNoticeAttempt($attemptId, false, $failedMessage, $case, $user, $ambiguous)) {
                 $this->errors[] = 'Delivery failed and audit finalization also failed: '.$this->manager->error;
             }
-            $this->error .= ' The SMTP outcome is treated as ambiguous; an administrator must resolve the attempt before retrying.';
+            $this->error .= $ambiguous
+                ? ' The SMTP outcome is treated as ambiguous; an administrator must resolve the attempt before retrying.'
+                : ' The mail server never received the message, so nothing was delivered; the notice can be sent again.';
             return false;
         }
 

@@ -26,6 +26,7 @@ require_once __DIR__.'/../class/dunningmanager.methods4.trait.php';
 require_once __DIR__.'/../class/dunningmanager.methods5.trait.php';
 require_once __DIR__.'/../class/dunningnoticeservice.methods1.trait.php';
 require_once __DIR__.'/../class/dunningnoticeservice.methods2.trait.php';
+require_once __DIR__.'/../class/dunningnoticeservice.methods4.trait.php';
 
 function mwAssert($condition, $message)
 {
@@ -155,5 +156,25 @@ $recipientService->db = new FailingRecipientDb();
 $invoice = new stdClass(); $invoice->id = 42; $invoice->thirdparty = new stdClass(); $invoice->thirdparty->email = 'fallback@example.test';
 mwAssert($recipientService->getRecipientOptions($invoice) === array(), 'recipient lookup errors must fail closed');
 mwAssert($recipientService->recipientLookupFailed === true, 'recipient lookup failure flag');
+
+class SendFailureFixture
+{
+    use DunningNoticeServiceMethods4;
+}
+$sendFailure = new SendFailureFixture();
+$smtpMail = function ($sendmode, $log) {
+    $mail = new stdClass();
+    $mail->sendmode = $sendmode;
+    $mail->smtps = new stdClass();
+    $mail->smtps->log = $log;
+    return $mail;
+};
+mwAssert($sendFailure->failedBeforeMessageData($smtpMail('smtps', '')) === true, 'no answer from the mail server means nothing was delivered (#14)');
+mwAssert($sendFailure->failedBeforeMessageData($smtpMail('smtps', "220 mail ESMTP\r\n250 hello\r\n550 5.7.1 sender rejected\r\n")) === true,
+    'a rejected sender before DATA means nothing was delivered (#14)');
+mwAssert($sendFailure->failedBeforeMessageData($smtpMail('smtps', "220 mail ESMTP\r\n250 hello\r\n250 ok\r\n250 ok\r\n354 go ahead\r\n451 local error\r\n")) === false,
+    'a failure after the server accepted the message data stays ambiguous (#14)');
+mwAssert($sendFailure->failedBeforeMessageData($smtpMail('mail', '')) === false, 'PHP mail() gives no protocol trace, so its failures stay ambiguous');
+mwAssert($sendFailure->failedBeforeMessageData(null) === true, 'a mailer that could not be built sent nothing');
 
 echo "Policy tests: OK\n";

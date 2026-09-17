@@ -115,17 +115,23 @@ class Stack:
     def shell(self, command: str) -> subprocess.CompletedProcess:
         return self.run(self.docker, "exec", "-u", "www-data", self.web, "sh", "-c", command, check=False, timeout=120)
 
-    def cron(self) -> str:
+    def cron(self, expect_ok: bool = True) -> str:
         """Run the Mahnwesen job through Dolibarr's own cron runner, as the daily cron would.
 
         --force stands in for the next day: the job is daily, and the check
-        runs it several times within a minute.
+        runs it several times within a minute. A run with failures or
+        warnings ends with a non-zero result; pass expect_ok=False for those
+        and look at the run it recorded.
         """
         job = int(self.fixtures["cron_job"])
         completed = self.run(self.docker, "exec", "-u", "www-data", self.web, "php",
                              "/var/www/scripts/cron/cron_run_jobs.php", self.cron_key, "admin", str(job),
                              "--force", check=False, timeout=600)
         output = completed.stdout + completed.stderr
+        if not expect_ok:
+            if "Result of run_jobs" not in output:
+                raise CheckFailed(f"the Dolibarr cron runner did not run the Mahnwesen job:\n{output[-1500:]}")
+            return output
         if completed.returncode != 0 or "Result of run_jobs OK" not in output:
             raise CheckFailed(f"the Dolibarr cron runner did not run the Mahnwesen job:\n{output[-1500:]}")
         result = self.value(f"SELECT lastresult FROM llx_cronjob WHERE rowid = {job}")
@@ -858,6 +864,89 @@ def open_attempt(stack: Stack) -> str:
     return f"skipping refused while attempt {ambiguous} was open; confirmed late, it left the 60 fee open and the last notice date"
 
 
+def last_run(stack: Stack) -> list[str]:
+    rows = stack.sql("SELECT rowid, status, attempted, sent, skipped, failed, REPLACE(summary, '\\n', ' ') "
+                     "FROM llx_mahnwesen_run ORDER BY rowid DESC LIMIT 1")
+    return rows[0] if rows else []
+
+
+def automatic_stage_two(stack: Stack) -> None:
+    """Automatic sending on, for the 1st dunning notice only, with a retry limit of two."""
+    stack.sql("UPDATE llx_const SET value = '1' WHERE name = 'MAHNWESEN_AUTO_SEND_ENABLED' AND entity = 1")
+    if stack.value("SELECT COUNT(*) FROM llx_const WHERE name = 'MAHNWESEN_AUTO_SEND_ENABLED' AND entity = 1") == "0":
+        stack.sql("INSERT INTO llx_const (name, entity, value, type, visible) VALUES ('MAHNWESEN_AUTO_SEND_ENABLED', 1, '1', 'chaine', 0)")
+    stack.sql("DELETE FROM llx_const WHERE name = 'MAHNWESEN_AUTO_RETRY_MAX' AND entity = 1")
+    stack.sql("INSERT INTO llx_const (name, entity, value, type, visible) VALUES ('MAHNWESEN_AUTO_RETRY_MAX', 1, '2', 'chaine', 0)")
+    stack.sql("UPDATE llx_mahnwesen_rule SET send_email = CASE WHEN level = 2 THEN 1 ELSE 0 END WHERE entity = 1")
+
+
+def smtp_outage(stack: Stack) -> str:
+    """With the mail server down, automatic attempts fail retryably and stop at the retry limit (#14)."""
+    private = invoice(stack, "private_overdue")
+    automatic_stage_two(stack)
+
+    def attempts() -> list[list[str]]:
+        return stack.sql(f"SELECT rowid, status FROM llx_mahnwesen_attempt WHERE fk_facture = {private['id']} AND level = 2 ORDER BY rowid")
+
+    stack.run(stack.docker, "stop", stack.mail, check=True, timeout=120)
+    try:
+        for run in (1, 2, 3):
+            stack.cron(expect_ok=False)
+            found = attempts()
+            expected = min(run, 2)
+            expect(len(found) == expected and all(row[1] == "failed" for row in found),
+                   f"after cron run {run} with the mail server down the attempts of the 1st dunning notice are {found}, "
+                   f"expected {expected} failed and none ambiguous (#14)")
+        third = last_run(stack)
+        expect(third[2:4] == ["0", "0"], f"the third run tried again beyond the retry limit of two: {third}")
+    finally:
+        stack.run(stack.docker, "start", stack.mail, check=False, timeout=120)
+    deadline = time.time() + 60
+    while True:
+        try:
+            stack.mailpit().messages()
+            break
+        except OSError:
+            expect(time.time() < deadline, "Mailpit did not come back within 60 s")
+            time.sleep(1)
+    return "mail server down: two failed attempts, the third run stopped at the retry limit, nothing ambiguous"
+
+
+def broken_invoice(stack: Stack) -> str:
+    """One invoice the synchronisation cannot write does not stop automatic dunning of the others (#15)."""
+    private = invoice(stack, "private_overdue")
+    broken = invoice(stack, "company_overdue")
+    browser = stack.browser()
+    # After the outage an operator allows the attempts again.
+    page = page_ok(browser.get("/custom/mahnwesen/attempts.php"), "delivery attempts")
+    failed = [row[0] for row in stack.sql(f"SELECT rowid FROM llx_mahnwesen_attempt WHERE fk_facture = {private['id']} AND status = 'failed'")]
+    for attempt_id in failed:
+        form = next((form for form in page.forms() if form.value("action") == "resolve_attempt"
+                     and form.value("attempt_id") == attempt_id), None)
+        expect(form is not None, f"the delivery attempts page offers no resolution for failed attempt {attempt_id}")
+        page = page_ok(browser.submit(form, {"resolution": "allow_retry", "reason": "Runtime check: mail server back"}),
+                       f"allow attempt {attempt_id} again")
+    stack.sql(f"""DELIMITER //
+CREATE TRIGGER rt_broken_invoice BEFORE UPDATE ON llx_mahnwesen_case FOR EACH ROW BEGIN
+IF NEW.fk_facture = {int(broken['id'])} THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Runtime check: broken invoice'; END IF;
+END //
+DELIMITER ;""")
+    mailpit = stack.mailpit()
+    mailpit.clear()
+    try:
+        stack.cron(expect_ok=False)
+    finally:
+        stack.sql("DROP TRIGGER IF EXISTS rt_broken_invoice")
+    run = last_run(stack)
+    messages = mailpit.messages()
+    expect([m["To"][0]["Address"] for m in messages] == ["rita@privat.test"],
+           f"with {broken['ref']} broken the cron did not send the 1st dunning notice to the private customer: "
+           f"run {run}, emails {[(m['To'][0]['Address'], m['Subject']) for m in messages]} (#15)")
+    expect(run[1] == "warning" and broken["ref"] in run[6],
+           f"the run with a broken invoice should end as a warning naming {broken['ref']}: {run} (#15)")
+    return f"{broken['ref']} could not be synchronised; the private customer still got the 1st dunning notice, run {run[0]} is a warning naming it"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -879,6 +968,8 @@ SCENARIOS = (
     ("templates", "Own templates first, fixed choice, starters by language", templates, ("reactivation",)),
     ("stage-spacing", "The next stage is due at the start of the day", stage_spacing, ("automation",)),
     ("open-attempt", "Open attempts block skipping; late confirmations keep higher fees", open_attempt, ("automation",)),
+    ("smtp-outage", "A mail server outage fails retryably up to the retry limit", smtp_outage, ("stage-spacing",)),
+    ("broken-invoice", "One broken invoice does not stop automatic dunning", broken_invoice, ("smtp-outage",)),
 )
 
 

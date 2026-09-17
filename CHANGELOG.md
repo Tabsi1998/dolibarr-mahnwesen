@@ -7,6 +7,22 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-17
+
+Automatic dunning that keeps going when the mail server or one invoice fails.
+
+### Fixed
+
+- Every mail error blocked the notice until someone resolved it by hand, and
+  the retry limit never applied. A send the mail server certainly never
+  received - it was unreachable, refused the login, the sender or every
+  recipient, or mail is switched off - is now recorded as failed: it can be
+  sent again, and the cron retries it up to the retry limit. Errors after the
+  server accepted the message still need a decision (#14).
+- One invoice that could not be read or whose case could not be saved stopped
+  all automatic dunning. The cron now skips it, sends the others, and ends the
+  run as a warning that names the invoice (#15).
+
 ## [1.1.0] - 2026-09-17
 
 Automatic dunning on the right day, and fees that stay right after a late
@@ -263,7 +279,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.0
 [1.0.5]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.5
 [1.0.4]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.4

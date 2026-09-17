@@ -21,7 +21,10 @@ module disable/enable step and inspect the Dolibarr database/module logs.
 ## Daily operation
 
 - Review **Mahnwesen > Delivery attempts** for `reserved`, `sending`,
-  `ambiguous` or repeatedly failed attempts.
+  `ambiguous` or repeatedly failed attempts. After a mail server outage, allow
+  the failed attempts again once it works; the cron stops at the retry limit.
+- A run with the status `warning` skipped the invoices its summary names; fix
+  them - the others were dunned.
 - Never choose **Confirm as delivered** without checking the outgoing mailbox
   or SMTP server.
 - `reserved`/`sending` attempts can only be recovered after a 15-minute safety
