@@ -206,6 +206,23 @@ def pdf_text(data: bytes) -> str:
     return "\n".join(parts)
 
 
+def check_letter(pdf: bytes, what: str, must: list, must_not: tuple = ()) -> None:
+    """What a dunning letter has to show, on one page (#30)."""
+    content = pdf_text(pdf)
+    pages = len(re.findall(rb"/Type\s*/Page[^s]", pdf))
+    missing = [text for text in must if text not in content]
+    present = [text for text in must_not if text in content]
+    expect(pdf.startswith(b"%PDF") and not missing and not present and pages == 1,
+           f"{what}: missing {missing}, should not show {present}, {pages} page(s) (#25, #30)")
+
+
+def container_file(stack: "Stack", path: str) -> bytes:
+    import base64
+    completed = stack.shell(f"base64 -w0 '{path}'")
+    expect(completed.returncode == 0, f"{path} could not be read: {completed.stderr}")
+    return base64.b64decode(completed.stdout.strip())
+
+
 def page_ok(page: Page, what: str) -> Page:
     expect(page.status == 200, f"{what}: HTTP {page.status}")
     expect(not page.denied(), f"{what}: access denied")
@@ -476,7 +493,9 @@ def access(stack: Stack) -> str:
 
 
 PAYMENT_TEMPLATE_LINE = ("<p>Frist: __MAHNWESEN_PAYMENT_DEADLINE__ (__MAHNWESEN_PAYMENT_DAYS__ Tage), "
-                         "naechste Stufe __MAHNWESEN_NEXT_STAGE_DATE__</p>")
+                         "naechste Stufe __MAHNWESEN_NEXT_STAGE_DATE__</p>"
+                         "<p>Mit freundlichen Gruessen<br>Kassa-Team Runtime</p><!--MAHNWESEN_PDF_END-->"
+                         "<p>Signatur Bankdaten intern</p>")
 # A long legal footer: the body of the reminder passes the old 60 KB limit (#20).
 # The database repeats the text; a command line on Windows holds 32 KB only.
 LONG_FOOTER_SQL = "'<p>', REPEAT('Rechtlicher Hinweis zur Zahlungserinnerung. ', 1500), 'ENDE-DES-HINWEISES</p>'"
@@ -577,9 +596,12 @@ def manual_send(stack: Stack) -> str:
            f"the history of the sent reminder does not record its payment deadline: {recorded_text!r} (#64)")
     letter = stack.value(f"SELECT rowid FROM llx_mahnwesen_attempt_file WHERE fk_attempt = {attempt_id} "
                          f"AND display_name = '{company['ref']}_Zahlungserinnerung.pdf'")
-    content = pdf_text(browser.get(f"/custom/mahnwesen/attempts.php?evidence={letter}").body)
+    letter_pdf = browser.get(f"/custom/mahnwesen/attempts.php?evidence={letter}").body
+    content = pdf_text(letter_pdf)
     expect("Zahlbar bis" in content and deadline in content,
            f"the dunning PDF does not show 'Zahlbar bis {deadline}' (#64)")
+    check_letter(letter_pdf, "the payment reminder PDF", [company["ref"], "120,00", "Kundenweg 7", "Kassa-Team Runtime"],
+                 ("Signatur Bankdaten intern", "ENDE-DES-HINWEISES"))
     tab = html.unescape(page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={company['id']}"), "invoice tab").text)
     after = container_date(stack, 11)
     expect(after in tab, f"the invoice tab does not hold the next stage back until {after}, the day after the deadline (#64)")
@@ -708,9 +730,18 @@ def documents(stack: Stack) -> str:
     announced = html.unescape(composer.text)
     expect(f"{private['ref']}_Zahlungserinnerung.pdf" in announced and "A<id>" not in announced,
            "the composer does not announce the dunning PDF under its plain name")
-    for attempt in (1, 2):
-        tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={private['id']}"), "invoice tab")
-        page_ok(browser.submit(form_with_action(tab, "generate_notice_pdf", "invoice tab")), f"generate the PDF ({attempt})")
+    # The company letterhead of Dolibarr's PDF setup is drawn on the letter (#25).
+    stack.shell(f"mkdir -p {DOCUMENTS}/mycompany && cp '{DOCUMENTS}/{private['last_main_doc']}' {DOCUMENTS}/mycompany/letterhead.pdf")
+    stack.sql("DELETE FROM llx_const WHERE name = 'MAIN_ADD_PDF_BACKGROUND' AND entity = 1; "
+              "INSERT INTO llx_const (name, entity, value, type, visible) VALUES ('MAIN_ADD_PDF_BACKGROUND', 1, 'letterhead.pdf', 'chaine', 0)")
+    try:
+        for attempt in (1, 2):
+            tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={private['id']}"), "invoice tab")
+            page_ok(browser.submit(form_with_action(tab, "generate_notice_pdf", "invoice tab")), f"generate the PDF ({attempt})")
+    finally:
+        stack.sql("DELETE FROM llx_const WHERE name = 'MAIN_ADD_PDF_BACKGROUND' AND entity = 1")
+    letter = container_file(stack, f"{DOCUMENTS}/facture/{private['ref']}/{private['ref']}_Zahlungserinnerung.pdf")
+    expect(b"/Subtype /Form" in letter, "the dunning PDF does not carry the letterhead of the PDF setup (#25)")
     files = invoice_documents(stack, "private_overdue")
     expected = sorted([f"{private['ref']}.pdf", f"{private['ref']}_Zahlungserinnerung.pdf"])
     expect(files == expected, f"after generating twice the invoice documents are {files}, expected {expected}")
@@ -1048,6 +1079,8 @@ def dry_run(stack: Stack) -> str:
               f"VALUES (1, {case}, {company['id']}, 'active', '{container_date(stack, -1, 'Y-m-d')} 00:00:00', "
               f"'Runtime check: promise to pay', '{container_date(stack, -3, 'Y-m-d H:i:s')}')")
     stack.sql(f"UPDATE llx_mahnwesen_case SET paused = 1 WHERE rowid = {case}")
+    # A fee for the 1st dunning notice, so the letter shows it (#30).
+    stack.sql("UPDATE llx_mahnwesen_rule SET fee_amount = 40 WHERE level = 2 AND entity = 1")
 
     stack.sql("UPDATE llx_cronjob SET status = 1 WHERE methodename = 'sendEmailsRemindersOnInvoiceDueDate'")
     try:
@@ -1089,6 +1122,10 @@ def dry_run(stack: Stack) -> str:
     sent = sorted({ref for m in mailpit.messages() for ref in decisions if ref in m["Subject"]})
     notices = [m for m in mailpit.messages() if m["To"][0]["Address"] == OPS_ADDRESS]
     expect(sent == ready, f"the dry run announced {ready}, the cron then sent {sent} (#16)")
+    evidence = stack.value("SELECT f.rowid FROM llx_mahnwesen_attempt_file f JOIN llx_mahnwesen_attempt a ON a.rowid = f.fk_attempt "
+                           f"WHERE a.fk_facture = {company['id']} AND a.level = 2 AND f.file_role = 'dunning' ORDER BY f.rowid DESC LIMIT 1")
+    check_letter(browser.get(f"/custom/mahnwesen/attempts.php?evidence={evidence}").body, "the 1st dunning notice PDF",
+                 [company["ref"], "120,00", "40,00", "160,00", "Kundenweg 7"])
     expect(not notices, f"a run without problems notified {OPS_ADDRESS} (#21)")
     return f"dry run and cron agree on {ready}, the expired pause included; no dry run without the right; reminder job warned"
 
