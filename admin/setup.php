@@ -148,9 +148,7 @@ if ($action === 'save_stages') {
         for ($level = 1; $level <= 4; $level++) {
             // Keep the template chosen on the templates tab.
             $currentTemplate = (string) $manager->getRuleByLevel($level)['email_template'];
-            if (!$manager->saveRule($level, $days[$level], $businessFees[$level], $send[$level], $currentTemplate, $user, $enabledStages[$level])) { $ok = false; break; }
-            if (!mw4_set_const($db, 'MAHNWESEN_PRIVATE_FEE_'.$level, $privateStageFees[$level], $conf->entity)) { $ok = false; break; }
-            if (!mw4_set_const($db, 'MAHNWESEN_PAYMENT_DAYS_'.$level, $paymentDays[$level], $conf->entity)) { $ok = false; break; }
+            if (!$manager->saveRule($level, $days[$level], $businessFees[$level], $send[$level], $currentTemplate, $user, $enabledStages[$level], $privateStageFees[$level], $paymentDays[$level])) { $ok = false; break; }
         }
         if ($ok) { $ok = mw4_set_const($db, 'MAHNWESEN_PRIVATE_FEES_ALLOWED', $privateFeesAllowed, $conf->entity); }
         if ($ok) { $ok = mw4_set_const($db, 'MAHNWESEN_UNKNOWN_FEES_ALLOWED', $unknownFees, $conf->entity); }

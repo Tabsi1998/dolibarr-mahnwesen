@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '1.1.3';
+        $this->version = '1.1.4';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -80,10 +80,6 @@ class modMahnwesen extends DolibarrModules
         // for per notice anyway and keeps the administrator's choice (#54).
         $this->const = array(
             1 => array('MAHNWESEN_MODE', 'chaine', 'controlled', 'Mahnwesen runtime mode', 0, 'current', 0),
-            2 => array('MAHNWESEN_STAGE1_DAYS', 'chaine', '3', 'Days after due date for stage 1', 0, 'current', 0),
-            3 => array('MAHNWESEN_STAGE2_DAYS', 'chaine', '10', 'Days after due date for stage 2', 0, 'current', 0),
-            4 => array('MAHNWESEN_STAGE3_DAYS', 'chaine', '20', 'Days after due date for stage 3', 0, 'current', 0),
-            5 => array('MAHNWESEN_STAGE4_DAYS', 'chaine', '30', 'Days after due date for stage 4', 0, 'current', 0),
             6 => array('MAHNWESEN_MIN_AMOUNT', 'chaine', '1.00', 'Minimum remaining amount to include', 0, 'current', 0),
             7 => array('MAHNWESEN_MAX_SCAN', 'chaine', '500', 'Maximum invoices scanned per run', 0, 'current', 0),
             8 => array('MAHNWESEN_INCLUDE_DEPOSITS', 'chaine', '0', 'Include deposit invoices in dunning scan', 0, 'current', 0),
@@ -94,19 +90,11 @@ class modMahnwesen extends DolibarrModules
             13 => array('MAHNWESEN_AUTO_RECIPIENT_POLICY', 'chaine', 'single_billing', 'Automatic recipient resolution policy', 0, 'current', 0),
             15 => array('MAHNWESEN_PRIVATE_FEES_ALLOWED', 'chaine', '0', 'Apply configured dunning fees to TE_PRIVATE customers', 0, 'current', 0),
             16 => array('MAHNWESEN_UNKNOWN_FEES_ALLOWED', 'chaine', '0', 'Apply configured dunning fees to unknown/special customer types', 0, 'current', 0),
-            17 => array('MAHNWESEN_PRIVATE_FEE_1', 'chaine', '0.00', 'Private-person fee at payment reminder', 0, 'current', 0),
-            18 => array('MAHNWESEN_PRIVATE_FEE_2', 'chaine', '0.00', 'Private-person fee at first dunning notice', 0, 'current', 0),
-            19 => array('MAHNWESEN_PRIVATE_FEE_3', 'chaine', '0.00', 'Private-person fee at second dunning notice', 0, 'current', 0),
-            20 => array('MAHNWESEN_PRIVATE_FEE_4', 'chaine', '0.00', 'Private-person fee at third dunning notice', 0, 'current', 0),
             21 => array('MAHNWESEN_ALLOW_LANGUAGE_FALLBACK', 'chaine', '0', 'Allow explicit cross-language template fallback', 0, 'current', 0),
             22 => array('MAHNWESEN_AUTO_RETRY_MAX', 'chaine', '3', 'Maximum failed automatic attempts per case and stage', 0, 'current', 0),
             23 => array('MAHNWESEN_AUTO_MAX_PER_CUSTOMER', 'chaine', '1', 'Maximum automatic delivery attempts per customer and cron run', 0, 'current', 0),
             24 => array('MAHNWESEN_MAX_EXTRA_ATTACHMENTS', 'chaine', '5', 'Maximum manually uploaded email attachments', 0, 'current', 0),
             25 => array('MAHNWESEN_MAX_EXTRA_ATTACHMENT_MB', 'chaine', '10', 'Maximum size of one manually uploaded attachment', 0, 'current', 0),
-            26 => array('MAHNWESEN_PAYMENT_DAYS_1', 'chaine', '0', 'Payment period in days granted by the payment reminder, 0 for none', 0, 'current', 0),
-            27 => array('MAHNWESEN_PAYMENT_DAYS_2', 'chaine', '0', 'Payment period in days granted by the first dunning notice, 0 for none', 0, 'current', 0),
-            28 => array('MAHNWESEN_PAYMENT_DAYS_3', 'chaine', '0', 'Payment period in days granted by the second dunning notice, 0 for none', 0, 'current', 0),
-            29 => array('MAHNWESEN_PAYMENT_DAYS_4', 'chaine', '0', 'Payment period in days granted by the third dunning notice, 0 for none', 0, 'current', 0),
             30 => array('MAHNWESEN_RUN_NOTIFY_EMAIL', 'chaine', '', 'Address told about automatic runs that fail or end with warnings', 0, 'current', 0),
         );
 
@@ -222,6 +210,16 @@ class modMahnwesen extends DolibarrModules
 
         $result = $this->_load_tables('/mahnwesen/sql/');
         if ($result < 0) {
+            return -1;
+        }
+
+        // Stage settings of earlier versions move into the stage table before
+        // the module counts as enabled; the code no longer reads them (#20).
+        require_once dol_buildpath('/mahnwesen/class/dunningmanager.class.php', 0);
+        $migration = new DunningManager($this->db);
+        if (!$migration->migrateStageSettings(isset($GLOBALS['user']) ? $GLOBALS['user'] : null)) {
+            $this->error = 'Unable to move the stage settings into the stage table: '.$migration->error;
+            dol_syslog(__METHOD__.' '.$this->error, LOG_ERR);
             return -1;
         }
 

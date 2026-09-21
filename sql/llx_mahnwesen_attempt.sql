@@ -12,7 +12,7 @@ CREATE TABLE llx_mahnwesen_attempt (
     cc TEXT,
     bcc TEXT,
     subject VARCHAR(255) NOT NULL,
-    body_html TEXT,
+    body_html MEDIUMTEXT,
     amount_invoice DOUBLE(24,8) DEFAULT 0 NOT NULL,
     amount_fee DOUBLE(24,8) DEFAULT 0 NOT NULL,
     amount_total DOUBLE(24,8) DEFAULT 0 NOT NULL,
@@ -30,5 +30,5 @@ CREATE TABLE llx_mahnwesen_attempt (
     resolved_at DATETIME,
     fk_user_create INTEGER,
     fk_user_resolve INTEGER,
-    tms TIMESTAMP
+    tms TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=innodb;

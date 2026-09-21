@@ -208,6 +208,20 @@ if ($stage === 'enabled') {
     exit(0);
 }
 
+if ($stage === 'legacy') {
+    // Cases and stage rows as an earlier version of the module makes them, with its own code (#23).
+    require_once dol_buildpath('/mahnwesen/class/dunningmanager.class.php', 0);
+    $manager = new DunningManager($db);
+    if (!$manager->ensureRuleRows($admin)) {
+        rt_fail('stage rows: '.$manager->error);
+    }
+    if ($manager->syncCases($admin) === false) {
+        rt_fail('synchronise: '.$manager->error);
+    }
+    print json_encode(array('legacy' => 1))."\n";
+    exit(0);
+}
+
 if ($stage === 'reset') {
     // After the upgrade test: back to a Dolibarr that never had the module, apart from its files.
     require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
@@ -232,4 +246,4 @@ if ($stage === 'reset') {
     exit(0);
 }
 
-rt_fail('unknown stage "'.$stage.'", use base, enabled or reset');
+rt_fail('unknown stage "'.$stage.'", use base, enabled, legacy or reset');
