@@ -33,6 +33,10 @@ MODULE_TABLES = ("mahnwesen_case", "mahnwesen_history", "mahnwesen_rule", "mahnw
 LANGS = Path(__file__).resolve().parents[2] / "langs"
 PHP_PROBLEM = re.compile(r"PHP (Fatal error|Parse error|Warning|Notice|Deprecated|Recoverable fatal error):"
                          r"\s*(.+?) in (/var/www/html/custom/mahnwesen/\S+) on line \d+")
+# An uncaught error raised in Dolibarr's code but called from module code: the
+# log line carries the stack trace with a literal backslash-n between frames.
+PHP_UNCAUGHT = re.compile(r"PHP (Fatal error|Recoverable fatal error):\s*(Uncaught .+?) in /\S+?:\d+\\nStack trace:"
+                          r".*?#\d+ /var/www/html/custom/mahnwesen/(\S+?)\(\d+\)")
 
 
 class CheckFailed(Exception):
@@ -202,6 +206,8 @@ def pdf_text(data: bytes) -> str:
 def page_ok(page: Page, what: str) -> Page:
     expect(page.status == 200, f"{what}: HTTP {page.status}")
     expect(not page.denied(), f"{what}: access denied")
+    # A PHP fatal error ends the page early and still answers HTTP 200.
+    expect("</html>" in page.text.lower(), f"{what}: the page ends early, PHP probably stopped: ...{page.text[-300:]!r}")
     problems = page.errors()
     expect(not problems, f"{what}: the page shows {', '.join(problems)}")
     return page
@@ -706,8 +712,11 @@ def automation(stack: Stack) -> str:
 def php_messages(stack: Stack) -> set:
     """PHP errors, warnings, notices and deprecations raised in module code."""
     found = set()
-    for match in PHP_PROBLEM.finditer(stack.log()):
+    log = stack.log()
+    for match in PHP_PROBLEM.finditer(log):
         found.add(f"{match.group(3).replace('/var/www/html/custom/mahnwesen/', '')}: {match.group(1)}: {match.group(2)}")
+    for match in PHP_UNCAUGHT.finditer(log):
+        found.add(f"{match.group(3)}: {match.group(1)}: {match.group(2)}")
     return found
 
 
@@ -1009,7 +1018,9 @@ def dry_run(stack: Stack) -> str:
     ready = sorted(ref for ref, decision in decisions.items() if decision == "send")
     expect(ready == [company["ref"]],
            f"the dry run should announce exactly the 1st dunning notice for {company['ref']} (paused until yesterday), "
-           f"announced {ready}; all decisions {decisions} (#16)")
+           f"announced {ready}; all decisions {decisions}; summary "
+           f"{html.unescape((re.search(r'id=.mahnwesen-dry-run-summary.>(.*?)</div>', result.text, re.S) or re.search('$^', '')).group(0) if re.search(r'id=.mahnwesen-dry-run-summary', result.text) else 'missing')!r}, "
+           f"{result.text.count('data-decision')} decision cells (#16)")
     paused = stack.value(f"SELECT paused FROM llx_mahnwesen_case WHERE rowid = {case}")
     expect(paused == "1" and runs() == str(int(before) + 1), "the dry run changed the case or wrote no run record (#16)")
 

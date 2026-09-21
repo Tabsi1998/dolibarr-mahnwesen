@@ -193,7 +193,7 @@ if ($user->hasRight('mahnwesen', 'automation', 'dryrun')) {
 
 if ($action === 'dry_run' && !empty($dryRunCounts)) {
     print load_fiche_titre($langs->trans('MahnwesenAutomaticDryRunResult'), '', 'debug');
-    print '<div class="info" id="mahnwesen-dry-run-summary">'.$langs->trans('MahnwesenDryRunSummary', $dryRunCounts['send'], $dryRunCounts['skip'], $dryRunCounts['fail'], $dryRunCounts['off'], $dryRunCounts['shown']).'</div>';
+    print '<div class="info" id="mahnwesen-dry-run-summary">'.$langs->trans('MahnwesenDryRunSummary', $dryRunCounts['send'], $dryRunCounts['skip'], $dryRunCounts['fail'], $dryRunCounts['off']).' '.$langs->trans('MahnwesenDryRunShown', $dryRunCounts['shown']).'</div>';
 }
 if (!empty($dryRunRows)) {
     print '<div class="div-table-responsive"><table class="tagtable liste centpercent"><tr class="liste_titre"><th>'.$langs->trans('Invoice').'</th><th>'.$langs->trans('ThirdParty').'</th><th>'.$langs->trans('DunningStage').'</th><th>'.$langs->trans('Decision').'</th><th>'.$langs->trans('Reason').'</th></tr>';
