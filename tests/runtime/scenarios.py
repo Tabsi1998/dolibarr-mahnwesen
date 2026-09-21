@@ -1184,7 +1184,9 @@ def invoice_view(stack: Stack) -> str:
            f"the invoice card should carry one dunning action, it links the composer {actions} time(s) or offers the PDF form (#56)")
     tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={overdue['id']}"), "dunning tab")
     shown = html.unescape(re.sub(r"<[^>]+>", " ", tab.text))
-    for code in ("TE_SMALL", "TE_PRIVATE", *translations("StoredOpenAmount"), *translations("CalculatedStage")):
+    # The wording before #56; its language keys are gone since #27.
+    old_wording = ("Gespeicherter Restbetrag", "Stored remaining amount", "Aktuell berechnete Mahnstufe", "Currently calculated stage")
+    for code in ("TE_SMALL", "TE_PRIVATE", *old_wording):
         expect(code not in shown, f"the dunning tab still shows {code!r} (#56)")
     expect(any(label in shown for label in translations("MahnwesenNextRequiredStage")),
            "the dunning tab does not name the next step (#56)")
