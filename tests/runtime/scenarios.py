@@ -263,7 +263,18 @@ def upload(stack: Stack, package: Path) -> list[str]:
         packaged = sorted(info.filename[len("mahnwesen/"):] for info in bundle.infolist() if not info.is_dir())
     expect(files == packaged, f"deployed files differ from {package.name}: "
                               f"missing {sorted(set(packaged) - set(files))[:5]}, extra {sorted(set(files) - set(packaged))[:5]}")
+    # PHP's opcode cache keeps serving the replaced files until it checks their
+    # dates again, every opcache.revalidate_freq seconds (2 in the images). An
+    # activation within that time ran the old descriptor and missed new settings.
+    time.sleep(opcache_revalidate_seconds(stack) + 1)
     return files
+
+
+def opcache_revalidate_seconds(stack: Stack) -> int:
+    if "opcache_freq" not in stack.notes:
+        completed = stack.shell("php -r \"echo ini_get('opcache.validate_timestamps') ? (int) ini_get('opcache.revalidate_freq') : 0;\"")
+        stack.notes["opcache_freq"] = int(completed.stdout.strip() or 0) if completed.returncode == 0 else 2
+    return stack.notes["opcache_freq"]
 
 
 # ------------------------------------------------------------------ scenarios
