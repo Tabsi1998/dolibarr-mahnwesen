@@ -76,7 +76,10 @@ trait DunningNoticeServicePdf
             // Reserve room for pdf_pagefoot just like standard Dolibarr models.
             $pdf->SetAutoPageBreak(true, max(24, $marginBottom + 14));
             if (method_exists($pdf, 'setPrintHeader')) { $pdf->setPrintHeader(false); $pdf->setPrintFooter(false); }
+            // The font Dolibarr's own models use for the output language (#25).
+            $pdf->SetFont(pdf_getPDFFont($outputlangs));
             $pdf->AddPage();
+            $this->addLetterhead($pdf, $invoice);
 
             $bodyStartY = $this->drawSpongeReminderHeader($pdf, $invoice, $level, $outputlangs, $pageWidth, $pageHeight, $marginLeft, $marginRight, $marginTop, !empty($context['contact_id']) ? (int) $context['contact_id'] : 0);
             $defaultFontSize = pdf_getPDFFontSize($outputlangs);
@@ -191,6 +194,37 @@ trait DunningNoticeServicePdf
      * @param string $body Rendered email HTML
      * @return string
      */
+    /**
+     * Draw the letterhead of Dolibarr's PDF setup (MAIN_ADD_PDF_BACKGROUND) on
+     * the page, as Dolibarr's invoice models do (#25).
+     *
+     * @param TCPDF $pdf PDF
+     * @param Facture $invoice Invoice
+     * @return bool Whether a letterhead was drawn
+     */
+    protected function addLetterhead($pdf, $invoice)
+    {
+        global $conf;
+        $background = getDolGlobalString('MAIN_ADD_PDF_BACKGROUND');
+        if ($background === '' || !method_exists($pdf, 'setSourceFile')) {
+            return false;
+        }
+        $dir = !empty($conf->mycompany->multidir_output[(int) $invoice->entity]) ? $conf->mycompany->multidir_output[(int) $invoice->entity] : $conf->mycompany->dir_output;
+        $file = $dir.'/'.$background;
+        if (!is_readable($file)) {
+            dol_syslog(__METHOD__.' letterhead '.$file.' is not readable', LOG_WARNING);
+            return false;
+        }
+        try {
+            $pdf->setSourceFile($file);
+            $pdf->useTemplate($pdf->importPage(1));
+            return true;
+        } catch (Throwable $e) {
+            dol_syslog(__METHOD__.' letterhead '.$file.' failed: '.$e->getMessage(), LOG_WARNING);
+            return false;
+        }
+    }
+
     protected function prepareBodyForPdf($body)
     {
         $body = (string) $body;
@@ -206,34 +240,9 @@ trait DunningNoticeServicePdf
         $body = preg_replace('~<(script|style)\b[^>]*>.*?</\1>~is', '', $body);
         $body = preg_replace('~<img\b[^>]*>~is', '', $body);
 
-        // Common email signatures often start after the closing salutation.
-        // Keep the salutation paragraph, but suppress large HTML signature
-        // blocks following it. This mirrors a business letter more closely.
-        $closings = array('Mit freundlichen Gr', 'Freundliche Gr', 'Kind regards', 'Best regards');
-        foreach ($closings as $closing) {
-            $pos = stripos($body, $closing);
-            if ($pos === false) { continue; }
-            // An email signature can be a table/div after the salutation or a
-            // chain of <br> tags. The printed letter already carries company
-            // identity in the Sponge header/footer, so keep the salutation but
-            // drop the email signature that follows it.
-            $candidates = array();
-            $endP = stripos($body, '</p>', $pos);
-            if ($endP !== false) { $candidates[] = $endP + 4; }
-            if (preg_match('~<br\s*/?>~i', substr($body, $pos), $m, PREG_OFFSET_CAPTURE)) {
-                $candidates[] = $pos + $m[0][1] + strlen($m[0][0]);
-            }
-            $lineEnd = strpos($body, "\n", $pos);
-            if ($lineEnd !== false) { $candidates[] = $lineEnd; }
-            if (!empty($candidates)) {
-                $cut = min($candidates);
-                $tail = substr($body, $cut);
-                if (trim(strip_tags($tail)) !== '' || preg_match('~<(table|div|img|br)\b~i', $tail)) {
-                    $body = substr($body, 0, $cut);
-                }
-            }
-            break;
-        }
+        // The letter ends where the template says so, not at a guessed
+        // salutation: that guess cut the company name after "Mit freundlichen
+        // Grüßen" (#25). Text after <!--MAHNWESEN_PDF_END--> stays in the email.
         return trim($body);
     }
 

@@ -7,6 +7,23 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-09-21
+
+Dunning letters that look like your invoices.
+
+### Fixed
+
+- The letter cut the email text after "Mit freundlichen Grüßen" and dropped
+  the company name the starter templates put there. The letter now ends only
+  where the template says so, with `<!--MAHNWESEN_PDF_END-->`; the text after
+  it stays in the email (#25).
+
+### Added
+
+- The letterhead of Dolibarr's PDF setup (*PDF background*) is drawn on the
+  dunning letter, as on the invoices, and the letter uses the font Dolibarr
+  uses for the customer's language (#25).
+
 ## [1.2.1] - 2026-09-21
 
 The code sorted by what it does. Nothing changes for users.
@@ -388,7 +405,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.2
 [1.2.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.1
 [1.2.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.0
 [1.1.4]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.4

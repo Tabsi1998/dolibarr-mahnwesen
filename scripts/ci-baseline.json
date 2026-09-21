@@ -5,10 +5,13 @@
   "phpstan": [
     "class/dunningmanager.history.trait.php: Property ActionComm::$extraparams (array<string, string>|string) does not accept array<string, int|string>.",
     "class/dunningnoticeservice.delivery.trait.php: Access to an undefined property CMailFile::$message_id.",
+    "class/dunningnoticeservice.pdf.trait.php: Call to an undefined method TCPDF::importPage().",
+    "class/dunningnoticeservice.pdf.trait.php: Call to an undefined method TCPDF::useTemplate().",
     "class/dunningnoticeservice.pdf.trait.php: Call to method AddPage() on an unknown class TCPDI.",
     "class/dunningnoticeservice.pdf.trait.php: Call to method SetAuthor() on an unknown class TCPDI.",
     "class/dunningnoticeservice.pdf.trait.php: Call to method SetAutoPageBreak() on an unknown class TCPDI.",
     "class/dunningnoticeservice.pdf.trait.php: Call to method SetCreator() on an unknown class TCPDI.",
+    "class/dunningnoticeservice.pdf.trait.php: Call to method SetFont() on an unknown class TCPDI.",
     "class/dunningnoticeservice.pdf.trait.php: Call to method SetMargins() on an unknown class TCPDI.",
     "class/dunningnoticeservice.pdf.trait.php: Call to method SetTitle() on an unknown class TCPDI.",
     "class/dunningnoticeservice.pdf.trait.php: Call to method setPrintFooter() on an unknown class TCPDI.",
