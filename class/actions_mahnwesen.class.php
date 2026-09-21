@@ -19,7 +19,7 @@ class ActionsMahnwesen extends CommonHookActions
     public $resprints = '';
     /** @var string */
     public $error = '';
-    /** @var array */
+    /** @var string[] */
     public $errors = array();
 
     public function __construct($db)

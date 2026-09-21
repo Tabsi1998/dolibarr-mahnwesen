@@ -7,6 +7,17 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-21
+
+The first release of milestone 1.2: the code is checked statically before
+the larger rebuild.
+
+### Fixed
+
+- Small findings of the new static analysis: the dunning tab printed the
+  empty return value of Dolibarr's banner function, and some documentation
+  comments named the wrong parameters or types (#31).
+
 ## [1.1.4] - 2026-09-21
 
 All settings of a stage in one place, and emails of any size.
@@ -356,7 +367,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.1.4...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.0
 [1.1.4]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.4
 [1.1.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.3
 [1.1.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.2
