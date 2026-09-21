@@ -645,7 +645,10 @@ def failure_reason(stack: Stack) -> str:
     company = invoice(stack, "company_overdue")
     browser = stack.browser()
     tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={company['id']}"), "invoice tab")
-    refused = browser.submit(form_with_action(tab, "skip_stage", "invoice tab"), {"skip_reason": ""})
+    ask = re.search(r'href="([^"]*invoice\.php\?id=\d+&amp;action=ask_skip[^"]*)"', tab.text)
+    expect(ask is not None, "the invoice tab offers no way to skip the stage")
+    dialog = page_ok(browser.get(html.unescape(ask.group(1))), "skip confirmation")
+    refused = browser.submit(form_with_action(dialog, "skip_stage", "skip confirmation"), {"skip_reason": "", "confirm": "yes"})
     expect(refused.status == 200, f"skipping without a reason answered HTTP {refused.status}")
     expect("A reason is required to skip a dunning stage." in html.unescape(refused.text),
            "skipping a stage without a reason fails without saying why")
@@ -1073,8 +1076,9 @@ def billing_role(stack: Stack) -> str:
     """Without a billing contact on the invoice, the customer's default billing contact is the recipient (#22)."""
     private = invoice(stack, "private_overdue")
     customer = stack.fixtures["customers"]["private"]
-    stack.sql("INSERT INTO llx_socpeople (entity, fk_soc, lastname, firstname, email, statut, datec) VALUES "
-              f"(1, {customer}, 'Payer', 'Paula', 'paula.payer@privat.test', 1, NOW())")
+    admin = stack.fixtures["users"]["admin"]
+    stack.sql("INSERT INTO llx_socpeople (entity, fk_soc, lastname, firstname, email, statut, datec, fk_user_creat) VALUES "
+              f"(1, {customer}, 'Payer', 'Paula', 'paula.payer@privat.test', 1, NOW(), {admin})")
     contact = stack.value("SELECT rowid FROM llx_socpeople WHERE email = 'paula.payer@privat.test'")
     role = stack.value("SELECT rowid FROM llx_c_type_contact WHERE element = 'facture' AND source = 'external' AND code = 'BILLING'")
     stack.sql("INSERT INTO llx_societe_contacts (entity, date_creation, fk_soc, fk_c_type_contact, fk_socpeople) "
