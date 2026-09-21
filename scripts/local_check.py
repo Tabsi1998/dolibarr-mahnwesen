@@ -912,6 +912,43 @@ def snapshot_step() -> Step:
 
 # ---------------------------------------------------------------- repository
 
+# Language keys whose names are put together at runtime from a prefix and a code.
+DYNAMIC_LANG_PREFIXES = ("DunningStage", "MahnwesenDryRunDecision_", "MahnwesenDryRunDetail_", "HistoryAction", "CustomerClass",
+                         "SyncResult", "MahnwesenFileStage", "MahnwesenHistoryResult")
+# Keys Dolibarr looks up for the module, and methods Dolibarr calls.
+DOLIBARR_LANG_KEYS = {"Mahnwesen", "ModuleMahnwesenName", "ModuleMahnwesenDesc", "ModuleMahnwesenDescLong"}
+DOLIBARR_METHODS = {"__construct", "init", "remove", "doScheduledJob", "addMoreActionsButtons", "emailElementlist", "addHtmlHeader"}
+
+
+def unused_code(context: Context) -> str:
+    """Language keys and PHP functions nothing uses (#27).
+
+    A key counts as used when its name appears quoted in PHP or JS, or starts
+    with one of DYNAMIC_LANG_PREFIXES. A function counts as used when it is
+    called somewhere besides its definition.
+    """
+    sources = [path for path in SNAPSHOT.rglob("*") if path.suffix in (".php", ".js")
+               and not {"tests", "langs", "scripts"} & set(path.relative_to(SNAPSHOT).parts)]
+    code = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in sources)
+    keys = [match.group(1) for line in (SNAPSHOT / "langs" / "de_DE" / "mahnwesen.lang").read_text(encoding="utf-8").splitlines()
+            if (match := re.match(r"^([A-Za-z0-9_]+)=", line))]
+    unused_keys = [key for key in keys if key not in DOLIBARR_LANG_KEYS and not key.startswith(DYNAMIC_LANG_PREFIXES)
+                   and not re.search(r"['\"]" + re.escape(key) + r"['\"]", code)]
+    unused_functions = []
+    for path in sources:
+        if path.suffix != ".php":
+            continue
+        for name in re.findall(r"\bfunction\s+(\w+)\s*\(", path.read_text(encoding="utf-8", errors="replace")):
+            uses = len(re.findall(r"(?:->|::|(?<![\w>$:]))" + re.escape(name) + r"\s*\(", code))
+            if name not in DOLIBARR_METHODS and uses <= 1:
+                unused_functions.append(f"{path.relative_to(SNAPSHOT).as_posix()}: {name}()")
+    problems = [f"language key {key}" for key in unused_keys] + unused_functions
+    if problems:
+        raise StepFailed(f"{len(problems)} unused:\n  " + "\n  ".join(problems[:40])
+                         + "\nRemove them, or add a prefix built at runtime to DYNAMIC_LANG_PREFIXES.")
+    return f"{len(keys)} language keys and every function in use"
+
+
 def repository_steps() -> list:
     return [
         Step("repository", "shell", "Every shell script parses", shell_scripts),
@@ -920,6 +957,7 @@ def repository_steps() -> list:
         Step("repository", "gitleaks-history", "Gitleaks over the history", gitleaks_history),
         Step("repository", "gitleaks-worktree", "Gitleaks over uncommitted and new files",
              gitleaks_worktree),
+        Step("repository", "unused", "No unused language keys or functions", unused_code, ("snapshot",)),
     ]
 
 

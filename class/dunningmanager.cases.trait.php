@@ -491,7 +491,7 @@ trait DunningManagerCases
         $this->db->free($res);
         $count = 0;
         foreach ($ids as $invoiceId) {
-            if ($this->setPaused($invoiceId, false, $user, 'Automatisch fortgesetzt: Pausenende erreicht', '', 'automatic')) {
+            if ($this->setPaused($invoiceId, false, $user, $GLOBALS['langs']->transnoentities('MahnwesenAutoResumedNote'), '', 'automatic')) {
                 $count++;
             } else {
                 $this->errors[] = 'Auto-resume invoice #'.$invoiceId.': '.$this->error;

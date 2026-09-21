@@ -106,7 +106,7 @@ function mw_attempts_can_view_invoice($db, $user, $invoice, &$socCache)
     return $manager->canSeeCustomer($user, (int) $invoice->socid);
 }
 
-llxHeader('', $langs->trans('MahnwesenSendAttempts'), '', '', 0, 0, '', '', '', 'mod-mahnwesen page-attempts');
+llxHeader('', $langs->trans('MahnwesenSendAttempts'), '', '', 0, 0, '', array('/mahnwesen/css/mahnwesen.css'), '', 'mod-mahnwesen page-attempts');
 print load_fiche_titre($langs->trans('MahnwesenSendAttempts'), '', 'email');
 print '<div class="info">'.$langs->trans('MahnwesenAttemptsHelp').'</div><br>';
 print '<div class="div-table-responsive"><table class="tagtable liste centpercent">';

@@ -64,6 +64,9 @@ $manager = new DunningManager($db);
 $maxScan = $manager->getMaxScan();
 $action = GETPOST('action', 'aZ09');
 $facid = GETPOSTINT('facid');
+// Scan figures exist only right after a synchronisation (#26).
+$diag = array();
+$showDiagnostics = false;
 
 if ($action === 'sync_cases') {
     if (!$user->hasRight('mahnwesen', 'case', 'write')) {
@@ -71,6 +74,8 @@ if ($action === 'sync_cases') {
     }
     try {
         $summary = $manager->syncCases($user, $maxScan);
+        $diag = $manager->diagnostics;
+        $showDiagnostics = true;
         if ($summary === false) {
             $messages = !empty($manager->errors) ? $manager->errors : array($manager->error ?: $langs->trans('SyncFailedUnknown'));
             setEventMessages($manager->error, $messages, 'errors');
@@ -107,14 +112,6 @@ if ($action === 'sync_cases') {
     }
 }
 
-$rows = $manager->scanDueInvoices($maxScan, $user);
-if ($rows === false) {
-    setEventMessages($manager->error, $manager->errors, 'errors');
-    $rows = array();
-} elseif (!empty($manager->errors)) {
-    setEventMessages('', $manager->errors, 'warnings');
-}
-$diag = $manager->diagnostics;
 $dryRunRows = array();
 $dryRunCounts = array();
 if ($action === 'dry_run') {
@@ -146,23 +143,74 @@ if ($action === 'dry_run') {
     }
 }
 
-$counts = array(0 => 0, 1 => 0, 2 => 0, 3 => 0, 4 => 0);
-$totalRemain = 0.0;
-foreach ($rows as $row) {
-    // Dashboard KPIs intentionally count the NEXT REQUIRED workflow step,
-    // not merely the calendar threshold. This prevents a 14-day overdue
-    // invoice from appearing as "1. Mahnung" while its unsent reminder is
-    // still the next legally/operationally required action.
-    $stage = isset($row['next_required_level']) ? (int) $row['next_required_level'] : (int) $row['stage'];
-    if (!isset($counts[$stage])) {
-        $counts[$stage] = 0;
-    }
-    $counts[$stage]++;
-    $totalRemain += (float) $row['remain_to_pay'];
-}
+// The list and the figures come from the stored cases (#26): no invoice is
+// loaded to show them. Sales representatives see their customers only.
+$scopeJoin = $user->hasRight('societe', 'client', 'voir') ? ''
+    : ' INNER JOIN '.MAIN_DB_PREFIX.'societe_commerciaux as sc ON sc.fk_soc = f.fk_soc AND sc.fk_user = '.((int) $user->id);
+$from = ' FROM '.MAIN_DB_PREFIX.'mahnwesen_case as c INNER JOIN '.MAIN_DB_PREFIX.'facture as f ON f.rowid = c.fk_facture'
+    .' INNER JOIN '.MAIN_DB_PREFIX.'societe as s ON s.rowid = f.fk_soc'.$scopeJoin
+    .' WHERE c.entity = '.((int) $conf->entity);
 
-llxHeader('', $langs->trans('MahnwesenDashboard'), '', '', 0, 0, '', '', '', 'mod-mahnwesen page-index');
+$figures = array('cases' => 0, 'amount' => 0.0, 'levels' => array(0 => 0, 1 => 0, 2 => 0, 3 => 0, 4 => 0));
+$resFigures = $db->query('SELECT c.current_level, COUNT(*) as n, SUM(c.remaining_amount) as amount'.$from." AND c.status = 'open' GROUP BY c.current_level");
+while ($resFigures && ($o = $db->fetch_object($resFigures))) {
+    $figures['cases'] += (int) $o->n;
+    $figures['amount'] += (float) $o->amount;
+    $figures['levels'][max(0, min(4, (int) $o->current_level))] += (int) $o->n;
+}
+if ($resFigures) { $db->free($resFigures); }
+
+$searchRef = trim(GETPOST('search_ref', 'alphanohtml'));
+$searchCompany = trim(GETPOST('search_company', 'alphanohtml'));
+$searchLevel = GETPOST('search_level', 'alpha');
+$searchStatus = GETPOST('search_status', 'aZ09') ?: 'active';
+if (GETPOST('button_removefilter_x', 'alpha') || GETPOST('button_removefilter', 'alpha')) {
+    $searchRef = $searchCompany = $searchLevel = '';
+    $searchStatus = 'active';
+}
+$sortfield = GETPOST('sortfield', 'aZ09comma');
+$sortorder = strtoupper(GETPOST('sortorder', 'aZ09comma')) === 'DESC' ? 'DESC' : 'ASC';
+$sortable = array('f.ref', 's.nom', 'f.date_lim_reglement', 'c.remaining_amount', 'c.current_level', 'c.next_action_at');
+if (!in_array($sortfield, $sortable, true)) { $sortfield = 'f.date_lim_reglement'; }
+$limit = GETPOSTINT('limit') > 0 ? GETPOSTINT('limit') : (int) $conf->liste_limit;
+$page = GETPOSTISSET('pageplusone') ? (GETPOSTINT('pageplusone') - 1) : GETPOSTINT('page');
+$page = max(0, (int) $page);
+$offset = $limit * $page;
+
+$where = '';
+if ($searchRef !== '') { $where .= natural_search('f.ref', $searchRef); }
+if ($searchCompany !== '') { $where .= natural_search('s.nom', $searchCompany); }
+if ($searchLevel !== '' && ctype_digit((string) $searchLevel)) { $where .= ' AND c.current_level = '.((int) $searchLevel); }
+$nowSql = "'".$db->escape($db->idate(dol_now()))."'";
+$statusFilters = array(
+    'active' => " AND c.status = 'open'",
+    'due' => " AND c.status = 'open' AND c.paused = 0 AND c.next_action_at IS NOT NULL AND c.next_action_at <= ".$nowSql,
+    'paused' => " AND c.status = 'open' AND c.paused = 1",
+    'closed' => " AND c.status IN ('closed', 'fee_open')",
+    'all' => '',
+);
+if (!isset($statusFilters[$searchStatus])) { $searchStatus = 'active'; }
+$where .= $statusFilters[$searchStatus];
+$param = '&search_status='.urlencode($searchStatus).($searchRef !== '' ? '&search_ref='.urlencode($searchRef) : '')
+    .($searchCompany !== '' ? '&search_company='.urlencode($searchCompany) : '').($searchLevel !== '' ? '&search_level='.urlencode($searchLevel) : '')
+    .($limit != $conf->liste_limit ? '&limit='.$limit : '');
+
+$total = 0;
+$resCount = $db->query('SELECT COUNT(*) as n'.$from.$where);
+if ($resCount && ($o = $db->fetch_object($resCount))) { $total = (int) $o->n; }
+if ($resCount) { $db->free($resCount); }
+$cases = array();
+$sqlList = 'SELECT c.rowid as case_id, c.fk_facture, c.current_level, c.paused, c.status, c.remaining_amount, c.next_action_at,'
+    .' f.ref, f.date_lim_reglement, f.fk_soc, s.nom as socname'.$from.$where
+    .' ORDER BY '.$sortfield.' '.$sortorder.', c.rowid ASC'.$db->plimit($limit, $offset);
+$resList = $db->query($sqlList);
+if (!$resList) { setEventMessages($db->lasterror(), null, 'errors'); }
+while ($resList && ($o = $db->fetch_object($resList))) { $cases[] = $o; }
+if ($resList) { $db->free($resList); }
+
+llxHeader('', $langs->trans('MahnwesenDashboard'), '', '', 0, 0, '', array('/mahnwesen/css/mahnwesen.css'), '', 'mod-mahnwesen page-index');
 print load_fiche_titre($langs->trans('MahnwesenDashboard'), '', 'bill');
+$form = new Form($db);
 
 print '<div class="info"><strong>'.$langs->trans('MahnwesenV04Mode').'</strong> - '.$langs->trans('MahnwesenV04DashboardIntro').'</div>';
 $autoEnabled = getDolGlobalInt('MAHNWESEN_AUTO_SEND_ENABLED', 0) > 0;
@@ -200,160 +248,104 @@ if (!empty($dryRunRows)) {
 
 print '<div class="fichecenter">';
 print '<table class="noborder centpercent">';
-print '<tr class="liste_titre">';
-print '<th>'.$langs->trans('Metric').'</th>';
-print '<th class="right">'.$langs->trans('Value').'</th>';
-print '</tr>';
-print '<tr class="oddeven"><td>'.$langs->trans('OverdueOpenInvoices').'</td><td class="right"><strong>'.count($rows).'</strong></td></tr>';
-print '<tr class="oddeven"><td>'.$langs->trans('OpenAmount').'</td><td class="right"><strong>'.price($totalRemain, 0, $langs, 1, -1, -1, $conf->currency).'</strong></td></tr>';
-print '<tr class="oddeven"><td>'.$langs->trans('MahnwesenNoWorkflowActionDue').'</td><td class="right">'.$counts[0].'</td></tr>';
-print '<tr class="oddeven"><td>'.$langs->trans('DunningStage1').'</td><td class="right">'.$counts[1].'</td></tr>';
-print '<tr class="oddeven"><td>'.$langs->trans('DunningStage2').'</td><td class="right">'.$counts[2].'</td></tr>';
-print '<tr class="oddeven"><td>'.$langs->trans('DunningStage3').'</td><td class="right">'.$counts[3].'</td></tr>';
-print '<tr class="oddeven"><td>'.$langs->trans('DunningStage4').'</td><td class="right">'.$counts[4].'</td></tr>';
-print '</table>';
-print '</div><br>';
-
-// Diagnostic section: deliberately visible in v0.1.1 so we can identify why an invoice is excluded.
-print load_fiche_titre($langs->trans('ScanDiagnostics'), '', 'debug');
-print '<div class="opacitymedium">'.$langs->trans('ScanDiagnosticsHelp').'</div>';
-print '<div class="div-table-responsive">';
-print '<table class="noborder centpercent">';
-print '<tr class="liste_titre"><th>'.$langs->trans('DiagnosticCheck').'</th><th class="right">'.$langs->trans('Value').'</th></tr>';
-
-$diagnosticRows = array(
-    'all_invoices_entity' => 'DiagAllInvoicesEntity',
-    'validated_status1' => 'DiagValidatedStatus1',
-    'validated_no_due_date' => 'DiagValidatedNoDueDate',
-    'validated_due_today_or_future' => 'DiagValidatedFutureDue',
-    'validated_overdue_raw' => 'DiagValidatedOverdueRaw',
-    'scanned_candidates' => 'DiagScannedCandidates',
-    'excluded_type' => 'DiagExcludedType',
-    'excluded_no_balance' => 'DiagExcludedNoBalance',
-    'excluded_below_minimum' => 'DiagExcludedBelowMinimum',
-    'excluded_invalid_due_date' => 'DiagExcludedInvalidDue',
-    'excluded_fetch_error' => 'DiagExcludedFetchError',
-    'included' => 'DiagIncluded',
-);
-foreach ($diagnosticRows as $key => $labelKey) {
-    $value = isset($diag[$key]) ? (int) $diag[$key] : 0;
-    print '<tr class="oddeven"><td>'.$langs->trans($labelKey).'</td><td class="right">'.$value.'</td></tr>';
-}
-print '</table>';
-print '</div>';
-
-$rawOverdue = isset($diag['validated_overdue_raw']) ? (int) $diag['validated_overdue_raw'] : 0;
-$excludedType = isset($diag['excluded_type']) ? (int) $diag['excluded_type'] : 0;
-$excludedNoBalance = isset($diag['excluded_no_balance']) ? (int) $diag['excluded_no_balance'] : 0;
-$excludedBelow = isset($diag['excluded_below_minimum']) ? (int) $diag['excluded_below_minimum'] : 0;
-if ($rawOverdue === 0) {
-    print '<br><div class="warning">'.$langs->trans('DiagHintNoRawOverdue').'</div>';
-} elseif (empty($rows) && $excludedType > 0) {
-    print '<br><div class="warning">'.$langs->trans('DiagHintTypesExcluded', $excludedType).'</div>';
-} elseif (empty($rows) && ($excludedNoBalance > 0 || $excludedBelow > 0)) {
-    print '<br><div class="warning">'.$langs->trans('DiagHintBalanceExcluded', $excludedNoBalance, $excludedBelow).'</div>';
-}
-
-print '<br>'.load_fiche_titre($langs->trans('CandidateTypes'), '', '');
-print '<div class="div-table-responsive">';
-print '<table class="noborder centpercent">';
-print '<tr class="liste_titre"><th>'.$langs->trans('InvoiceType').'</th><th class="right">'.$langs->trans('OverdueCandidatesInScan').'</th><th>'.$langs->trans('Handling').'</th></tr>';
-$typeRows = array(
-    'type_standard' => array('InvoiceTypeStandard', 1),
-    'type_replacement' => array('InvoiceTypeReplacement', 1),
-    'type_credit_note' => array('InvoiceTypeCreditNote', 0),
-    'type_deposit' => array('InvoiceTypeDeposit', $manager->includeDepositInvoices() ? 1 : 0),
-    'type_proforma' => array('InvoiceTypeProforma', 0),
-    'type_situation' => array('InvoiceTypeSituation', 1),
-    'type_other' => array('InvoiceTypeOther', 0),
-);
-foreach ($typeRows as $key => $typeData) {
-    $value = isset($diag[$key]) ? (int) $diag[$key] : 0;
-    print '<tr class="oddeven"><td>'.$langs->trans($typeData[0]).'</td><td class="right">'.$value.'</td><td>'.($typeData[1] ? $langs->trans('Included') : $langs->trans('Excluded')).'</td></tr>';
+print '<tr class="liste_titre"><th>'.$langs->trans('Metric').'</th><th class="right">'.$langs->trans('Value').'</th></tr>';
+print '<tr class="oddeven"><td>'.$langs->trans('OverdueOpenInvoices').'</td><td class="right"><strong>'.$figures['cases'].'</strong></td></tr>';
+print '<tr class="oddeven"><td>'.$langs->trans('OpenAmount').'</td><td class="right"><strong>'.price($figures['amount'], 0, $langs, 1, -1, -1, $conf->currency).'</strong></td></tr>';
+for ($level = 0; $level <= 4; $level++) {
+    print '<tr class="oddeven"><td>'.$langs->trans($level > 0 ? 'DunningStage'.$level : 'MahnwesenNoWorkflowActionDue').'</td><td class="right">'.$figures['levels'][$level].'</td></tr>';
 }
 print '</table>';
 print '</div><br>';
 
-print load_fiche_titre($langs->trans('OverdueInvoices'), '', '');
-print '<div class="div-table-responsive">';
-print '<table class="tagtable liste centpercent">';
-print '<tr class="liste_titre">';
-print '<th>'.$langs->trans('Invoice').'</th>';
-print '<th>'.$langs->trans('ThirdParty').'</th>';
-print '<th>'.$langs->trans('DateInvoice').'</th>';
-print '<th>'.$langs->trans('DateDue').'</th>';
-print '<th class="right">'.$langs->trans('DaysOverdue').'</th>';
-print '<th class="right">'.$langs->trans('AmountTTC').'</th>';
-print '<th class="right">'.$langs->trans('RemainToPay').'</th>';
-print '<th>'.$langs->trans('MahnwesenCalendarStage').'</th>';
-print '<th>'.$langs->trans('MahnwesenNextRequiredStage').'</th>';
-print '<th>'.$langs->trans('DunningCase').'</th>';
-print '<th class="center">'.$langs->trans('Actions').'</th>';
-print '</tr>';
-
-if (empty($rows)) {
-    print '<tr class="oddeven"><td colspan="11"><span class="opacitymedium">'.$langs->trans('NoOverdueInvoiceFound').'</span></td></tr>';
-} else {
-    foreach ($rows as $row) {
-        $invoiceUrl = DOL_URL_ROOT.'/compta/facture/card.php?facid='.((int) $row['invoice_id']);
-        $socUrl = DOL_URL_ROOT.'/societe/card.php?socid='.((int) $row['socid']);
-        print '<tr class="oddeven">';
-        print '<td><a href="'.dol_escape_htmltag($invoiceUrl).'">'.dol_escape_htmltag($row['invoice_ref']).'</a></td>';
-        print '<td><a href="'.dol_escape_htmltag($socUrl).'">'.dol_escape_htmltag($row['socname']).'</a></td>';
-        print '<td>'.dol_print_date($row['invoice_date'], 'day').'</td>';
-        print '<td>'.dol_print_date($row['due_date'], 'day').'</td>';
-        print '<td class="right">'.((int) $row['days_late']).'</td>';
-        print '<td class="right">'.price($row['total_ttc'], 0, $langs, 1, -1, -1, $conf->currency).'</td>';
-        print '<td class="right"><strong>'.price($row['remain_to_pay'], 0, $langs, 1, -1, -1, $conf->currency).'</strong></td>';
-        print '<td><span class="opacitymedium">'.$langs->trans($row['stage_key']).'</span></td>';
-        print '<td>';
-        $requiredLevel = isset($row['next_required_level']) ? (int) $row['next_required_level'] : 0;
-        if ($requiredLevel > 0) {
-            print '<span class="badge badge-status4"><strong>'.$langs->trans($manager->getStageLabelKey($requiredLevel)).'</strong></span>';
-            if (!empty($row['next_required_at']) && ((int) $db->jdate($row['next_required_at'])) > dol_now()) {
-                print '<br><span class="opacitymedium">'.$langs->trans('MahnwesenStageAvailableAt', dol_print_date($db->jdate($row['next_required_at']), 'day')).'</span>';
-            }
-        } elseif (!empty($row['next_future_level']) && !empty($row['next_future_at'])) {
-            print '<span class="opacitymedium">'.$langs->trans('MahnwesenWaitingForFutureStage', dol_print_date($db->jdate($row['next_future_at']), 'day')).'</span>';
-        } else {
-            print '<span class="opacitymedium">'.$langs->trans('MahnwesenWorkflowComplete').'</span>';
-        }
-        print '</td>';
-        $caseUrl = dol_buildpath('/mahnwesen/invoice.php?id='.((int) $row['invoice_id']), 1);
-        print '<td>';
-        if (!empty($row['case_id'])) {
-            print '<a href="'.dol_escape_htmltag($caseUrl).'">';
-            if (!empty($row['paused'])) {
-                print '<span class="badge badge-status0">'.$langs->trans('Paused').'</span>';
-            } else {
-                print '<span class="badge badge-status4">'.$langs->trans('CaseActive').'</span>';
-            }
-            print '</a>';
-            $lastCompleted = isset($row['highest_completed_level']) ? (int) $row['highest_completed_level'] : 0;
-            print '<br><span class="opacitymedium">'.$langs->trans('MahnwesenLastCompletedStage').': '.($lastCompleted > 0 ? $langs->trans($manager->getStageLabelKey($lastCompleted)) : $langs->trans('MahnwesenNoneYet')).'</span>';
-        } else {
-            print '<a href="'.dol_escape_htmltag($caseUrl).'" class="opacitymedium">'.$langs->trans('CaseNotCreated').'</a>';
-        }
-        print '</td>';
-        print '<td class="center nowrap">';
-        if ($user->hasRight('mahnwesen', 'case', 'write') && !empty($row['case_id'])) {
-            print '<form method="POST" action="'.$_SERVER['PHP_SELF'].'" style="display:inline" onsubmit="var b=this.querySelector(\'input[type=submit]\'); if(b){b.disabled=true;}">';
-            print '<input type="hidden" name="token" value="'.newToken().'">';
-            print '<input type="hidden" name="facid" value="'.((int) $row['invoice_id']).'">';
-            print '<input type="hidden" name="action" value="'.(!empty($row['paused']) ? 'resume_case' : 'pause_case').'">';
-            print '<input type="submit" class="button small" value="'.dol_escape_htmltag($langs->trans(!empty($row['paused']) ? 'Resume' : 'Pause')).'">';
-            print '</form>';
-        }
-        print '</td>';
-        print '</tr>';
+if ($showDiagnostics) {
+    // What the synchronisation just scanned, and why invoices were left out.
+    print '<details class="marginbottomonly"><summary>'.$langs->trans('ScanDiagnostics').'</summary>';
+    print '<div class="opacitymedium">'.$langs->trans('ScanDiagnosticsHelp').'</div>';
+    print '<div class="div-table-responsive"><table class="noborder centpercent">';
+    print '<tr class="liste_titre"><th>'.$langs->trans('DiagnosticCheck').'</th><th class="right">'.$langs->trans('Value').'</th></tr>';
+    $diagnosticRows = array(
+        'all_invoices_entity' => 'DiagAllInvoicesEntity',
+        'validated_status1' => 'DiagValidatedStatus1',
+        'validated_no_due_date' => 'DiagValidatedNoDueDate',
+        'validated_due_today_or_future' => 'DiagValidatedFutureDue',
+        'validated_overdue_raw' => 'DiagValidatedOverdueRaw',
+        'scanned_candidates' => 'DiagScannedCandidates',
+        'excluded_type' => 'DiagExcludedType',
+        'excluded_no_balance' => 'DiagExcludedNoBalance',
+        'excluded_below_minimum' => 'DiagExcludedBelowMinimum',
+        'excluded_invalid_due_date' => 'DiagExcludedInvalidDue',
+        'excluded_fetch_error' => 'DiagExcludedFetchError',
+        'included' => 'DiagIncluded',
+    );
+    foreach ($diagnosticRows as $key => $labelKey) {
+        print '<tr class="oddeven"><td>'.$langs->trans($labelKey).'</td><td class="right">'.(isset($diag[$key]) ? (int) $diag[$key] : 0).'</td></tr>';
     }
+    print '</table></div>';
+    if (isset($diag['scanned_candidates'], $diag['validated_overdue_raw']) && (int) $diag['scanned_candidates'] < (int) $diag['validated_overdue_raw']) {
+        print '<div class="warning">'.$langs->trans('ScanLimitReachedRaw', $maxScan, (int) $diag['validated_overdue_raw']).'</div>';
+    }
+    print '</details>';
 }
-print '</table>';
-print '</div>';
 
-if (isset($diag['scanned_candidates']) && isset($diag['validated_overdue_raw']) && (int) $diag['scanned_candidates'] < (int) $diag['validated_overdue_raw']) {
-    print '<br><div class="warning">'.$langs->trans('ScanLimitReachedRaw', $maxScan, (int) $diag['validated_overdue_raw']).'</div>';
+// The cases as a standard Dolibarr list: filters, sorting, pages (#26).
+print '<form method="GET" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'" id="mahnwesen-case-list">';
+print '<input type="hidden" name="sortfield" value="'.dol_escape_htmltag($sortfield).'"><input type="hidden" name="sortorder" value="'.dol_escape_htmltag($sortorder).'">';
+print_barre_liste($langs->trans('DunningCases'), $page, $_SERVER['PHP_SELF'], $param, $sortfield, $sortorder, '', count($cases), $total, 'bill', 0, '', '', $limit);
+print '<div class="div-table-responsive"><table class="tagtable liste centpercent">';
+$statusOptions = array('active' => 'MahnwesenListActive', 'due' => 'MahnwesenListDue', 'paused' => 'Paused', 'closed' => 'CaseClosed', 'all' => 'All');
+print '<tr class="liste_titre_filter">';
+print '<td class="liste_titre"><input class="flat maxwidth100" type="text" name="search_ref" value="'.dol_escape_htmltag($searchRef).'"></td>';
+print '<td class="liste_titre"><input class="flat maxwidth150" type="text" name="search_company" value="'.dol_escape_htmltag($searchCompany).'"></td>';
+print '<td class="liste_titre"></td><td class="liste_titre"></td><td class="liste_titre"></td>';
+print '<td class="liste_titre"><select class="flat" name="search_level"><option value=""></option>';
+for ($level = 0; $level <= 4; $level++) {
+    print '<option value="'.$level.'"'.((string) $searchLevel === (string) $level ? ' selected' : '').'>'.$langs->trans($level > 0 ? 'DunningStage'.$level : 'DunningStageNone').'</option>';
 }
+print '</select></td><td class="liste_titre"></td>';
+print '<td class="liste_titre"><select class="flat" name="search_status">';
+foreach ($statusOptions as $value => $labelKey) {
+    print '<option value="'.$value.'"'.($searchStatus === $value ? ' selected' : '').'>'.$langs->trans($labelKey).'</option>';
+}
+print '</select></td>';
+print '<td class="liste_titre center">'.$form->showFilterButtons().'</td></tr>';
+print '<tr class="liste_titre">';
+print_liste_field_titre('Invoice', $_SERVER['PHP_SELF'], 'f.ref', '', $param, '', $sortfield, $sortorder);
+print_liste_field_titre('ThirdParty', $_SERVER['PHP_SELF'], 's.nom', '', $param, '', $sortfield, $sortorder);
+print_liste_field_titre('DateDue', $_SERVER['PHP_SELF'], 'f.date_lim_reglement', '', $param, '', $sortfield, $sortorder);
+print_liste_field_titre('DaysOverdue', $_SERVER['PHP_SELF'], '', '', $param, '', $sortfield, $sortorder, 'right ');
+print_liste_field_titre('RemainToPay', $_SERVER['PHP_SELF'], 'c.remaining_amount', '', $param, '', $sortfield, $sortorder, 'right ');
+print_liste_field_titre('MahnwesenCalendarStage', $_SERVER['PHP_SELF'], 'c.current_level', '', $param, '', $sortfield, $sortorder);
+print_liste_field_titre('NextAction', $_SERVER['PHP_SELF'], 'c.next_action_at', '', $param, '', $sortfield, $sortorder);
+print_liste_field_titre('Status', $_SERVER['PHP_SELF'], '', '', $param, '', $sortfield, $sortorder);
+print_liste_field_titre('', $_SERVER['PHP_SELF'], '', '', $param, '', $sortfield, $sortorder, 'center ');
+print '</tr>';
+if (empty($cases)) {
+    print '<tr class="oddeven"><td colspan="9"><span class="opacitymedium">'.$langs->trans('NoOverdueInvoiceFound').'</span></td></tr>';
+}
+$today = dol_now();
+foreach ($cases as $case) {
+    $due = $db->jdate($case->date_lim_reglement);
+    $caseUrl = dol_buildpath('/mahnwesen/invoice.php?id='.((int) $case->fk_facture), 1);
+    print '<tr class="oddeven" data-case="'.((int) $case->case_id).'">';
+    print '<td class="nowraponall"><a href="'.dol_escape_htmltag($caseUrl).'">'.dol_escape_htmltag($case->ref).'</a></td>';
+    print '<td class="tdoverflowmax200"><a href="'.dol_escape_htmltag(DOL_URL_ROOT.'/societe/card.php?socid='.((int) $case->fk_soc)).'">'.dol_escape_htmltag($case->socname).'</a></td>';
+    print '<td>'.dol_print_date($due, 'day').'</td>';
+    print '<td class="right">'.($due ? max(0, (int) floor(($today - $due) / 86400)) : '').'</td>';
+    print '<td class="right"><strong>'.price((float) $case->remaining_amount, 0, $langs, 1, -1, -1, $conf->currency).'</strong></td>';
+    print '<td>'.$langs->trans((int) $case->current_level > 0 ? 'DunningStage'.((int) $case->current_level) : 'DunningStageNone').'</td>';
+    print '<td>'.(!empty($case->next_action_at) ? dol_print_date($db->jdate($case->next_action_at), 'day') : '').'</td>';
+    if ($case->status !== 'open') {
+        print '<td><span class="badge badge-status0">'.$langs->trans($case->status === 'fee_open' ? 'MahnwesenCaseFeeOpen' : 'CaseClosed').'</span></td>';
+    } else {
+        print '<td><span class="badge '.(!empty($case->paused) ? 'badge-status1">'.$langs->trans('Paused') : 'badge-status4">'.$langs->trans('CaseActive')).'</span></td>';
+    }
+    print '<td class="center nowrap">';
+    if ($user->hasRight('mahnwesen', 'case', 'write') && $case->status === 'open') {
+        print '<a class="button smallpaddingimp" href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?action='.(!empty($case->paused) ? 'resume_case' : 'pause_case').'&facid='.((int) $case->fk_facture).'&token='.newToken()).'">'.$langs->trans(!empty($case->paused) ? 'Resume' : 'Pause').'</a>';
+    }
+    print '</td></tr>';
+}
+print '</table></div></form>';
 
 print '<br><div class="opacitymedium">'.$langs->trans('MahnwesenV04SafetyFooter').'</div>';
 llxFooter();

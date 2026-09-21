@@ -62,6 +62,42 @@ class ActionsMahnwesen extends CommonHookActions
      * @param HookManager $hookmanager Hook manager
      * @return int
      */
+    public function addHtmlHeader($parameters, &$object, &$action, $hookmanager)
+    {
+        global $langs;
+        // Only Dolibarr's email template page needs the variable help (#27),
+        // in the user's language (#28).
+        if (!preg_match('#/admin/mails_templates\.php$#', (string) ($_SERVER['PHP_SELF'] ?? ''))) {
+            return 0;
+        }
+        $langs->load('mahnwesen@mahnwesen');
+        $tokens = array(
+            '__MAHNWESEN_STAGE__' => 'MahnwesenTokenStageDesc',
+            '__MAHNWESEN_OPEN_AMOUNT__' => 'MahnwesenTokenOpenAmountDesc',
+            '__MAHNWESEN_FEE__' => 'MahnwesenTokenFeeDesc',
+            '__MAHNWESEN_TOTAL__' => 'MahnwesenTokenTotalDesc',
+            '__MAHNWESEN_CUSTOMER_CLASS__' => 'MahnwesenTokenCustomerClassDesc',
+            '__MAHNWESEN_NEXT_STAGE_DATE__' => 'MahnwesenTokenNextStageDesc',
+            '__MAHNWESEN_FEE_PARAGRAPH__' => 'MahnwesenTokenFeeParagraphDesc',
+            '__MAHNWESEN_PAYMENT_DEADLINE__' => 'MahnwesenTokenPaymentDeadlineDesc',
+            '__MAHNWESEN_PAYMENT_DAYS__' => 'MahnwesenTokenPaymentDaysDesc',
+            '{INVOICE_REF}' => 'MahnwesenTokenInvoiceRefDesc',
+            '{CUSTOMER_NAME}' => 'MahnwesenTokenCustomerNameDesc',
+            '{INVOICE_DATE}' => 'MahnwesenTokenInvoiceDateDesc',
+            '{DUE_DATE}' => 'MahnwesenTokenDueDateDesc',
+            '{TODAY}' => 'MahnwesenTokenTodayDesc',
+            '{COMPANY_NAME}' => 'MahnwesenTokenCompanyNameDesc',
+        );
+        $help = array('title' => $langs->transnoentities('MahnwesenTemplateVariables'), 'hint' => $langs->transnoentities('MahnwesenTemplateVariablesHint'),
+            'copy' => $langs->transnoentities('MahnwesenTemplateVariableCopy'), 'tokens' => array());
+        foreach ($tokens as $token => $key) {
+            $help['tokens'][] = array($token, $langs->transnoentities($key));
+        }
+        $this->resprints = '<script>window.mahnwesenTemplateHelp = '.json_encode($help, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE).';</script>'
+            .'<script src="'.dol_escape_htmltag(dol_buildpath('/mahnwesen/js/mahnwesen-emailtemplates.js', 1)).'"></script>';
+        return 0;
+    }
+
     public function addMoreActionsButtons($parameters, &$object, &$action, $hookmanager)
     {
         global $langs, $user;

@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '1.2.2';
+        $this->version = '1.2.3';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -50,12 +50,10 @@ class modMahnwesen extends DolibarrModules
             'models' => 0,
             'printing' => 0,
             'theme' => 0,
-            'css' => array('/mahnwesen/css/mahnwesen.css'),
-            'js' => array('/mahnwesen/js/mahnwesen-emailtemplates.js'),
-            // Dolibarr 21+ accepts the simple string-list form for hook contexts.
-            // Using the direct form avoids an activation-format ambiguity seen
-            // with some external-module installations.
-            'hooks' => array('emailtemplates', 'invoicecard'),
+            // CSS comes with the module's own pages, the template help with
+            // Dolibarr's email template page only (addHtmlHeader), not with
+            // every Dolibarr page (#27).
+            'hooks' => array('emailtemplates', 'invoicecard', 'main'),
             'moduleforexternal' => 0,
         );
 
@@ -79,7 +77,6 @@ class modMahnwesen extends DolibarrModules
         // so an update never resumes unattended mail. Manual sending is asked
         // for per notice anyway and keeps the administrator's choice (#54).
         $this->const = array(
-            1 => array('MAHNWESEN_MODE', 'chaine', 'controlled', 'Mahnwesen runtime mode', 0, 'current', 0),
             6 => array('MAHNWESEN_MIN_AMOUNT', 'chaine', '1.00', 'Minimum remaining amount to include', 0, 'current', 0),
             7 => array('MAHNWESEN_MAX_SCAN', 'chaine', '500', 'Maximum invoices scanned per run', 0, 'current', 0),
             8 => array('MAHNWESEN_INCLUDE_DEPOSITS', 'chaine', '0', 'Include deposit invoices in dunning scan', 0, 'current', 0),
@@ -231,12 +228,11 @@ class modMahnwesen extends DolibarrModules
             // Conf::setValues() exposes MAIN_MODULE_*_HOOKS through
             // $conf->modules_parts['hooks']. The plain context string is also
             // supported by Dolibarr's backward-compatible hook loader.
-            dolibarr_set_const($this->db, 'MAIN_MODULE_MAHNWESEN_HOOKS', json_encode(array('emailtemplates', 'invoicecard')), 'chaine', 0, '', $conf->entity);
-            dolibarr_set_const($this->db, 'MAIN_MODULE_MAHNWESEN_JS', json_encode(array('/mahnwesen/js/mahnwesen-emailtemplates.js')), 'chaine', 0, '', $conf->entity);
+            dolibarr_set_const($this->db, 'MAIN_MODULE_MAHNWESEN_HOOKS', json_encode(array('emailtemplates', 'invoicecard', 'main')), 'chaine', 0, '', $conf->entity);
             // Keep the current request coherent too; the next request will reload
             // the same values from llx_const.
             if (!isset($conf->modules_parts['hooks']) || !is_array($conf->modules_parts['hooks'])) { $conf->modules_parts['hooks'] = array(); }
-            $conf->modules_parts['hooks']['mahnwesen'] = array('emailtemplates', 'invoicecard');
+            $conf->modules_parts['hooks']['mahnwesen'] = array('emailtemplates', 'invoicecard', 'main');
 
             // Migrate only templates that were created by Mahnwesen 0.4.0 under
             // the former single technical type. No user/core templates outside
