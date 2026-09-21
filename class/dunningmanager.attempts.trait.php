@@ -1,216 +1,7 @@
 <?php
-/* Auto-split method trait for maintainable source files. */
-trait DunningManagerMethods3
+/* Delivery attempts: reserve, record files, finalise, resolve. */
+trait DunningManagerAttempts
 {
-
-    /**
-     * Calendar state + sequential workflow state for one invoice.
-     *
-     * With $simulate the case is taken as the daily synchronisation would
-     * leave it, without writing: a missing case is new, a case that is not
-     * open opens again, a pause whose date has passed ends (#16).
-     */
-    public function getWorkflowState($invoiceId, $simulate = false)
-    {
-        $evaluation = $this->evaluateInvoice((int) $invoiceId);
-        if ($evaluation === false) { return false; }
-        $case = $this->getCaseByInvoice((int) $invoiceId);
-        if ($simulate && !empty($evaluation['eligible'])) {
-            if (!$case) {
-                $case = array('id' => 0, 'invoice_id' => (int) $invoiceId, 'status' => 'open', 'paused' => 0,
-                    'current_level' => (int) $evaluation['row']['stage'], 'remaining_amount' => (float) $evaluation['remain_to_pay']);
-            } elseif ($case['status'] !== 'open') {
-                $case['status'] = 'open';
-            }
-            if (!empty($case['paused']) && !empty($case['id']) && $this->isPauseExpired((int) $case['id'])) {
-                $case['paused'] = 0;
-            }
-        }
-        $calculated = !empty($evaluation['eligible']) ? (int) $evaluation['row']['stage'] : 0;
-        $caseId = $case ? (int) $case['id'] : 0;
-        $required = $this->getNextRequiredLevel($caseId, $calculated);
-        $future = $this->getNextFutureLevel($calculated);
-        $dueYmd = !empty($evaluation['row']['due_ymd']) ? (string) $evaluation['row']['due_ymd'] : '';
-        $requiredAt = $required > 0 ? $this->calculateWorkflowStageDueAt($caseId, $dueYmd, $required) : null;
-        $futureAt = $future > 0 ? $this->calculateWorkflowStageDueAt($caseId, $dueYmd, $future) : null;
-        $requiredReached = ($requiredAt === null || ((int) $this->db->jdate($requiredAt)) <= dol_now());
-        return array(
-            'evaluation' => $evaluation,
-            'case' => $case,
-            'calculated_level' => $calculated,
-            'next_required_level' => $required,
-            'next_future_level' => $future,
-            'completed_levels' => $this->getCompletedLevels($caseId),
-            'required_at' => $requiredAt,
-            'future_at' => $futureAt,
-            'actionable' => ($case && $case['status'] === 'open' && empty($case['paused']) && !empty($evaluation['eligible']) && $required > 0 && $requiredReached) ? 1 : 0,
-        );
-    }
-
-    /**
-     * Mirror module audit history into Dolibarr Agenda. The module table remains
-     * the workflow source of truth; ActionComm is an idempotent user-facing
-     * projection linked to the customer invoice.
-     */
-    public function syncHistoryToAgenda($invoiceId, $fallbackUser = null, $limit = 250)
-    {
-        global $langs, $conf;
-        if (!isModEnabled('agenda')) { return 0; }
-        require_once DOL_DOCUMENT_ROOT.'/comm/action/class/actioncomm.class.php';
-        $invoice = new Facture($this->db);
-        if ($invoice->fetch((int) $invoiceId) <= 0) { return 0; }
-        $invoice->fetch_thirdparty();
-        $history = $this->getHistoryByInvoice((int) $invoiceId, max(1, min(1000, (int) $limit)));
-        if (empty($history)) { return 0; }
-        $history = array_reverse($history);
-        $created = 0;
-        foreach ($history as $row) {
-            if ((string) $row['action'] === 'notice_sending' && (string) $row['result'] === 'pending') { continue; }
-            $refExt = 'mahnwesen-history-'.((int) $row['id']);
-            $sql = 'SELECT id FROM '.MAIN_DB_PREFIX."actioncomm WHERE ref_ext = '".$this->db->escape($refExt)."'".$this->db->plimit(1);
-            $res = $this->db->query($sql);
-            if ($res) {
-                $exists = (bool) $this->db->fetch_object($res);
-                $this->db->free($res);
-                if ($exists) { continue; }
-            }
-            $actor = null;
-            if (!empty($row['fk_user_create'])) {
-                $tmpuser = new User($this->db);
-                if ($tmpuser->fetch((int) $row['fk_user_create']) > 0) { $actor = $tmpuser; }
-            }
-            if (!$actor && $fallbackUser instanceof User) { $actor = $fallbackUser; }
-            if (!$actor) { $actor = new User($this->db); $actor->id = 0; }
-            $event = new ActionComm($this->db);
-            $event->type_code = 'AC_OTH_AUTO';
-            $event->code = 'AC_OTH_AUTO';
-            $event->label = $this->getAgendaLabelForHistory($row);
-            $event->note_private = $this->getAgendaNoteForHistory($row);
-            $event->datep = !empty($row['date_creation']) ? $this->db->jdate($row['date_creation']) : dol_now();
-            $event->datef = $event->datep;
-            $event->percentage = ActionComm::EVENT_FINISHED;
-            $event->userownerid = isset($actor->id) ? (int) $actor->id : 0;
-            $event->socid = (int) $invoice->socid;
-            $event->elementid = (int) $invoice->id;
-            $event->fk_element = (int) $invoice->id;
-            $event->elementtype = 'facture';
-            $event->ref_ext = $refExt;
-            $event->extraparams = array('mahnwesen_history_id' => (int) $row['id'], 'mahnwesen_action' => (string) $row['action']);
-            if (!empty($row['recipient'])) { $event->email_to = (string) $row['recipient']; }
-            $mailMeta = $this->getHistoryMailMetadata((string) $row['message']);
-            if (property_exists($event, 'email_subject') && !empty($mailMeta['subject'])) { $event->email_subject = $mailMeta['subject']; }
-            if (property_exists($event, 'email_from') && !empty($mailMeta['from'])) { $event->email_from = $mailMeta['from']; }
-            if (property_exists($event, 'email_tocc') && !empty($mailMeta['cc'])) { $event->email_tocc = $mailMeta['cc']; }
-            if (property_exists($event, 'email_tobcc') && !empty($mailMeta['bcc'])) { $event->email_tobcc = $mailMeta['bcc']; }
-            $result = $event->create($actor, 1);
-            if ($result > 0) { $created++; }
-            else { dol_syslog(__METHOD__.' Unable to mirror history #'.((int) $row['id']).': '.$event->error, LOG_WARNING); }
-        }
-        return $created;
-    }
-
-    /** Extract email metadata stored in notice audit text without changing old history rows. */
-    protected function getHistoryMailMetadata($message)
-    {
-        $result = array('subject' => '', 'from' => '', 'cc' => '', 'bcc' => '');
-        $prefixes = array('Betreff:' => 'subject', 'Subject:' => 'subject', 'Von:' => 'from', 'From:' => 'from', 'CC:' => 'cc', 'BCC:' => 'bcc');
-        foreach (preg_split('/\r?\n/', (string) $message) as $line) {
-            foreach ($prefixes as $prefix => $key) {
-                if (strpos($line, $prefix) === 0) {
-                    $result[$key] = trim(substr($line, strlen($prefix)));
-                    break;
-                }
-            }
-        }
-        return $result;
-    }
-
-    /** Return the translation key for one immutable Mahnwesen history action. */
-    public function getHistoryActionLabelKey($action)
-    {
-        $map = array(
-            'case_created' => 'HistoryActionCaseCreated',
-            'case_reopened' => 'HistoryActionCaseReopened',
-            'case_closed' => 'HistoryActionCaseClosed',
-            'level_changed' => 'HistoryActionLevelChanged',
-            'paused' => 'HistoryActionPaused',
-            'resumed' => 'HistoryActionResumed',
-            'auto_resumed' => 'MahnwesenHistoryActionAutoResumed',
-            'note_changed' => 'HistoryActionNoteChanged',
-            'notice_sending' => 'HistoryActionNoticeSending',
-            'attempt_reserved' => 'MahnwesenHistoryActionAttemptReserved',
-            'notice_sent' => 'HistoryActionNoticeSent',
-            'notice_failed' => 'HistoryActionNoticeFailed',
-            'notice_ambiguous' => 'MahnwesenHistoryActionNoticeAmbiguous',
-            'attempt_retry_allowed' => 'MahnwesenHistoryActionRetryAllowed',
-            'invoice_paid_fee_open' => 'MahnwesenHistoryActionInvoicePaidFeeOpen',
-            'fee_paid' => 'MahnwesenHistoryActionFeePaid',
-            'fee_waived' => 'MahnwesenHistoryActionFeeWaived',
-            'stage_skipped' => 'HistoryActionStageSkipped',
-            'document_generated' => 'MahnwesenHistoryActionDocumentGenerated',
-        );
-        return isset($map[(string) $action]) ? $map[(string) $action] : 'HistoryActionOther';
-    }
-
-    protected function getAgendaLabelForHistory($row)
-    {
-        global $langs;
-        $base = $langs->trans($this->getHistoryActionLabelKey((string) $row['action']));
-        if ((int) $row['level'] > 0) {
-            $base .= ' - '.$langs->trans($this->getStageLabelKey((int) $row['level']));
-        }
-        return $base;
-    }
-
-    protected function getAgendaNoteForHistory($row)
-    {
-        global $langs, $conf;
-        $lines = array();
-        if ((int) $row['level'] > 0) {
-            $lines[] = $langs->trans('DunningStage').': '.$langs->trans($this->getStageLabelKey((int) $row['level']));
-        }
-        $lines[] = $langs->trans('Amount').': '.price((float) $row['amount_snapshot'], 0, $langs, 1, -1, -1, $conf->currency);
-        if (!empty($row['recipient'])) {
-            $lines[] = $langs->trans('NoticeRecipient').': '.$row['recipient'];
-        }
-        if (!empty($row['result'])) {
-            $lines[] = $langs->trans('MahnwesenHistoryResult').': '.$langs->trans('MahnwesenHistoryResult'.ucfirst((string) $row['result']));
-        }
-        if (trim((string) $row['message']) !== '') {
-            $lines[] = '';
-            $lines[] = (string) $row['message'];
-        }
-        return implode("\n", $lines);
-    }
-
-    /**
-     * Record a final dunning PDF generated into the invoice document area.
-     * Preview PDFs are deliberately not audited.
-     *
-     * @param int $invoiceId Invoice id
-     * @param int $level Dunning stage
-     * @param string $relative Relative file path inside invoice documents
-     * @param User $user Acting user
-     * @param string $mode manual|automatic
-     * @return bool
-     */
-    public function recordGeneratedDocument($invoiceId, $level, $relative, $user, $mode = 'manual')
-    {
-        $case = $this->getCaseByInvoice((int) $invoiceId);
-        if (!$case) {
-            $this->error = 'No dunning case exists for this invoice';
-            return false;
-        }
-        $evaluation = $this->evaluateInvoice((int) $invoiceId);
-        $amount = ($evaluation && isset($evaluation['remain_to_pay'])) ? (float) $evaluation['remain_to_pay'] : (float) $case['remaining_amount'];
-        $message = 'PDF: '.trim((string) $relative);
-        if (!$this->addHistory((int) $case['entity'], (int) $case['id'], (int) $invoiceId, 'document_generated', (int) $level, $amount, (string) $mode, 'success', $message, $user)) {
-            return false;
-        }
-        $this->syncHistoryToAgenda((int) $invoiceId, $user);
-        return true;
-    }
-
     public function hasSuccessfulNoticeAtLevel($caseId, $level)
     {
         $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_history';
@@ -252,6 +43,21 @@ trait DunningManagerMethods3
         $found = (bool) $this->db->fetch_object($resql);
         $this->db->free($resql);
         return $found;
+    }
+
+    /** Id of a reserved, sending or ambiguous attempt of a stage, 0 if none, false on a database error. */
+    public function getOpenAttemptId($caseId, $level)
+    {
+        $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE fk_case = '.((int) $caseId).' AND level = '.((int) $level);
+        $sql .= " AND status IN ('reserved', 'sending', 'ambiguous') ORDER BY rowid".$this->db->plimit(1);
+        $resql = $this->db->query($sql);
+        if (!$resql) {
+            $this->error = 'Unable to read open delivery attempts: '.$this->db->lasterror();
+            return false;
+        }
+        $obj = $this->db->fetch_object($resql);
+        $this->db->free($resql);
+        return $obj ? (int) $obj->rowid : 0;
     }
 
     /**
@@ -334,12 +140,7 @@ trait DunningManagerMethods3
             if (!is_object($user) || !$user->hasRight('facture', 'lire') || !$user->hasRight('mahnwesen', 'notice', 'send')) {
                 $this->error = 'User is not allowed to read or send notices for invoices.'; $this->db->rollback(); return false;
             }
-            if (!$user->hasRight('societe', 'client', 'voir')) {
-                $sqlVisibility = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'societe_commerciaux WHERE fk_soc = '.((int) $lockedInvoice->socid).' AND fk_user = '.((int) $user->id).$this->db->plimit(1);
-                $resVisibility = $this->db->query($sqlVisibility); $visible = $resVisibility ? $this->db->fetch_object($resVisibility) : false;
-                if ($resVisibility) { $this->db->free($resVisibility); }
-                if (!$visible) { $this->error = 'Invoice is outside the user customer scope.'; $this->db->rollback(); return false; }
-            }
+            if (!$this->canSeeCustomer($user, (int) $lockedInvoice->socid)) { $this->error = 'Invoice is outside the user customer scope.'; $this->db->rollback(); return false; }
         }
         $contactId = !empty($snapshot['contact_id']) ? (int) $snapshot['contact_id'] : 0;
         if ($contactId > 0) {
@@ -596,11 +397,7 @@ trait DunningManagerMethods3
         $this->db->free($res);
         $permissionInvoice = new Facture($this->db);
         if ($permissionInvoice->fetch((int) $attempt->fk_facture) <= 0) { $this->error = 'Invoice for the attempt could not be loaded.'; $this->db->rollback(); return false; }
-        if (!$user->hasRight('societe', 'client', 'voir')) {
-            $sqlVisibility = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'societe_commerciaux WHERE fk_soc = '.((int) $permissionInvoice->socid).' AND fk_user = '.((int) $user->id).$this->db->plimit(1);
-            $resVisibility = $this->db->query($sqlVisibility); $visible = $resVisibility ? $this->db->fetch_object($resVisibility) : false; if ($resVisibility) { $this->db->free($resVisibility); }
-            if (!$visible) { $this->error = 'Invoice is outside the user customer scope.'; $this->db->rollback(); return false; }
-        }
+        if (!$this->canSeeCustomer($user, (int) $permissionInvoice->socid)) { $this->error = 'Invoice is outside the user customer scope.'; $this->db->rollback(); return false; }
         $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
         $nowSql = $this->db->idate(dol_now());
         $newStatus = $resolution === 'confirmed_sent' ? 'sent' : 'resolved';
@@ -628,91 +425,40 @@ trait DunningManagerMethods3
     }
 
     /**
-     * Book the fee of a delivered notice inside the caller's transaction.
+     * Record a final dunning PDF generated into the invoice document area.
+     * Preview PDFs are deliberately not audited.
      *
-     * The fee of a stage is the total owed from that stage on, so a new fee
-     * replaces the open fees of its own and lower stages. A notice confirmed
-     * late, after a higher stage already charged its fee, is recorded as
-     * superseded at once and never displaces the higher fee (#17).
+     * @param int $invoiceId Invoice id
+     * @param int $level Dunning stage
+     * @param string $relative Relative file path inside invoice documents
+     * @param User $user Acting user
+     * @param string $mode manual|automatic
+     * @return bool
      */
-    protected function bookNoticeFee($attempt, $attemptId, $uid, $nowSql)
+    public function recordGeneratedDocument($invoiceId, $level, $relative, $user, $mode = 'manual')
     {
-        if ((float) $attempt->amount_fee <= 0.000001) { return true; }
-        $where = ' WHERE entity = '.((int) $attempt->entity).' AND fk_case = '.((int) $attempt->fk_case);
-        $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_fee'.$where.' AND level > '.((int) $attempt->level)." AND status <> 'superseded' ORDER BY rowid".$this->db->plimit(1);
-        $res = $this->db->query($sql);
-        if (!$res) { $this->error = $this->db->lasterror(); return false; }
-        $higher = $this->db->fetch_object($res);
-        $this->db->free($res);
-        $status = 'open';
-        $settlement = 'NULL, NULL, NULL';
-        if ($higher) {
-            $status = 'superseded';
-            $settlement = "'".$this->db->escape($nowSql)."', '".$this->db->escape('Fee #'.((int) $higher->rowid).' of a higher stage already applies')."', ".((int) $uid);
-        } else {
-            $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_fee SET status = 'superseded', date_settlement = '".$this->db->escape($nowSql)."', settlement_reason = '".$this->db->escape('Replaced by attempt #'.((int) $attemptId))."', fk_user_settlement = ".((int) $uid).$where." AND status = 'open' AND level <= ".((int) $attempt->level);
-            if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); return false; }
+        $case = $this->getCaseByInvoice((int) $invoiceId);
+        if (!$case) {
+            $this->error = 'No dunning case exists for this invoice';
+            return false;
         }
-        $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_fee (entity, fk_case, fk_facture, fk_attempt, level, amount, currency_code, status, date_creation, fk_user_create, date_settlement, settlement_reason, fk_user_settlement) VALUES (';
-        $sql .= ((int) $attempt->entity).', '.((int) $attempt->fk_case).', '.((int) $attempt->fk_facture).', '.((int) $attemptId).', '.((int) $attempt->level).', '.((float) $attempt->amount_fee).", '".$this->db->escape((string) $attempt->currency_code)."', '".$status."', '".$this->db->escape($nowSql)."', ".((int) $uid).', '.$settlement.')';
-        if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); return false; }
+        $evaluation = $this->evaluateInvoice((int) $invoiceId);
+        $amount = ($evaluation && isset($evaluation['remain_to_pay'])) ? (float) $evaluation['remain_to_pay'] : (float) $case['remaining_amount'];
+        $message = 'PDF: '.trim((string) $relative);
+        if (!$this->addHistory((int) $case['entity'], (int) $case['id'], (int) $invoiceId, 'document_generated', (int) $level, $amount, (string) $mode, 'success', $message, $user)) {
+            return false;
+        }
+        $this->syncHistoryToAgenda((int) $invoiceId, $user);
         return true;
     }
 
-    /** Return fee claims tracked by the module for the active entity. */
-    public function getFeeClaims($status = '', $limit = 300)
+    /** Count unresolved automatic failures so transient faults can retry safely. */
+    public function getAutomaticFailureCount($caseId, $level)
     {
-        global $conf;
-        $rows = array();
-        $sql = 'SELECT rowid, fk_case, fk_facture, fk_attempt, level, amount, currency_code, status, date_creation, date_settlement, settlement_reason FROM '.MAIN_DB_PREFIX.'mahnwesen_fee WHERE entity = '.((int) $conf->entity);
-        if (in_array($status, array('open', 'paid', 'waived', 'superseded'), true)) { $sql .= " AND status = '".$this->db->escape($status)."'"; }
-        $sql .= ' ORDER BY date_creation DESC, rowid DESC'.$this->db->plimit(max(1, min(1000, (int) $limit)));
-        $res = $this->db->query($sql); if (!$res) { $this->error = $this->db->lasterror(); return false; }
-        while ($o = $this->db->fetch_object($res)) { $rows[] = (array) $o; }
-        $this->db->free($res); return $rows;
-    }
-
-    /** Return one module fee claim from the active entity. */
-    public function getFeeClaim($feeId)
-    {
-        global $conf;
-        $sql = 'SELECT rowid, fk_case, fk_facture, fk_attempt, level, amount, currency_code, status, date_creation, date_settlement, settlement_reason FROM '.MAIN_DB_PREFIX.'mahnwesen_fee WHERE entity = '.((int) $conf->entity).' AND rowid = '.((int) $feeId).$this->db->plimit(1);
+        $sql = 'SELECT COUNT(*) as cnt FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE fk_case = '.((int) $caseId).' AND level = '.((int) $level)." AND mode = 'automatic' AND status = 'failed'";
         $res = $this->db->query($sql);
-        if (!$res) { $this->error = $this->db->lasterror(); return false; }
+        if (!$res) { return PHP_INT_MAX; }
         $o = $this->db->fetch_object($res); $this->db->free($res);
-        return $o ? (array) $o : null;
-    }
-
-    /** Mark a module fee claim as paid or waived with a mandatory reason. */
-    public function settleFeeClaim($feeId, $status, $reason, $user)
-    {
-        global $conf;
-        if (!in_array($status, array('paid', 'waived'), true) || trim((string) $reason) === '') { $this->error = 'A valid fee status and reason are required.'; return false; }
-        if (!is_object($user) || !method_exists($user, 'hasRight') || !$user->hasRight('facture', 'lire') || !$user->hasRight('mahnwesen', 'case', 'write')) { $this->error = 'User is not allowed to settle fee claims.'; return false; }
-        $this->db->begin();
-        $sql = 'SELECT rowid, fk_case, fk_facture, level, amount FROM '.MAIN_DB_PREFIX.'mahnwesen_fee WHERE rowid = '.((int) $feeId).' AND entity = '.((int) $conf->entity)." AND status = 'open' FOR UPDATE";
-        $res = $this->db->query($sql); $fee = $res ? $this->db->fetch_object($res) : false;
-        if (!$fee) { if ($res) { $this->db->free($res); } $this->error = 'Open fee claim not found.'; $this->db->rollback(); return false; }
-        $this->db->free($res);
-        $permissionInvoice = new Facture($this->db);
-        if ($permissionInvoice->fetch((int) $fee->fk_facture) <= 0) { $this->error = 'Invoice for the fee claim could not be loaded.'; $this->db->rollback(); return false; }
-        if (!$user->hasRight('societe', 'client', 'voir')) {
-            $sqlVisibility = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'societe_commerciaux WHERE fk_soc = '.((int) $permissionInvoice->socid).' AND fk_user = '.((int) $user->id).$this->db->plimit(1);
-            $resVisibility = $this->db->query($sqlVisibility); $visible = $resVisibility ? $this->db->fetch_object($resVisibility) : false; if ($resVisibility) { $this->db->free($resVisibility); }
-            if (!$visible) { $this->error = 'Invoice is outside the user customer scope.'; $this->db->rollback(); return false; }
-        }
-        $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0; $nowSql = $this->db->idate(dol_now());
-        $sql = 'UPDATE '.MAIN_DB_PREFIX.'mahnwesen_fee SET status = \''.$status.'\', date_settlement = \''.$this->db->escape($nowSql).'\', settlement_reason = \''.$this->db->escape((string) $reason).'\', fk_user_settlement = '.$uid.' WHERE rowid = '.((int) $feeId)." AND status = 'open'";
-        if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); $this->db->rollback(); return false; }
-        $historyAction = $status === 'paid' ? 'fee_paid' : 'fee_waived';
-        $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_history (entity, fk_case, fk_facture, action, level, amount_snapshot, mode, result, message, date_creation, fk_user_create) VALUES ('.((int) $conf->entity).', '.((int) $fee->fk_case).', '.((int) $fee->fk_facture).", '".$historyAction."', ".((int) $fee->level).', '.((float) $fee->amount).", 'manual', 'success', '".$this->db->escape((string) $reason)."', '".$this->db->escape($nowSql)."', ".$uid.')';
-        if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); $this->db->rollback(); return false; }
-        $sqlOpen = 'SELECT COUNT(*) as cnt FROM '.MAIN_DB_PREFIX.'mahnwesen_fee WHERE entity = '.((int) $conf->entity).' AND fk_case = '.((int) $fee->fk_case)." AND status = 'open'";
-        $resOpen = $this->db->query($sqlOpen); $open = $resOpen ? $this->db->fetch_object($resOpen) : false; if ($resOpen) { $this->db->free($resOpen); }
-        if ($open && (int) $open->cnt === 0) {
-            $sqlCase = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_case SET status = 'closed', next_action_at = NULL, fk_user_modif = ".$uid.' WHERE rowid = '.((int) $fee->fk_case)." AND status = 'fee_open'";
-            if (!$this->db->query($sqlCase)) { $this->error = $this->db->lasterror(); $this->db->rollback(); return false; }
-        }
-        $this->db->commit(); $this->syncHistoryToAgenda((int) $fee->fk_facture, $user); return true;
+        return $o ? (int) $o->cnt : 0;
     }
 }

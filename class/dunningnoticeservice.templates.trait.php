@@ -1,14 +1,7 @@
 <?php
-/* Auto-split method trait for maintainable source files. */
-trait DunningNoticeServiceMethods1
+/* Dolibarr email templates for the stages, starter templates, and rendering them for an invoice. */
+trait DunningNoticeServiceTemplates
 {
-
-    public function __construct($db, $manager)
-    {
-        $this->db = $db;
-        $this->manager = $manager;
-    }
-
     /**
      * Built-in HTML fallback template for one stage.
      *
@@ -403,5 +396,74 @@ trait DunningNoticeServiceMethods1
             'joinfiles' => (string) $native['joinfiles'],
             'type_template' => (string) $native['type_template'],
         );
+    }
+
+    /** Build the exact substitution set used by native FormMail and rendering. */
+    public function getTemplateSubstitutions($invoice, $case, $level, $lang = '')
+    {
+        global $conf, $langs, $mysoc;
+        if (empty($invoice->thirdparty)) { $invoice->fetch_thirdparty(); }
+        if ($lang === '') { $lang = is_object($langs) ? $langs->defaultlang : 'de_DE'; }
+        $outputlangs = new Translate('', $conf);
+        $outputlangs->setDefaultLang($lang);
+        $outputlangs->loadLangs(array('main', 'bills', 'companies', 'mahnwesen@mahnwesen'));
+        $breakdown = $this->manager->getAmountBreakdown($invoice, $case, $level);
+        $openAmount = $this->formatMoney($breakdown['invoice'], $outputlangs);
+        $feeAmount = $this->formatMoney($breakdown['fee'], $outputlangs);
+        $totalAmount = $this->formatMoney($breakdown['total'], $outputlangs);
+        $classLabel = $outputlangs->trans($this->manager->getCustomerClassLabelKey($breakdown['classification']['class']));
+        $stageLabel = $outputlangs->trans($this->manager->getStageLabelKey((int) $level));
+        $next = '';
+        $nextTs = 0;
+        $nextLevel = $this->manager->getNextFutureLevel((int) $level);
+        $dueYmd = !empty($invoice->date_lim_reglement) ? dol_print_date($invoice->date_lim_reglement, '%Y-%m-%d', 'tzserver') : '';
+        if ($nextLevel > 0 && $dueYmd !== '') {
+            $nextAt = $this->manager->calculateWorkflowStageDueAt(!empty($case['id']) ? (int) $case['id'] : 0, $dueYmd, $nextLevel);
+            if ($nextAt) { $nextTs = (int) $this->db->jdate($nextAt); }
+        }
+        $deadline = $this->manager->getPaymentDeadline((int) $level);
+        $paymentDeadline = $deadline ? dol_print_date($deadline, 'day', 'tzserver', $outputlangs) : '';
+        $paymentDays = $deadline ? (string) $this->manager->getPaymentDaysForLevel((int) $level) : '';
+        if (!empty($nextTs)) {
+            // The next stage waits until the day after this notice's deadline (#64).
+            if ($deadline && dol_print_date($nextTs, '%Y-%m-%d', 'tzserver') <= dol_print_date($deadline, '%Y-%m-%d', 'tzserver')) { $nextTs = (int) strtotime('+1 day', $deadline); }
+            $next = dol_print_date($nextTs, 'day', 'tzserver', $outputlangs);
+        }
+        $feeParagraph = '';
+        if ($breakdown['fee'] > 0.000001) {
+            $feeParagraph = stripos($lang, 'de') === 0 ? 'Zusätzlich werden Mahn-/Betreibungskosten in Höhe von <strong>'.$feeAmount.'</strong> berücksichtigt.' : 'In addition, dunning/collection costs of <strong>'.$feeAmount.'</strong> are included.';
+        }
+        $formmail = new FormMail($this->db);
+        $formmail->setSubstitFromObject($invoice, $outputlangs);
+        $custom = array(
+            '__MAHNWESEN_STAGE__' => $stageLabel, '__MAHNWESEN_OPEN_AMOUNT__' => $openAmount, '__MAHNWESEN_FEE__' => $feeAmount,
+            '__MAHNWESEN_TOTAL__' => $totalAmount, '__MAHNWESEN_CUSTOMER_CLASS__' => $classLabel, '__MAHNWESEN_NEXT_STAGE_DATE__' => $next,
+            '__MAHNWESEN_FEE_PARAGRAPH__' => $feeParagraph, '__MAHNWESEN_PAYMENT_DEADLINE__' => $paymentDeadline,
+            '__MAHNWESEN_PAYMENT_DAYS__' => $paymentDays, '{INVOICE_REF}' => (string) $invoice->ref,
+            '{CUSTOMER_NAME}' => !empty($invoice->thirdparty) ? (string) $invoice->thirdparty->name : '',
+            '{INVOICE_DATE}' => dol_print_date($invoice->date, 'day', 'tzserver', $outputlangs), '{DUE_DATE}' => dol_print_date($invoice->date_lim_reglement, 'day', 'tzserver', $outputlangs),
+            '{OPEN_AMOUNT}' => $openAmount, '{DUNNING_FEE}' => $feeAmount, '{DUNNING_TOTAL}' => $totalAmount, '{CUSTOMER_CLASS}' => $classLabel,
+            '{DUNNING_STAGE}' => $stageLabel, '{TODAY}' => dol_print_date(dol_now(), 'day', 'tzserver', $outputlangs),
+            '{COMPANY_NAME}' => is_object($mysoc) ? (string) $mysoc->name : '', '{NEXT_STAGE_DATE}' => $next, '{FEE_PARAGRAPH}' => $feeParagraph,
+        );
+        return array('substitutions' => array_merge((array) $formmail->substit, $custom), 'outputlangs' => $outputlangs);
+    }
+
+    /**
+     * Apply Dolibarr's standard email substitutions and Mahnwesen tokens.
+     * Both native __TOKEN__ syntax and the module's legacy {TOKEN} syntax are
+     * supported so existing templates keep working.
+     *
+     * @param string $text Template text/HTML
+     * @param Facture $invoice Invoice
+     * @param array $case Stored case
+     * @param int $level Stage
+     * @param string $lang Output language
+     * @return string
+     */
+    public function renderTemplate($text, $invoice, $case, $level, $lang = '')
+    {
+        $context = $this->getTemplateSubstitutions($invoice, $case, $level, $lang);
+        return make_substitutions((string) $text, $context['substitutions'], $context['outputlangs']);
     }
 }

@@ -102,13 +102,8 @@ function mw_attempts_get_invoice($db, $invoiceId, &$cache)
 
 function mw_attempts_can_view_invoice($db, $user, $invoice, &$socCache)
 {
-    if ($user->hasRight('societe', 'client', 'voir')) { return true; }
-    $socid = (int) $invoice->socid;
-    if (!array_key_exists($socid, $socCache)) {
-        $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'societe_commerciaux WHERE fk_soc = '.$socid.' AND fk_user = '.((int) $user->id).$db->plimit(1);
-        $res = $db->query($sql); $socCache[$socid] = $res && (bool) $db->fetch_object($res); if ($res) { $db->free($res); }
-    }
-    return !empty($socCache[$socid]);
+    global $manager;
+    return $manager->canSeeCustomer($user, (int) $invoice->socid);
 }
 
 llxHeader('', $langs->trans('MahnwesenSendAttempts'), '', '', 0, 0, '', '', '', 'mod-mahnwesen page-attempts');

@@ -128,19 +128,12 @@ if ($action === 'dry_run') {
     if ($dryRunId === false) { setEventMessages($langs->trans('MahnwesenDryRunAuditFailed'), null, 'warnings'); }
     $dryAll = $manager->scanDueInvoices($manager->getMaxScan());
     if ($dryAll === false) { $dryAll = array(); setEventMessages($manager->error, $manager->errors, 'errors'); }
-    $dryVisible = null;
-    if (!$user->hasRight('societe', 'client', 'voir')) {
-        $dryVisible = array();
-        $resVisible = $db->query('SELECT fk_soc FROM '.MAIN_DB_PREFIX.'societe_commerciaux WHERE fk_user = '.((int) $user->id));
-        while ($resVisible && ($o = $db->fetch_object($resVisible))) { $dryVisible[(int) $o->fk_soc] = true; }
-        if ($resVisible) { $db->free($resVisible); }
-    }
     $dryBudget = $manager->newAutomaticBudget();
     $dryRunCounts = array('send' => 0, 'skip' => 0, 'fail' => 0, 'off' => 0, 'wait' => 0, 'shown' => 0);
     foreach ($dryAll as $row) {
         $dry = $manager->decideAutomaticSend($row, $dryService, $dryBudget, true);
         $dryRunCounts[$dry['decision']]++;
-        if ($dry['decision'] === 'wait' || ($dryVisible !== null && empty($dryVisible[(int) $row['socid']]))) { continue; }
+        if ($dry['decision'] === 'wait' || !$manager->canSeeCustomer($user, (int) $row['socid'])) { continue; }
         $dryRunCounts['shown']++;
         $dryRunRows[] = array('row' => $row, 'level' => $dry['level'], 'decision' => $dry['decision'], 'detail' => $dry['detail']);
     }

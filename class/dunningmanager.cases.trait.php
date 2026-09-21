@@ -1,8 +1,7 @@
 <?php
-/* Auto-split method trait for maintainable source files. */
-trait DunningManagerMethods2
+/* Dunning cases: synchronisation, pauses, notes, skipping, closing. */
+trait DunningManagerCases
 {
-
     /**
      * Synchronize all currently overdue invoices into persistent dunning cases.
      * No email is sent and no invoice is modified.
@@ -165,6 +164,202 @@ trait DunningManagerMethods2
     }
 
     /**
+     * @param array $row Scan row
+     * @param User $user Acting user
+     * @return string|false
+     */
+    protected function syncScannedRow($row, $user)
+    {
+        // Serialize case creation/update per invoice. This avoids relying on a
+        // duplicate-key fallback, which would leave PostgreSQL transactions in
+        // an aborted state after a concurrent INSERT.
+        $sqlInvoiceLock = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'facture WHERE rowid = '.((int) $row['invoice_id']).' AND entity = '.((int) $row['invoice_entity']).' FOR UPDATE';
+        $resInvoiceLock = $this->db->query($sqlInvoiceLock);
+        if (!$resInvoiceLock || !$this->db->fetch_object($resInvoiceLock)) {
+            if ($resInvoiceLock) { $this->db->free($resInvoiceLock); }
+            $this->error = $this->db->lasterror() ?: 'Unable to lock invoice for case synchronization';
+            return false;
+        }
+        $this->db->free($resInvoiceLock);
+        $case = $this->getCaseByInvoice((int) $row['invoice_id']);
+        $entity = !empty($row['invoice_entity']) ? (int) $row['invoice_entity'] : 1;
+        $calculatedLevel = (int) $row['stage'];
+        $remain = (float) $row['remain_to_pay'];
+        $requiredLevel = $this->getNextRequiredLevel($case ? (int) $case['id'] : 0, $calculatedLevel);
+        // Persist the calendar stage only. The next allowed workflow stage is
+        // intentionally derived from immutable history via getNextRequiredLevel().
+        $level = $calculatedLevel;
+        $futureLevel = $this->getNextFutureLevel($calculatedLevel);
+        $nextAction = $requiredLevel > 0 ? $this->calculateWorkflowStageDueAt($case ? (int) $case['id'] : 0, $row['due_ymd'], $requiredLevel) : ($futureLevel > 0 ? $this->calculateWorkflowStageDueAt($case ? (int) $case['id'] : 0, $row['due_ymd'], $futureLevel) : null);
+        $nowSql = $this->db->idate(dol_now());
+
+        $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
+
+        if (!$case) {
+            $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_case (entity, fk_facture, current_level, paused, status, remaining_amount, next_action_at, date_creation, fk_user_create, fk_user_modif) VALUES (';
+            $sql .= $entity.', '.((int) $row['invoice_id']).', '.$level.", 0, 'open', ".((float) $remain).', ';
+            $sql .= ($nextAction ? "'".$this->db->escape($nextAction)."'" : 'NULL');
+            $sql .= ", '".$this->db->escape($nowSql)."', ".$uid.', '.$uid.')';
+            if (!$this->db->query($sql)) {
+                $this->error = $this->db->lasterror();
+                return false;
+            }
+            $caseId = (int) $this->db->last_insert_id(MAIN_DB_PREFIX.'mahnwesen_case');
+            if ($caseId <= 0) {
+                $this->error = 'Unable to get inserted dunning case id';
+                return false;
+            }
+            if (!$this->addHistory($entity, $caseId, (int) $row['invoice_id'], 'case_created', $level, $remain, 'manual', 'success', '', $user)) {
+                return false;
+            }
+            return 'created';
+        }
+
+        $oldLevel = (int) $case['current_level'];
+        $paused = !empty($case['paused']);
+        $wasClosed = ($case['status'] === 'closed');
+        $newLevel = $paused ? $oldLevel : $level;
+        // A synchronization must not move the workflow due date while paused.
+        // The independent pause deadline is stored in mahnwesen_pause.
+        if ($paused) {
+            $nextAction = $case['next_action_at'];
+        }
+
+        $sql = 'UPDATE '.MAIN_DB_PREFIX.'mahnwesen_case SET';
+        $sql .= " status = 'open'";
+        $sql .= ', remaining_amount = '.((float) $remain);
+        $sql .= ', current_level = '.$newLevel;
+        $sql .= ', next_action_at = '.($nextAction ? "'".$this->db->escape($nextAction)."'" : 'NULL');
+        $sql .= ', fk_user_modif = '.$uid;
+        $sql .= ' WHERE rowid = '.((int) $case['id']);
+        if (!$this->db->query($sql)) {
+            $this->error = $this->db->lasterror();
+            return false;
+        }
+
+        if ($wasClosed) {
+            if (!$this->addHistory($entity, $case['id'], (int) $row['invoice_id'], 'case_reopened', $newLevel, $remain, 'manual', 'success', '', $user)) {
+                return false;
+            }
+            return 'reopened';
+        }
+        if (!$paused && $newLevel !== $oldLevel) {
+            if (!$this->addHistory($entity, $case['id'], (int) $row['invoice_id'], 'level_changed', $newLevel, $remain, 'manual', 'success', 'from='.$oldLevel.' to='.$newLevel, $user)) {
+                return false;
+            }
+            return 'level_changed';
+        }
+        if (abs(((float) $case['remaining_amount']) - $remain) > 0.000001) {
+            return 'updated';
+        }
+        return 'unchanged';
+    }
+
+    /**
+     * Close stored cases whose invoice is no longer eligible for dunning.
+     *
+     * @param User $user Acting user
+     * @return int Number closed, -1 on error
+     */
+    protected function closeNoLongerEligibleCasesSafe($user)
+    {
+        global $conf;
+        $closed = 0;
+        $sql = 'SELECT DISTINCT mc.rowid, mc.entity, mc.fk_facture, mc.current_level, mc.paused, mc.status, mc.remaining_amount';
+        $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_case as mc';
+        $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'facture as f ON f.rowid = mc.fk_facture AND f.entity = mc.entity';
+        $restrictCustomerVisibility = is_object($user) && !empty($user->id) && !$user->hasRight('societe', 'client', 'voir');
+        if ($restrictCustomerVisibility) {
+            $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'societe_commerciaux as sc ON sc.fk_soc = f.fk_soc AND sc.fk_user = '.((int) $user->id);
+        }
+        $sql .= " WHERE mc.status = 'open'";
+        $sql .= ' AND mc.entity = '.((int) $conf->entity);
+        $sql .= ' ORDER BY mc.rowid ASC'.$this->db->plimit(min(10000, $this->getMaxScan() * 2));
+        $resql = $this->db->query($sql);
+        if (!$resql) {
+            $this->error = $this->db->lasterror();
+            $this->errors[] = $this->error;
+            return -1;
+        }
+        $cases = array();
+        while ($obj = $this->db->fetch_object($resql)) {
+            $cases[] = array(
+                'id' => (int) $obj->rowid,
+                'entity' => (int) $obj->entity,
+                'invoice_id' => (int) $obj->fk_facture,
+                'current_level' => (int) $obj->current_level,
+                'paused' => (int) $obj->paused,
+                'status' => (string) $obj->status,
+                'remaining_amount' => (float) $obj->remaining_amount,
+            );
+        }
+        $this->db->free($resql);
+
+        foreach ($cases as $case) {
+            try {
+                $evaluation = $this->evaluateInvoice($case['invoice_id']);
+                if ($evaluation === false) {
+                    $this->errors[] = 'Invoice id '.$case['invoice_id'].': '.($this->error ?: 'evaluation failed');
+                    continue;
+                }
+                if (empty($evaluation['eligible'])) {
+                    $this->db->begin();
+                    if (!$this->closeCase($case, (float) $evaluation['remain_to_pay'], $evaluation['reason'], $user)) {
+                        $this->db->rollback();
+                        $this->errors[] = 'Invoice id '.$case['invoice_id'].': '.($this->error ?: 'close failed');
+                        continue;
+                    }
+                    $this->db->commit();
+                    $closed++;
+                }
+            } catch (Throwable $e) {
+                try {
+                    $this->db->rollback();
+                } catch (Throwable $ignored) {
+                    // Nothing else to do.
+                }
+                $this->errors[] = 'Invoice id '.$case['invoice_id'].': '.get_class($e).': '.$e->getMessage();
+                dol_syslog(__METHOD__.' '.end($this->errors), LOG_ERR);
+            }
+        }
+        return $closed;
+    }
+
+    /**
+     * @param array $case Stored case
+     * @param float $remain Current remaining amount
+     * @param string $reason Closure reason
+     * @param User $user Acting user
+     * @return bool
+     */
+    protected function closeCase($case, $remain, $reason, $user)
+    {
+        $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
+        $hasOpenFee = false;
+        if ((float) $remain <= 0.000001) {
+            $sqlFee = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_fee WHERE entity = '.((int) $case['entity']).' AND fk_case = '.((int) $case['id'])." AND status = 'open'".$this->db->plimit(1);
+            $resFee = $this->db->query($sqlFee);
+            if ($resFee) { $hasOpenFee = (bool) $this->db->fetch_object($resFee); $this->db->free($resFee); }
+        }
+        $newStatus = $hasOpenFee ? 'fee_open' : 'closed';
+        $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_case SET status = '".$newStatus."', paused = 0, remaining_amount = ".((float) max(0, $remain));
+        $sql .= ', next_action_at = NULL, fk_user_modif = '.$uid;
+        $sql .= ' WHERE rowid = '.((int) $case['id']);
+        if (!$this->db->query($sql)) {
+            $this->error = $this->db->lasterror();
+            return false;
+        }
+        // A closed case is not paused; its pause must not come back when the
+        // invoice is reopened.
+        $sqlPause = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_pause SET status = 'ended', date_end = '".$this->db->escape($this->db->idate(dol_now()))."', fk_user_end = ".$uid.' WHERE entity = '.((int) $case['entity']).' AND fk_case = '.((int) $case['id'])." AND status = 'active'";
+        if (!$this->db->query($sqlPause)) {
+            $this->error = $this->db->lasterror();
+            return false;
+        }
+        return $this->addHistory((int) $case['entity'], (int) $case['id'], (int) $case['invoice_id'], $hasOpenFee ? 'invoice_paid_fee_open' : 'case_closed', (int) $case['current_level'], (float) max(0, $remain), 'manual', 'success', $reason, $user);
+    }
+
+    /**
      * Pause or resume a stored case. Resuming immediately synchronizes the
      * stored level to the currently calculated level.
      *
@@ -272,6 +467,40 @@ trait DunningManagerMethods2
     }
 
     /**
+     * Resume pauses whose separate pause_until date has arrived. Indefinite
+     * pauses have pause_until=NULL and are never resumed automatically.
+     *
+     * @return int|false Number resumed
+     */
+    public function resumeExpiredPauses($user)
+    {
+        global $conf;
+        $nowSql = $this->db->idate(dol_now());
+        $ids = array();
+        $sql = 'SELECT c.fk_facture, p.pause_until as resume_at FROM '.MAIN_DB_PREFIX.'mahnwesen_case c INNER JOIN '.MAIN_DB_PREFIX.'mahnwesen_pause p ON p.fk_case = c.rowid AND p.entity = c.entity AND p.status = \'active\'';
+        $sql .= ' WHERE c.entity = '.((int) $conf->entity)." AND c.status = 'open' AND c.paused = 1 AND p.pause_until IS NOT NULL AND p.pause_until <= '".$this->db->escape($nowSql)."'";
+        $sql .= ' UNION SELECT c.fk_facture, c.next_action_at as resume_at FROM '.MAIN_DB_PREFIX.'mahnwesen_case c WHERE c.entity = '.((int) $conf->entity)." AND c.status = 'open' AND c.paused = 1 AND c.next_action_at IS NOT NULL AND c.next_action_at <= '".$this->db->escape($nowSql)."' AND NOT EXISTS (SELECT 1 FROM ".MAIN_DB_PREFIX."mahnwesen_pause p2 WHERE p2.entity = c.entity AND p2.fk_case = c.rowid AND p2.status = 'active') ORDER BY resume_at ASC";
+        $res = $this->db->query($sql);
+        if (!$res) {
+            $this->error = $this->db->lasterror();
+            return false;
+        }
+        while ($o = $this->db->fetch_object($res)) {
+            $ids[] = (int) $o->fk_facture;
+        }
+        $this->db->free($res);
+        $count = 0;
+        foreach ($ids as $invoiceId) {
+            if ($this->setPaused($invoiceId, false, $user, 'Automatisch fortgesetzt: Pausenende erreicht', '', 'automatic')) {
+                $count++;
+            } else {
+                $this->errors[] = 'Auto-resume invoice #'.$invoiceId.': '.$this->error;
+            }
+        }
+        return $count;
+    }
+
+    /**
      * Update the persistent internal case note. Pause/resume reasons are kept
      * separately in history and do not overwrite this field.
      *
@@ -318,11 +547,7 @@ trait DunningManagerMethods2
         $resLock = $this->db->query($sqlLock); $locked = $resLock ? $this->db->fetch_object($resLock) : false; if ($resLock) { $this->db->free($resLock); }
         if (!$locked) { $this->error = 'Unable to lock dunning case.'; $this->db->rollback(); return false; }
         $invoice = new Facture($this->db); if ($invoice->fetch((int) $invoiceId) <= 0) { $this->error = 'Unable to load invoice.'; $this->db->rollback(); return false; }
-        if (!$user->hasRight('societe', 'client', 'voir')) {
-            $sqlVisibility = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'societe_commerciaux WHERE fk_soc = '.((int) $invoice->socid).' AND fk_user = '.((int) $user->id).$this->db->plimit(1);
-            $resVisibility = $this->db->query($sqlVisibility); $visible = $resVisibility ? $this->db->fetch_object($resVisibility) : false; if ($resVisibility) { $this->db->free($resVisibility); }
-            if (!$visible) { $this->error = 'Invoice is outside the user customer scope.'; $this->db->rollback(); return false; }
-        }
+        if (!$this->canSeeCustomer($user, (int) $invoice->socid)) { $this->error = 'Invoice is outside the user customer scope.'; $this->db->rollback(); return false; }
         $workflow = $this->getWorkflowState((int) $invoiceId);
         $currentCase = $workflow ? $workflow['case'] : false;
         $level = $workflow ? (int) $workflow['next_required_level'] : 0;
@@ -339,187 +564,54 @@ trait DunningManagerMethods2
     }
 
     /**
-     * Check idempotence guard for successful sends of one case/level.
+     * Return a stored dunning case for an invoice.
      *
-     * @param int $caseId Case id
-     * @param int $level Level
-     * @return bool
+     * @param int $invoiceId Customer invoice id
+     * @return array|null
      */
-    /** Return completed workflow stages (successful send or audited skip). */
-    public function getCompletedLevels($caseId)
+    public function getCaseByInvoice($invoiceId)
     {
-        $completed = array();
-        if ((int) $caseId <= 0) { return $completed; }
-        if (isset($this->completedLevelsCache[(int) $caseId])) { return $this->completedLevelsCache[(int) $caseId]; }
-        $sql = 'SELECT DISTINCT level FROM '.MAIN_DB_PREFIX.'mahnwesen_history';
-        $sql .= ' WHERE fk_case = '.((int) $caseId);
-        $sql .= " AND result = 'success' AND action IN ('notice_sent', 'stage_skipped')";
-        $sql .= ' AND level BETWEEN 1 AND 4';
+        global $conf;
+        $sql = 'SELECT rowid, entity, fk_facture, current_level, paused, status, remaining_amount, last_notice_at, next_action_at, note_private, date_creation, tms, fk_user_create, fk_user_modif';
+        $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_case';
+        $sql .= ' WHERE fk_facture = '.((int) $invoiceId);
+        $sql .= ' AND entity = '.((int) $conf->entity);
+        $sql .= ' ORDER BY rowid DESC';
+        $sql .= $this->db->plimit(1);
         $resql = $this->db->query($sql);
         if (!$resql) {
-            $this->errors[] = 'Unable to read completed dunning stages: '.$this->db->lasterror();
-            return $completed;
-        }
-        while ($obj = $this->db->fetch_object($resql)) { $completed[(int) $obj->level] = true; }
-        $this->db->free($resql);
-        $this->completedLevelsCache[(int) $caseId] = $completed;
-        return $completed;
-    }
-
-    /** Drop request-local workflow caches before the final SMTP safety check. */
-    public function refreshWorkflowCaches($caseId = 0)
-    {
-        $this->rulesCache = null;
-        if ((int) $caseId > 0) { unset($this->completedLevelsCache[(int) $caseId]); }
-        else { $this->completedLevelsCache = array(); }
-    }
-
-    /** First due, enabled, incomplete stage. This is the anti-skip guard. */
-    public function getNextRequiredLevel($caseId, $calculatedLevel)
-    {
-        $calculatedLevel = max(0, min(4, (int) $calculatedLevel));
-        if ($calculatedLevel <= 0) { return 0; }
-        $completed = $this->getCompletedLevels((int) $caseId);
-        for ($level = 1; $level <= $calculatedLevel; $level++) {
-            $rule = $this->getRuleByLevel($level);
-            if (empty($rule['enabled'])) { continue; }
-            if (empty($completed[$level])) { return $level; }
-        }
-        return 0;
-    }
-
-    /** Highest completed stage. */
-    public function getHighestCompletedLevel($caseId)
-    {
-        $completed = $this->getCompletedLevels((int) $caseId);
-        return empty($completed) ? 0 : max(array_keys($completed));
-    }
-
-    /**
-     * Timestamp of the successful completion (send or audited skip) of a stage.
-     * Used to prevent rapid catch-up escalation when earlier stages were sent late.
-     *
-     * @param int $caseId Case id
-     * @param int $level Stage
-     * @return int|null Unix timestamp
-     */
-    public function getStageCompletionTimestamp($caseId, $level)
-    {
-        if ((int) $caseId <= 0 || (int) $level <= 0) { return null; }
-        $sql = 'SELECT date_creation FROM '.MAIN_DB_PREFIX.'mahnwesen_history';
-        $sql .= ' WHERE fk_case = '.((int) $caseId).' AND level = '.((int) $level);
-        $sql .= " AND result = 'success' AND action IN ('notice_sent', 'stage_skipped')";
-        $sql .= ' ORDER BY rowid DESC'.$this->db->plimit(1);
-        $resql = $this->db->query($sql);
-        if (!$resql) {
-            $this->errors[] = 'Unable to read dunning-stage completion date: '.$this->db->lasterror();
+            $this->error = $this->db->lasterror();
             return null;
         }
         $obj = $this->db->fetch_object($resql);
         $this->db->free($resql);
-        return ($obj && !empty($obj->date_creation)) ? (int) $this->db->jdate($obj->date_creation) : null;
-    }
-
-    /** Id of a reserved, sending or ambiguous attempt of a stage, 0 if none, false on a database error. */
-    public function getOpenAttemptId($caseId, $level)
-    {
-        $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE fk_case = '.((int) $caseId).' AND level = '.((int) $level);
-        $sql .= " AND status IN ('reserved', 'sending', 'ambiguous') ORDER BY rowid".$this->db->plimit(1);
-        $resql = $this->db->query($sql);
-        if (!$resql) {
-            $this->error = 'Unable to read open delivery attempts: '.$this->db->lasterror();
-            return false;
-        }
-        $obj = $this->db->fetch_object($resql);
-        $this->db->free($resql);
-        return $obj ? (int) $obj->rowid : 0;
-    }
-
-    /** When the last successful notice of a stage was sent, null if none was. */
-    public function getStageNoticeTimestamp($caseId, $level)
-    {
-        if ((int) $caseId <= 0 || (int) $level <= 0) { return null; }
-        $sql = 'SELECT date_creation FROM '.MAIN_DB_PREFIX.'mahnwesen_history';
-        $sql .= ' WHERE fk_case = '.((int) $caseId).' AND level = '.((int) $level);
-        $sql .= " AND result = 'success' AND action = 'notice_sent'";
-        $sql .= ' ORDER BY rowid DESC'.$this->db->plimit(1);
-        $resql = $this->db->query($sql);
-        if (!$resql) {
-            $this->errors[] = 'Unable to read the dunning notice date: '.$this->db->lasterror();
+        if (!$obj) {
             return null;
         }
-        $obj = $this->db->fetch_object($resql);
-        $this->db->free($resql);
-        return ($obj && !empty($obj->date_creation)) ? (int) $this->db->jdate($obj->date_creation) : null;
-    }
-
-    /** Return the closest earlier enabled stage, or 0 if this is the first one. */
-    public function getPreviousEnabledLevel($level)
-    {
-        for ($previous = ((int) $level) - 1; $previous >= 1; $previous--) {
-            $rule = $this->getRuleByLevel($previous);
-            if (!empty($rule['enabled'])) { return $previous; }
+        $caseData = array(
+            'id' => (int) $obj->rowid,
+            'entity' => (int) $obj->entity,
+            'invoice_id' => (int) $obj->fk_facture,
+            'current_level' => (int) $obj->current_level,
+            'paused' => (int) $obj->paused,
+            'status' => (string) $obj->status,
+            'remaining_amount' => (float) $obj->remaining_amount,
+            'last_notice_at' => $obj->last_notice_at,
+            'next_action_at' => $obj->next_action_at,
+            'note_private' => (string) $obj->note_private,
+            'date_creation' => $obj->date_creation,
+            'tms' => $obj->tms,
+            'fk_user_create' => (int) $obj->fk_user_create,
+            'fk_user_modif' => (int) $obj->fk_user_modif,
+        );
+        $sqlPause = 'SELECT pause_until, reason FROM '.MAIN_DB_PREFIX.'mahnwesen_pause WHERE entity = '.((int) $caseData['entity']).' AND fk_case = '.((int) $caseData['id'])." AND status = 'active' ORDER BY rowid DESC".$this->db->plimit(1);
+        $resPause = $this->db->query($sqlPause);
+        if ($resPause) {
+            $pause = $this->db->fetch_object($resPause);
+            if ($pause) { $caseData['pause_until'] = $pause->pause_until; $caseData['pause_reason'] = (string) $pause->reason; $caseData['pause_active'] = 1; }
+            $this->db->free($resPause);
         }
-        return 0;
-    }
-
-    /**
-     * Effective workflow due date for a stage.
-     *
-     * Besides the absolute invoice threshold, preserve the configured spacing
-     * between two enabled stages after the previous stage was ACTUALLY completed.
-     * Example with thresholds 3/10 days: if the reminder is sent late on day 14,
-     * the 1st dunning notice becomes actionable no earlier than the start of day
-     * 21, not the next cron run. The spacing counts whole days, so a reminder
-     * sent in the afternoon does not push the nightly cron to day 22 (#18). This prevents a delayed case from receiving several escalating
-     * notices in rapid succession.
-     *
-     * A sent notice that named a payment deadline also holds the next stage
-     * back until the day after that deadline (#64).
-     */
-    public function calculateWorkflowStageDueAt($caseId, $dueYmd, $level)
-    {
-        $calendarDue = $this->calculateStageDueAt($dueYmd, $level);
-        if ($calendarDue === null || (int) $level <= 1 || (int) $caseId <= 0) { return $calendarDue; }
-
-        $previous = $this->getPreviousEnabledLevel((int) $level);
-        if ($previous <= 0) { return $calendarDue; }
-        $completedAt = $this->getStageCompletionTimestamp((int) $caseId, $previous);
-        if (empty($completedAt)) { return $calendarDue; }
-
-        $thresholds = $this->getStageThresholds();
-        $gapDays = max(0, ((int) ($thresholds[(int) $level] ?? 0)) - ((int) ($thresholds[$previous] ?? 0)));
-        $afterPrevious = date('Y-m-d 00:00:00', strtotime('+'.$gapDays.' days', $completedAt));
-        $paymentDays = $this->getPaymentDaysForLevel($previous);
-        $sentAt = $paymentDays > 0 ? $this->getStageNoticeTimestamp((int) $caseId, $previous) : null;
-        if ($sentAt) {
-            $afterDeadline = date('Y-m-d 00:00:00', strtotime('+'.($paymentDays + 1).' days', $sentAt));
-            if ((int) $this->db->jdate($afterDeadline) > (int) $this->db->jdate($afterPrevious)) { $afterPrevious = $afterDeadline; }
-        }
-        $calendarTs = (int) $this->db->jdate($calendarDue);
-        $afterPreviousTs = (int) $this->db->jdate($afterPrevious);
-        return ($afterPreviousTs > $calendarTs) ? $afterPrevious : $calendarDue;
-    }
-
-    /** Next enabled stage whose calendar threshold has not been reached yet. */
-    public function getNextFutureLevel($calculatedLevel)
-    {
-        for ($level = max(0, (int) $calculatedLevel) + 1; $level <= 4; $level++) {
-            $rule = $this->getRuleByLevel($level);
-            if (!empty($rule['enabled'])) { return $level; }
-        }
-        return 0;
-    }
-
-    /** Date at which a concrete stage becomes due. */
-    public function calculateStageDueAt($dueYmd, $level)
-    {
-        $thresholds = $this->getStageThresholds();
-        $level = (int) $level;
-        if (empty($dueYmd) || !isset($thresholds[$level])) { return null; }
-        try {
-            $date = new DateTimeImmutable($dueYmd.' 00:00:00');
-            return $date->modify('+'.((int) $thresholds[$level]).' days')->format('Y-m-d H:i:s');
-        } catch (Exception $e) { return null; }
+        if (!array_key_exists('pause_until', $caseData)) { $caseData['pause_until'] = null; $caseData['pause_reason'] = ''; $caseData['pause_active'] = 0; }
+        return $caseData;
     }
 }

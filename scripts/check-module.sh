@@ -54,6 +54,11 @@ grep -q "new FormMail" notice.php
 grep -q "get_form('addfile', 'remove_extra')" notice.php
 grep -q "GETPOST('message', 'restricthtml')" notice.php
 grep -q "resolveNativeSender" notice.php
-grep -q "status IN ('reserved', 'sending', 'ambiguous')" class/dunningmanager.methods3.trait.php
-grep -q "addNoticeAttemptFile" class/dunningnoticeservice.methods4.trait.php
+grep -q "status IN ('reserved', 'sending', 'ambiguous')" class/dunningmanager.attempts.trait.php
+grep -q "addNoticeAttemptFile" class/dunningnoticeservice.delivery.trait.php
+# One customer scope check (#24): no other module file queries the sales representatives per invoice.
+if grep -RIln --include='*.php' --exclude-dir=.local-testing --exclude-dir=tests "societe_commerciaux WHERE fk_soc" . | grep -v "class/dunningmanager.access.trait.php"; then
+  echo "a customer scope check outside DunningManagerAccess::canSeeCustomer()" >&2
+  exit 1
+fi
 echo "Security contracts: OK"
