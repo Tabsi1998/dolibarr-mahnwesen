@@ -488,14 +488,14 @@ def payment_deadline(stack: Stack) -> str:
     stages = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=stages"), "stages setup")
     page_ok(browser.submit(form_with_action(stages, "save_stages", "stages setup"), {"stage_payment_days_1": "10"}),
             "set a payment period of 10 days for the payment reminder")
-    saved = stack.value("SELECT value FROM llx_const WHERE name = 'MAHNWESEN_PAYMENT_DAYS_1' AND entity = 1")
+    saved = stack.value("SELECT payment_days FROM llx_mahnwesen_rule WHERE level = 1 AND entity = 1")
     expect(saved == "10", f"the payment period of the payment reminder is {saved!r} after saving 10")
     stages = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=stages"), "stages setup")
     refused = browser.submit(form_with_action(stages, "save_stages", "stages setup"), {"stage_payment_days_2": "400"})
     messages = [label.replace("%s", "2") for label in translations("MahnwesenStageValuesInvalid")]
     expect(any(message in html.unescape(refused.text) for message in messages),
            "a payment period of 400 days was not refused with a message")
-    kept = stack.value("SELECT value FROM llx_const WHERE name = 'MAHNWESEN_PAYMENT_DAYS_2' AND entity = 1")
+    kept = stack.value("SELECT payment_days FROM llx_mahnwesen_rule WHERE level = 2 AND entity = 1")
     expect(kept in (None, "0"), f"a refused payment period was saved anyway: {kept!r}")
     variables = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=templates"), "templates setup")
     expect("__MAHNWESEN_PAYMENT_DEADLINE__" in variables.text and "__MAHNWESEN_PAYMENT_DAYS__" in variables.text,
@@ -856,7 +856,7 @@ def templates(stack: Stack) -> str:
 
 def no_payment_period(stack: Stack) -> None:
     """Stage timing without the reminder's payment deadline, which would hold the next stage back on its own."""
-    stack.sql("UPDATE llx_const SET value = '0' WHERE name = 'MAHNWESEN_PAYMENT_DAYS_1' AND entity = 1")
+    stack.sql("UPDATE llx_mahnwesen_rule SET payment_days = 0 WHERE level = 1 AND entity = 1")
 
 
 def stage_spacing(stack: Stack) -> str:
