@@ -20,13 +20,14 @@ if (!class_exists('Facture')) {
     }
 }
 
-require_once __DIR__.'/../class/dunningmanager.methods1.trait.php';
-require_once __DIR__.'/../class/dunningmanager.methods2.trait.php';
-require_once __DIR__.'/../class/dunningmanager.methods4.trait.php';
-require_once __DIR__.'/../class/dunningmanager.methods5.trait.php';
-require_once __DIR__.'/../class/dunningnoticeservice.methods1.trait.php';
-require_once __DIR__.'/../class/dunningnoticeservice.methods2.trait.php';
-require_once __DIR__.'/../class/dunningnoticeservice.methods4.trait.php';
+require_once __DIR__.'/../class/mahnwesenworkflowpolicy.class.php';
+require_once __DIR__.'/../class/dunningmanager.scan.trait.php';
+require_once __DIR__.'/../class/dunningmanager.stages.trait.php';
+require_once __DIR__.'/../class/dunningmanager.workflow.trait.php';
+require_once __DIR__.'/../class/dunningmanager.automation.trait.php';
+require_once __DIR__.'/../class/dunningnoticeservice.templates.trait.php';
+require_once __DIR__.'/../class/dunningnoticeservice.recipients.trait.php';
+require_once __DIR__.'/../class/dunningnoticeservice.delivery.trait.php';
 
 function mwAssert($condition, $message)
 {
@@ -35,7 +36,7 @@ function mwAssert($condition, $message)
 
 class StagePolicyFixture
 {
-    use DunningManagerMethods1;
+    use DunningManagerScan, DunningManagerStages;
     public function getRules($refresh = false)
     {
         return array(
@@ -58,7 +59,7 @@ class DateOnlyDb
 }
 class StageSpacingFixture
 {
-    use DunningManagerMethods2;
+    use DunningManagerWorkflow;
     public $db;
     public $completedAt;
     public $paymentDays = 0;
@@ -83,7 +84,7 @@ mwAssert($spacing->calculateWorkflowStageDueAt(7, '2026-01-01', 2) === '2026-01-
 
 class RuleDefaultsFixture
 {
-    use DunningManagerMethods4;
+    use DunningManagerStages;
     protected function getIntSetting($key, $default) { return $default; }
     public function getStageLabelKey($level) { return 'DunningStage'.$level; }
 }
@@ -92,7 +93,7 @@ mwAssert((float) $defaults->getDefaultRule(2)['fee_amount'] === 0.0, 'fees must 
 
 class AutomationDefaultsFixture
 {
-    use DunningManagerMethods5;
+    use DunningManagerAutomation, DunningManagerStages;
     protected function getIntSetting($key, $default) { return $default; }
 }
 $automationDefaults = new AutomationDefaultsFixture();
@@ -101,7 +102,7 @@ mwAssert($automationDefaults->getAutomaticMaxPerCustomer() === 1, 'automatic del
 
 class TemplatePolicyFixture
 {
-    use DunningNoticeServiceMethods1;
+    use DunningNoticeServiceTemplates;
     public $db;
     public $manager;
     public $error = '';
@@ -119,7 +120,7 @@ mwAssert($selected !== false && $selected['label'] === 'EN', 'same-language temp
 
 class OwnTemplateFixture
 {
-    use DunningNoticeServiceMethods1;
+    use DunningNoticeServiceTemplates;
     public $db;
     public $manager;
     public $error = '';
@@ -145,7 +146,7 @@ class FailingRecipientDb
 }
 class RecipientPolicyFixture
 {
-    use DunningNoticeServiceMethods2;
+    use DunningNoticeServiceRecipients;
     public $db;
     public $error = '';
     public $errors = array();
@@ -159,7 +160,7 @@ mwAssert($recipientService->recipientLookupFailed === true, 'recipient lookup fa
 
 class SendFailureFixture
 {
-    use DunningNoticeServiceMethods4;
+    use DunningNoticeServiceDelivery;
 }
 $sendFailure = new SendFailureFixture();
 $smtpMail = function ($sendmode, $log) {
@@ -176,5 +177,38 @@ mwAssert($sendFailure->failedBeforeMessageData($smtpMail('smtps', "220 mail ESMT
     'a failure after the server accepted the message data stays ambiguous (#14)');
 mwAssert($sendFailure->failedBeforeMessageData($smtpMail('mail', '')) === false, 'PHP mail() gives no protocol trace, so its failures stay ambiguous');
 mwAssert($sendFailure->failedBeforeMessageData(null) === true, 'a mailer that could not be built sent nothing');
+
+// ------------------------------------------------------------ workflow policy (#29)
+$thresholds = array(1 => 3, 2 => 10, 3 => 20, 4 => 30);
+$all = array(1 => true, 2 => true, 3 => true, 4 => true);
+mwAssert(MahnwesenWorkflowPolicy::stageForDaysLate(2, $thresholds, $all) === 0, 'no stage before the first threshold');
+mwAssert(MahnwesenWorkflowPolicy::stageForDaysLate(3, $thresholds, $all) === 1, 'the threshold day itself reaches the stage');
+mwAssert(MahnwesenWorkflowPolicy::stageForDaysLate(-5, $thresholds, $all) === 0, 'an invoice not yet due has no stage');
+mwAssert(MahnwesenWorkflowPolicy::stageForDaysLate(25, $thresholds, array(1 => true, 2 => true, 3 => false, 4 => true)) === 2,
+    'a switched-off stage is never the calendar stage');
+mwAssert(MahnwesenWorkflowPolicy::nextRequiredLevel(4, $all, array()) === 1, 'stages go in order: the reminder first');
+mwAssert(MahnwesenWorkflowPolicy::nextRequiredLevel(4, $all, array(1 => true, 2 => true)) === 3, 'the first stage not completed');
+mwAssert(MahnwesenWorkflowPolicy::nextRequiredLevel(4, array(1 => false, 2 => true, 3 => true, 4 => true), array()) === 2,
+    'a switched-off stage is skipped');
+mwAssert(MahnwesenWorkflowPolicy::nextRequiredLevel(2, $all, array(1 => true, 2 => true)) === 0, 'nothing due once the calendar stage is completed');
+mwAssert(MahnwesenWorkflowPolicy::nextRequiredLevel(0, $all, array()) === 0, 'nothing due before the first threshold');
+mwAssert(MahnwesenWorkflowPolicy::previousEnabledLevel(3, array(1 => true, 2 => false, 3 => true)) === 1, 'the previous stage skips a switched-off one');
+mwAssert(MahnwesenWorkflowPolicy::previousEnabledLevel(1, $all) === 0, 'the reminder has no previous stage');
+mwAssert(MahnwesenWorkflowPolicy::nextFutureLevel(2, array(1 => true, 2 => true, 3 => false, 4 => true)) === 4, 'the next stage skips a switched-off one');
+mwAssert(MahnwesenWorkflowPolicy::nextFutureLevel(4, $all) === 0, 'nothing follows the last stage');
+mwAssert(MahnwesenWorkflowPolicy::stageDueAt('2026-01-31', 30) === '2026-03-02 00:00:00', 'the due date counts calendar days across a month end');
+mwAssert(MahnwesenWorkflowPolicy::stageDueAt('2026-03-25', 3) === '2026-03-28 00:00:00', 'the due date is not moved by a clock change');
+mwAssert(MahnwesenWorkflowPolicy::stageDueAt('', 3) === null && MahnwesenWorkflowPolicy::stageDueAt('2026-01-01', null) === null,
+    'no due date without a date or a threshold');
+$calendar = '2026-01-11 00:00:00';
+mwAssert(MahnwesenWorkflowPolicy::spacedDueAt($calendar, null, 7, 0, null) === $calendar, 'without a completed stage the calendar decides');
+mwAssert(MahnwesenWorkflowPolicy::spacedDueAt($calendar, strtotime('2026-01-14 23:59:59'), 7, 0, null) === '2026-01-21 00:00:00',
+    'the spacing counts whole days, even from a notice sent just before midnight (#18)');
+mwAssert(MahnwesenWorkflowPolicy::spacedDueAt($calendar, strtotime('2026-01-14 14:00:00'), 7, 10, strtotime('2026-01-14 14:00:00')) === '2026-01-25 00:00:00',
+    'a payment deadline holds the next stage until the day after it (#64)');
+mwAssert(MahnwesenWorkflowPolicy::spacedDueAt($calendar, strtotime('2026-01-14 14:00:00'), 7, 10, null) === '2026-01-21 00:00:00',
+    'a skipped stage named no deadline, so only the spacing counts');
+mwAssert(MahnwesenWorkflowPolicy::spacedDueAt('2026-02-01 00:00:00', strtotime('2026-01-14 14:00:00'), 7, 3, strtotime('2026-01-14 14:00:00')) === '2026-02-01 00:00:00',
+    'a later calendar date wins over spacing and deadline');
 
 echo "Policy tests: OK\n";

@@ -1,36 +1,7 @@
 <?php
-/* Auto-split method trait for maintainable source files. */
-trait DunningManagerMethods1
+/* Scanning overdue invoices and evaluating one invoice. Reads only. */
+trait DunningManagerScan
 {
-    /** @var DoliDB */
-    public $db;
-
-    /** @var string */
-    public $error = '';
-
-    /** @var array */
-    public $errors = array();
-
-    /** @var string Cron output */
-    public $output = '';
-
-    /** @var array Diagnostic counters from last scan */
-    public $diagnostics = array();
-
-    /** @var array|null Cached stage rules */
-    protected $rulesCache = null;
-
-    /** @var array<int,array<int,bool>> Completed-stage cache for one request. */
-    protected $completedLevelsCache = array();
-
-    /**
-     * @param DoliDB $db Database handler
-     */
-    public function __construct($db)
-    {
-        $this->db = $db;
-    }
-
     /**
      * Scan overdue invoices without changing data.
      *
@@ -310,42 +281,6 @@ trait DunningManagerMethods1
     }
 
     /**
-     * Determine dunning stage from days after due date.
-     *
-     * @param int $daysLate Days after due date
-     * @return int 0..4
-     */
-    public function determineStage($daysLate)
-    {
-        $daysLate = max(0, (int) $daysLate);
-        $thresholds = $this->getStageThresholds();
-        $rules = $this->getRules();
-        $stage = 0;
-
-        foreach ($thresholds as $level => $days) {
-            if (!empty($rules[(int) $level]['enabled']) && $daysLate >= $days) {
-                $stage = (int) $level;
-            }
-        }
-
-        return $stage;
-    }
-
-    /**
-     * @return array<int,int>
-     */
-    public function getStageThresholds()
-    {
-        // getRules() always returns the four stages, stored or default (#20).
-        $out = array();
-        foreach ($this->getRules() as $level => $rule) {
-            $out[(int) $level] = (int) $rule['days_after_due'];
-        }
-        ksort($out);
-        return $out;
-    }
-
-    /**
      * @return float
      */
     public function getMinimumAmount()
@@ -365,113 +300,112 @@ trait DunningManagerMethods1
         return max(1, $this->getIntSetting('MAHNWESEN_MAX_SCAN', 500));
     }
 
-
-
     /**
-     * Return a stored dunning case for an invoice.
+     * Evaluate one invoice using the same rules as the dashboard scan.
      *
      * @param int $invoiceId Customer invoice id
-     * @return array|null
+     * @return array|false
      */
-    public function getCaseByInvoice($invoiceId)
+    public function evaluateInvoice($invoiceId)
     {
         global $conf;
-        $sql = 'SELECT rowid, entity, fk_facture, current_level, paused, status, remaining_amount, last_notice_at, next_action_at, note_private, date_creation, tms, fk_user_create, fk_user_modif';
-        $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_case';
-        $sql .= ' WHERE fk_facture = '.((int) $invoiceId);
-        $sql .= ' AND entity = '.((int) $conf->entity);
-        $sql .= ' ORDER BY rowid DESC';
-        $sql .= $this->db->plimit(1);
-        $resql = $this->db->query($sql);
-        if (!$resql) {
-            $this->error = $this->db->lasterror();
-            return null;
+        $invoice = new Facture($this->db);
+        if ($invoice->fetch((int) $invoiceId) <= 0) {
+            $this->error = 'Unable to fetch invoice id '.((int) $invoiceId);
+            return false;
         }
-        $obj = $this->db->fetch_object($resql);
-        $this->db->free($resql);
-        if (!$obj) {
-            return null;
+
+        $remainRaw = $invoice->getRemainToPay(0);
+        if (!is_numeric($remainRaw)) {
+            $this->error = 'Unable to calculate remaining amount for invoice '.$invoice->ref;
+            return false;
         }
-        $caseData = array(
-            'id' => (int) $obj->rowid,
-            'entity' => (int) $obj->entity,
-            'invoice_id' => (int) $obj->fk_facture,
-            'current_level' => (int) $obj->current_level,
-            'paused' => (int) $obj->paused,
-            'status' => (string) $obj->status,
-            'remaining_amount' => (float) $obj->remaining_amount,
-            'last_notice_at' => $obj->last_notice_at,
-            'next_action_at' => $obj->next_action_at,
-            'note_private' => (string) $obj->note_private,
-            'date_creation' => $obj->date_creation,
-            'tms' => $obj->tms,
-            'fk_user_create' => (int) $obj->fk_user_create,
-            'fk_user_modif' => (int) $obj->fk_user_modif,
+        $remain = (float) $remainRaw;
+        $reason = '';
+        $eligible = true;
+
+        $invoiceEntity = !empty($invoice->entity) ? (int) $invoice->entity : 0;
+        $invoiceCurrency = !empty($invoice->multicurrency_code) ? strtoupper((string) $invoice->multicurrency_code) : strtoupper((string) $conf->currency);
+        if ($invoiceEntity !== (int) $conf->entity) {
+            $eligible = false;
+            $reason = 'wrong_entity';
+        } elseif ($invoiceCurrency !== strtoupper((string) $conf->currency)) {
+            // getRemainToPay() is expressed in the company/base currency in
+            // supported Dolibarr versions. Never label that amount as a foreign
+            // invoice currency or mix currencies in dashboard totals.
+            $eligible = false;
+            $reason = 'unsupported_currency';
+        } elseif ((int) $invoice->status !== Facture::STATUS_VALIDATED) {
+            $eligible = false;
+            $reason = 'invoice_not_open';
+        } elseif (!$this->isSupportedInvoiceType((int) $invoice->type)) {
+            $eligible = false;
+            $reason = 'unsupported_type';
+        } elseif ($remain <= 0) {
+            $eligible = false;
+            $reason = 'paid_or_zero_balance';
+        } elseif ($remain < $this->getMinimumAmount()) {
+            $eligible = false;
+            $reason = 'below_minimum';
+        } elseif (empty($invoice->date_lim_reglement)) {
+            $eligible = false;
+            $reason = 'missing_due_date';
+        }
+
+        $todayStart = dol_get_first_hour(dol_now(), 'tzserver');
+        $todayYmd = dol_print_date($todayStart, '%Y-%m-%d', 'tzserver');
+        $dueYmd = !empty($invoice->date_lim_reglement) ? dol_print_date($invoice->date_lim_reglement, '%Y-%m-%d', 'tzserver') : '';
+        if ($eligible && (empty($dueYmd) || $dueYmd >= $todayYmd)) {
+            $eligible = false;
+            $reason = 'not_overdue';
+        }
+
+        $daysLate = ($eligible && $dueYmd) ? $this->daysBetween($dueYmd, $todayYmd) : 0;
+        $stage = $this->determineStage($daysLate);
+        $entity = $invoiceEntity;
+
+        return array(
+            'eligible' => $eligible ? 1 : 0,
+            'reason' => $reason,
+            'remain_to_pay' => $remain,
+            'row' => array(
+                'invoice_id' => (int) $invoice->id,
+                'invoice_ref' => $invoice->ref,
+                'invoice_type' => (int) $invoice->type,
+                'socid' => (int) $invoice->socid,
+                'socname' => '',
+                'invoice_date' => $invoice->date,
+                'due_date' => $invoice->date_lim_reglement,
+                'due_ymd' => $dueYmd,
+                'days_late' => $daysLate,
+                'total_ttc' => (float) $invoice->total_ttc,
+                'remain_to_pay' => $remain,
+                'stage' => $stage,
+                'stage_key' => $this->getStageLabelKey($stage),
+                'paused' => 0,
+                'stored_level' => 0,
+                'case_status' => '',
+                'case_id' => 0,
+                'invoice_entity' => $entity,
+            ),
         );
-        $sqlPause = 'SELECT pause_until, reason FROM '.MAIN_DB_PREFIX.'mahnwesen_pause WHERE entity = '.((int) $caseData['entity']).' AND fk_case = '.((int) $caseData['id'])." AND status = 'active' ORDER BY rowid DESC".$this->db->plimit(1);
-        $resPause = $this->db->query($sqlPause);
-        if ($resPause) {
-            $pause = $this->db->fetch_object($resPause);
-            if ($pause) { $caseData['pause_until'] = $pause->pause_until; $caseData['pause_reason'] = (string) $pause->reason; $caseData['pause_active'] = 1; }
-            $this->db->free($resPause);
-        }
-        if (!array_key_exists('pause_until', $caseData)) { $caseData['pause_until'] = null; $caseData['pause_reason'] = ''; $caseData['pause_active'] = 0; }
-        return $caseData;
     }
 
     /**
-     * Return history entries for an invoice.
+     * Date-only difference, robust around DST changes.
      *
-     * @param int $invoiceId Customer invoice id
-     * @param int $limit Max rows
-     * @return array
+     * @param string $from YYYY-MM-DD
+     * @param string $to YYYY-MM-DD
+     * @return int
      */
-    public function getHistoryByInvoice($invoiceId, $limit = 100)
+    protected function daysBetween($from, $to)
     {
-        global $conf;
-        $limit = max(1, min(500, (int) $limit));
-        $rows = array();
-        $sql = 'SELECT rowid, fk_case, fk_facture, action, level, amount_snapshot, mode, result, recipient, message, date_creation, fk_user_create';
-        $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_history';
-        $sql .= ' WHERE fk_facture = '.((int) $invoiceId);
-        $sql .= ' AND entity = '.((int) $conf->entity);
-        $sql .= ' ORDER BY date_creation DESC, rowid DESC';
-        $sql .= $this->db->plimit($limit);
-        $resql = $this->db->query($sql);
-        if (!$resql) {
-            $this->error = $this->db->lasterror();
-            return $rows;
+        try {
+            $a = new DateTimeImmutable($from.' 12:00:00');
+            $b = new DateTimeImmutable($to.' 12:00:00');
+            return max(0, (int) $a->diff($b)->days);
+        } catch (Exception $e) {
+            return 0;
         }
-        while ($obj = $this->db->fetch_object($resql)) {
-            $rows[] = array(
-                'id' => (int) $obj->rowid,
-                'case_id' => (int) $obj->fk_case,
-                'invoice_id' => (int) $obj->fk_facture,
-                'action' => (string) $obj->action,
-                'level' => (int) $obj->level,
-                'amount_snapshot' => (float) $obj->amount_snapshot,
-                'mode' => (string) $obj->mode,
-                'result' => (string) $obj->result,
-                'recipient' => (string) $obj->recipient,
-                'message' => (string) $obj->message,
-                'date_creation' => $obj->date_creation,
-                'fk_user_create' => (int) $obj->fk_user_create,
-            );
-        }
-        $this->db->free($resql);
-        return $rows;
-    }
-
-    /** Return the recent immutable workflow history for the active entity. */
-    public function getRecentHistory($limit = 300)
-    {
-        global $conf;
-        $rows = array();
-        $sql = 'SELECT rowid, fk_case, fk_facture, action, level, amount_snapshot, mode, result, recipient, message, date_creation, fk_user_create FROM '.MAIN_DB_PREFIX.'mahnwesen_history WHERE entity = '.((int) $conf->entity).' ORDER BY date_creation DESC, rowid DESC'.$this->db->plimit(max(1, min(1000, (int) $limit)));
-        $res = $this->db->query($sql);
-        if (!$res) { $this->error = $this->db->lasterror(); return false; }
-        while ($o = $this->db->fetch_object($res)) { $rows[] = (array) $o; }
-        $this->db->free($res);
-        return $rows;
     }
 }

@@ -7,6 +7,27 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-21
+
+The code sorted by what it does. Nothing changes for users.
+
+### Changed
+
+- The two large classes are sorted by responsibility instead of by length:
+  scanning, stages, workflow, cases, delivery attempts, fees, history, and
+  automation for the manager; templates, recipients, documents, PDF and
+  delivery for the notice service. Their methods and behaviour stay the same
+  (#24).
+- One check decides whether a user may see a customer's invoices; there were
+  five copies (#24).
+- The workflow rules - which stage the calendar reaches, which stage comes
+  next, when it is due - live in a class without a database and have unit
+  tests for their edge cases (#24, #29).
+
+### Removed
+
+- Seven methods nothing called any more (#24).
+
 ## [1.2.0] - 2026-09-21
 
 The first release of milestone 1.2: the code is checked statically before
@@ -367,7 +388,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.1
 [1.2.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.0
 [1.1.4]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.4
 [1.1.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.3
