@@ -55,7 +55,7 @@ The dunning composer uses Dolibarr's native `FormMail` component for templates, 
 
 Dunning fees are tracked in a module-owned subledger after a successful notice. They do not modify the Dolibarr invoice or create an accounting entry and must be marked paid or waived explicitly.
 
-Every cron and dry run is stored in an automation-run history. Automatic sending is off by default and requires both the global and per-stage switches. Per-run, per-customer and per-stage failure limits constrain delivery; a send the mail server never received is retried up to the failure limit, while ambiguous SMTP outcomes require operator resolution before any retry. One broken invoice is skipped and reported instead of stopping the run.
+Every cron and dry run is stored in an automation-run history. Automatic sending is off by default and requires both the global and per-stage switches. Per-run, per-customer and per-stage failure limits constrain delivery; a send the mail server never received is retried up to the failure limit, while ambiguous SMTP outcomes require operator resolution before any retry. One broken invoice is skipped and reported instead of stopping the run. The dry run takes exactly the cron's decision, an optional address is told about runs with problems, and the failed attempts of a run can be released in one step.
 
 ## Email templates
 

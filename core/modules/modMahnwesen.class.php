@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '1.1.1';
+        $this->version = '1.1.2';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -107,6 +107,7 @@ class modMahnwesen extends DolibarrModules
             27 => array('MAHNWESEN_PAYMENT_DAYS_2', 'chaine', '0', 'Payment period in days granted by the first dunning notice, 0 for none', 0, 'current', 0),
             28 => array('MAHNWESEN_PAYMENT_DAYS_3', 'chaine', '0', 'Payment period in days granted by the second dunning notice, 0 for none', 0, 'current', 0),
             29 => array('MAHNWESEN_PAYMENT_DAYS_4', 'chaine', '0', 'Payment period in days granted by the third dunning notice, 0 for none', 0, 'current', 0),
+            30 => array('MAHNWESEN_RUN_NOTIFY_EMAIL', 'chaine', '', 'Address told about automatic runs that fail or end with warnings', 0, 'current', 0),
         );
 
         // Daily worker. Case synchronization and timed pause release are safe
@@ -148,6 +149,13 @@ class modMahnwesen extends DolibarrModules
         $this->rights[$r][1] = 'Send dunning notices';
         $this->rights[$r][4] = 'notice';
         $this->rights[$r][5] = 'send';
+        $r++;
+
+        // Runs the cron's decision without sending; it writes a run record (#16).
+        $this->rights[$r][0] = $this->numero.'14';
+        $this->rights[$r][1] = 'Run the automatic dry run';
+        $this->rights[$r][4] = 'automation';
+        $this->rights[$r][5] = 'dryrun';
         $r++;
 
         // Menus.

@@ -3,12 +3,29 @@
 trait DunningManagerMethods3
 {
 
-    /** Calendar state + sequential workflow state for one invoice. */
-    public function getWorkflowState($invoiceId)
+    /**
+     * Calendar state + sequential workflow state for one invoice.
+     *
+     * With $simulate the case is taken as the daily synchronisation would
+     * leave it, without writing: a missing case is new, a case that is not
+     * open opens again, a pause whose date has passed ends (#16).
+     */
+    public function getWorkflowState($invoiceId, $simulate = false)
     {
         $evaluation = $this->evaluateInvoice((int) $invoiceId);
         if ($evaluation === false) { return false; }
         $case = $this->getCaseByInvoice((int) $invoiceId);
+        if ($simulate && !empty($evaluation['eligible'])) {
+            if (!$case) {
+                $case = array('id' => 0, 'invoice_id' => (int) $invoiceId, 'status' => 'open', 'paused' => 0,
+                    'current_level' => (int) $evaluation['row']['stage'], 'remaining_amount' => (float) $evaluation['remain_to_pay']);
+            } elseif ($case['status'] !== 'open') {
+                $case['status'] = 'open';
+            }
+            if (!empty($case['paused']) && !empty($case['id']) && $this->isPauseExpired((int) $case['id'])) {
+                $case['paused'] = 0;
+            }
+        }
         $calculated = !empty($evaluation['eligible']) ? (int) $evaluation['row']['stage'] : 0;
         $caseId = $case ? (int) $case['id'] : 0;
         $required = $this->getNextRequiredLevel($caseId, $calculated);

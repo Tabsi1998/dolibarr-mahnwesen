@@ -7,6 +7,41 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-09-21
+
+A dry run you can trust, and help for operating automatic dunning.
+
+### Fixed
+
+- The dry run could show nothing ready while the cron then sent notices: it
+  did not include the synchronisation, used the viewer's customers and private
+  templates, and showed stages without automatic sending as blocked. It now
+  takes the cron's own decision for every invoice, as the synchronisation
+  would leave the cases - new cases, ended pauses - and changes nothing. It
+  lists the invoices you may see and says in plain words why each one is sent,
+  skipped or not due (#16).
+
+### Added
+
+- A right "Run the automatic dry run"; without it the dashboard offers no dry
+  run and writes no run record (#16).
+- An address in the automation setup that is told by email about every run
+  that fails or ends with warnings (#21).
+- On the delivery attempts page, the failed attempts of a run can be released
+  in one step after a mail server outage (#21).
+- The dashboard and the automation setup warn when Dolibarr's own payment
+  reminder job is on, because customers would get both (#21).
+- `scripts/release.py --commit` releases a merged version after a later pull
+  request was merged before it was released (#70).
+
+### Changed
+
+- Automatic sending uses public email templates only, so the result does not
+  depend on the user the cron runs as (#16).
+- A missing sender address or a missing invoice PDF the template attaches now
+  stops an automatic notice before a delivery attempt is made; the run ends
+  as a warning that names the invoice (#16).
+
 ## [1.1.1] - 2026-09-17
 
 Automatic dunning that keeps going when the mail server or one invoice fails.
@@ -279,7 +314,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.2
 [1.1.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.0
 [1.0.5]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.0.5

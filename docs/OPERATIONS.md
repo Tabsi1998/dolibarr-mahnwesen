@@ -10,7 +10,7 @@
    `mahnwesen_fee` and `mahnwesen_run` tables; existing cases, rules and
    history remain in place.
 5. Open module setup and create missing DE/EN starter templates.
-6. Run **Synchronize cases**, then **Automation dry run**.
+6. Run **Synchronize cases**, then **Automation dry run**. The dry run takes the cron's own decision for every invoice as if the cron ran now, including dated pauses that have ended and invoices without a case yet, and changes nothing. It needs the right *Run the automatic dry run*.
 7. Test one manual notice with a non-production recipient and inspect the PDF,
    attachment hashes, Agenda event and delivery-attempt record.
 8. Enable per-stage automation only after the staging result is accepted.
@@ -32,6 +32,9 @@ module disable/enable step and inspect the Dolibarr database/module logs.
 - Resolve open fee claims as paid or waived with a reason.
 - Use dated pauses for payment promises and indefinite pauses for disputes.
 - Run the dry-run report after template, sender, stage, entity or fee changes.
+- Set *Notify about problems* in the automation setup: a run that fails or ends with warnings then sends one email to that address.
+- Automatic sending uses public email templates only; a private template of the user the cron runs as is ignored.
+- Keep Dolibarr's own payment reminder job (`sendEmailsRemindersOnInvoiceDueDate`) off; the dashboard and the setup warn when it is on.
 - Overlapping cron delivery is blocked per entity; a lock left by a hard crash
   is marked failed and released after six hours.
 

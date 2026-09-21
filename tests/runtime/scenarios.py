@@ -33,6 +33,10 @@ MODULE_TABLES = ("mahnwesen_case", "mahnwesen_history", "mahnwesen_rule", "mahnw
 LANGS = Path(__file__).resolve().parents[2] / "langs"
 PHP_PROBLEM = re.compile(r"PHP (Fatal error|Parse error|Warning|Notice|Deprecated|Recoverable fatal error):"
                          r"\s*(.+?) in (/var/www/html/custom/mahnwesen/\S+) on line \d+")
+# An uncaught error raised in Dolibarr's code but called from module code: the
+# log line carries the stack trace with a literal backslash-n between frames.
+PHP_UNCAUGHT = re.compile(r"PHP (Fatal error|Recoverable fatal error):\s*(Uncaught .+?) in /\S+?:\d+\\nStack trace:"
+                          r".*?#\d+ /var/www/html/custom/mahnwesen/(\S+?)\(\d+\)")
 
 
 class CheckFailed(Exception):
@@ -202,6 +206,8 @@ def pdf_text(data: bytes) -> str:
 def page_ok(page: Page, what: str) -> Page:
     expect(page.status == 200, f"{what}: HTTP {page.status}")
     expect(not page.denied(), f"{what}: access denied")
+    # A PHP fatal error ends the page early and still answers HTTP 200.
+    expect("</html>" in page.text.lower(), f"{what}: the page ends early, PHP probably stopped: ...{page.text[-300:]!r}")
     problems = page.errors()
     expect(not problems, f"{what}: the page shows {', '.join(problems)}")
     return page
@@ -257,7 +263,18 @@ def upload(stack: Stack, package: Path) -> list[str]:
         packaged = sorted(info.filename[len("mahnwesen/"):] for info in bundle.infolist() if not info.is_dir())
     expect(files == packaged, f"deployed files differ from {package.name}: "
                               f"missing {sorted(set(packaged) - set(files))[:5]}, extra {sorted(set(files) - set(packaged))[:5]}")
+    # PHP's opcode cache keeps serving the replaced files until it checks their
+    # dates again, every opcache.revalidate_freq seconds (2 in the images). An
+    # activation within that time ran the old descriptor and missed new settings.
+    time.sleep(opcache_revalidate_seconds(stack) + 1)
     return files
+
+
+def opcache_revalidate_seconds(stack: Stack) -> int:
+    if "opcache_freq" not in stack.notes:
+        completed = stack.shell("php -r \"echo ini_get('opcache.validate_timestamps') ? (int) ini_get('opcache.revalidate_freq') : 0;\"")
+        stack.notes["opcache_freq"] = int(completed.stdout.strip() or 0) if completed.returncode == 0 else 2
+    return stack.notes["opcache_freq"]
 
 
 # ------------------------------------------------------------------ scenarios
@@ -296,7 +313,9 @@ def upgrade(stack: Stack) -> str:
     after = state()
     expect(after == before, f"the upgrade changed cases, history, the stage fee or the starter templates: {before} -> {after}")
     missing = [name for name in package_settings(stack.package) if stack.const(name) is None]
-    expect(not missing, f"the upgrade did not add the settings {missing}")
+    if missing:
+        rows = stack.sql("SELECT name, entity, value FROM llx_const WHERE name LIKE 'MAHNWESEN%' OR name = 'MAIN_MODULE_MAHNWESEN' ORDER BY name")
+        expect(False, f"the upgrade did not add the settings {missing}; the settings table holds {rows}")
     page_ok(stack.browser().get("/custom/mahnwesen/index.php"), "dashboard after the upgrade")
 
     stack.php_fixture("reset")
@@ -706,8 +725,11 @@ def automation(stack: Stack) -> str:
 def php_messages(stack: Stack) -> set:
     """PHP errors, warnings, notices and deprecations raised in module code."""
     found = set()
-    for match in PHP_PROBLEM.finditer(stack.log()):
+    log = stack.log()
+    for match in PHP_PROBLEM.finditer(log):
         found.add(f"{match.group(3).replace('/var/www/html/custom/mahnwesen/', '')}: {match.group(1)}: {match.group(2)}")
+    for match in PHP_UNCAUGHT.finditer(log):
+        found.add(f"{match.group(3)}: {match.group(1)}: {match.group(2)}")
     return found
 
 
@@ -870,6 +892,9 @@ def last_run(stack: Stack) -> list[str]:
     return rows[0] if rows else []
 
 
+OPS_ADDRESS = "ops@runtime-verein.test"
+
+
 def automatic_stage_two(stack: Stack) -> None:
     """Automatic sending on, for the 1st dunning notice only, with a retry limit of two."""
     stack.sql("UPDATE llx_const SET value = '1' WHERE name = 'MAHNWESEN_AUTO_SEND_ENABLED' AND entity = 1")
@@ -917,15 +942,27 @@ def broken_invoice(stack: Stack) -> str:
     private = invoice(stack, "private_overdue")
     broken = invoice(stack, "company_overdue")
     browser = stack.browser()
-    # After the outage an operator allows the attempts again.
-    page = page_ok(browser.get("/custom/mahnwesen/attempts.php"), "delivery attempts")
+    # After the outage an operator releases the failed attempts, one run at a time (#21).
     failed = [row[0] for row in stack.sql(f"SELECT rowid FROM llx_mahnwesen_attempt WHERE fk_facture = {private['id']} AND status = 'failed'")]
-    for attempt_id in failed:
-        form = next((form for form in page.forms() if form.value("action") == "resolve_attempt"
-                     and form.value("attempt_id") == attempt_id), None)
-        expect(form is not None, f"the delivery attempts page offers no resolution for failed attempt {attempt_id}")
-        page = page_ok(browser.submit(form, {"resolution": "allow_retry", "reason": "Runtime check: mail server back"}),
-                       f"allow attempt {attempt_id} again")
+    page = page_ok(browser.get("/custom/mahnwesen/attempts.php"), "delivery attempts")
+    releases = [form for form in page.forms() if form.value("action") == "release_run"]
+    expect(len(releases) == 2, f"the attempts page should offer to release the failed attempts of the two outage runs, "
+                               f"offers {len(releases)} (#21)")
+    for form in releases:
+        page_ok(browser.submit(form, {"reason": "Runtime check: mail server back"}), f"release run {form.value('run_id')}")
+    statuses = stack.sql(f"SELECT status FROM llx_mahnwesen_attempt WHERE rowid IN ({', '.join(failed)})")
+    expect([row[0] for row in statuses] == ["resolved"] * len(failed),
+           f"releasing the runs left the failed attempts {statuses} (#21)")
+
+    # The operator wants to hear about runs that go wrong (#21).
+    settings = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=automation"), "automation setup")
+    refused = browser.submit(form_with_action(settings, "save_automation", "automation setup"), {"run_notify_email": "not-an-address"})
+    expect(any(label in html.unescape(refused.text) for label in translations("MahnwesenRunNotifyEmailInvalid")),
+           "an invalid notification address was not refused")
+    settings = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=automation"), "automation setup")
+    page_ok(browser.submit(form_with_action(settings, "save_automation", "automation setup"), {"run_notify_email": OPS_ADDRESS}),
+            "set the notification address")
+    expect(stack.const("MAHNWESEN_RUN_NOTIFY_EMAIL") == OPS_ADDRESS, "the notification address was not saved")
     stack.sql(f"""DELIMITER //
 CREATE TRIGGER rt_broken_invoice BEFORE UPDATE ON llx_mahnwesen_case FOR EACH ROW BEGIN
 IF NEW.fk_facture = {int(broken['id'])} THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Runtime check: broken invoice'; END IF;
@@ -939,12 +976,75 @@ DELIMITER ;""")
         stack.sql("DROP TRIGGER IF EXISTS rt_broken_invoice")
     run = last_run(stack)
     messages = mailpit.messages()
-    expect([m["To"][0]["Address"] for m in messages] == ["rita@privat.test"],
+    dunning = [m for m in messages if m["To"][0]["Address"] != OPS_ADDRESS]
+    expect([m["To"][0]["Address"] for m in dunning] == ["rita@privat.test"],
            f"with {broken['ref']} broken the cron did not send the 1st dunning notice to the private customer: "
            f"run {run}, emails {[(m['To'][0]['Address'], m['Subject']) for m in messages]} (#15)")
     expect(run[1] == "warning" and broken["ref"] in run[6],
            f"the run with a broken invoice should end as a warning naming {broken['ref']}: {run} (#15)")
-    return f"{broken['ref']} could not be synchronised; the private customer still got the 1st dunning notice, run {run[0]} is a warning naming it"
+    notices = [m["Subject"] for m in messages if m["To"][0]["Address"] == OPS_ADDRESS]
+    expect(len(notices) == 1 and f"#{run[0]}" in notices[0],
+           f"the run with a warning should notify {OPS_ADDRESS} once about run {run[0]}, got {notices} (#21)")
+    return (f"{broken['ref']} could not be synchronised; the private customer still got the 1st dunning notice, "
+            f"run {run[0]} is a warning naming it; failed attempts released per run; {OPS_ADDRESS} notified")
+
+
+def dry_run(stack: Stack) -> str:
+    """The dry run decides exactly as the cron, which then sends what it announced (#16, #21)."""
+    company = invoice(stack, "company_overdue")
+    browser = stack.browser()
+    case = stack.value(f"SELECT rowid FROM llx_mahnwesen_case WHERE fk_facture = {company['id']}")
+    # The reminder went out eight days ago, and a promise to pay paused the
+    # case until yesterday: the cron lifts the pause and sends the 1st notice.
+    stack.sql(f"UPDATE llx_mahnwesen_history SET date_creation = '{container_date(stack, -8, 'Y-m-d H:i:s')}' "
+              f"WHERE fk_facture = {company['id']} AND action = 'notice_sent' AND level = 1")
+    stack.sql("INSERT INTO llx_mahnwesen_pause (entity, fk_case, fk_facture, status, pause_until, reason, date_creation) "
+              f"VALUES (1, {case}, {company['id']}, 'active', '{container_date(stack, -1, 'Y-m-d')} 00:00:00', "
+              f"'Runtime check: promise to pay', '{container_date(stack, -3, 'Y-m-d H:i:s')}')")
+    stack.sql(f"UPDATE llx_mahnwesen_case SET paused = 1 WHERE rowid = {case}")
+
+    stack.sql("UPDATE llx_cronjob SET status = 1 WHERE methodename = 'sendEmailsRemindersOnInvoiceDueDate'")
+    try:
+        dashboard = html.unescape(page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard").text)
+    finally:
+        stack.sql("UPDATE llx_cronjob SET status = 0 WHERE methodename = 'sendEmailsRemindersOnInvoiceDueDate'")
+    warning = [label.split("<a")[0].strip() for label in translations("MahnwesenCoreReminderActive")]
+    expect(any(text in dashboard for text in warning),
+           "the dashboard does not warn that Dolibarr's own payment reminder is active as well (#21)")
+
+    runs = lambda: stack.value("SELECT COUNT(*) FROM llx_mahnwesen_run WHERE mode = 'dry_run'")
+    before = runs()
+    sales = stack.browser("rtsales")
+    sales_dashboard = sales.get("/custom/mahnwesen/index.php")
+    expect('value="dry_run"' not in sales_dashboard.text, "a user without the dry run right is offered the dry run (#16)")
+    sales.post("/custom/mahnwesen/index.php", [("token", token_of(sales_dashboard)), ("action", "dry_run")])
+    expect(runs() == before, "a user without the dry run right wrote a dry run record (#16)")
+
+    result = browser.submit(form_with_action(page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard"), "dry_run", "dashboard"))
+    page_ok(result, "dry run")
+    decisions = {}
+    for row in result.text.split('<tr class="oddeven">'):
+        ref = re.search(r"invoice\.php\?id=\d+\">([^<]+)</a>", row)
+        decision = re.search(r'data-decision="(\w+)"', row)
+        if ref and decision:
+            decisions[html.unescape(ref.group(1))] = decision.group(1)
+    ready = sorted(ref for ref, decision in decisions.items() if decision == "send")
+    expect(ready == [company["ref"]],
+           f"the dry run should announce exactly the 1st dunning notice for {company['ref']} (paused until yesterday), "
+           f"announced {ready}; all decisions {decisions}; summary "
+           f"{html.unescape((re.search(r'id=.mahnwesen-dry-run-summary.>(.*?)</div>', result.text, re.S) or re.search('$^', '')).group(0) if re.search(r'id=.mahnwesen-dry-run-summary', result.text) else 'missing')!r}, "
+           f"{result.text.count('data-decision')} decision cells (#16)")
+    paused = stack.value(f"SELECT paused FROM llx_mahnwesen_case WHERE rowid = {case}")
+    expect(paused == "1" and runs() == str(int(before) + 1), "the dry run changed the case or wrote no run record (#16)")
+
+    mailpit = stack.mailpit()
+    mailpit.clear()
+    stack.cron()
+    sent = sorted({ref for m in mailpit.messages() for ref in decisions if ref in m["Subject"]})
+    notices = [m for m in mailpit.messages() if m["To"][0]["Address"] == OPS_ADDRESS]
+    expect(sent == ready, f"the dry run announced {ready}, the cron then sent {sent} (#16)")
+    expect(not notices, f"a run without problems notified {OPS_ADDRESS} (#21)")
+    return f"dry run and cron agree on {ready}, the expired pause included; no dry run without the right; reminder job warned"
 
 
 SCENARIOS = (
@@ -970,6 +1070,7 @@ SCENARIOS = (
     ("open-attempt", "Open attempts block skipping; late confirmations keep higher fees", open_attempt, ("automation",)),
     ("smtp-outage", "A mail server outage fails retryably up to the retry limit", smtp_outage, ("stage-spacing",)),
     ("broken-invoice", "One broken invoice does not stop automatic dunning", broken_invoice, ("smtp-outage",)),
+    ("dry-run", "The dry run decides exactly as the cron", dry_run, ("broken-invoice",)),
 )
 
 

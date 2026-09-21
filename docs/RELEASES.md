@@ -44,6 +44,22 @@ python scripts/release.py                 # tag, GitHub release, package upload
 
 It then builds the package from the committed files (`git archive`) with `scripts/build_release.py`, verifies it, creates the annotated tag `v<version>`, pushes it, creates the GitHub release - a pre-release for betas, otherwise the latest release - with the changelog section as its notes, uploads the ZIP and its `.sha256`, downloads both again and compares the checksum.
 
+## A merge that was not released in time
+
+`release.py` releases the head of `main`. When a second pull request is merged before the first one is released, release the first one from its merge commit, then the second one as usual:
+
+```bash
+python scripts/local_check.py             # on a commit with the content of the first merge,
+                                          # for example its branch commit (git switch --detach <sha>)
+git switch main
+python scripts/release.py --check --commit <merge commit of the first pull request>
+python scripts/release.py --commit <merge commit of the first pull request>
+python scripts/local_check.py             # then the head of main
+python scripts/release.py
+```
+
+`--commit` refuses a commit that is not on `origin/main`, a version that is not higher than every release, an existing tag or release, and a local check that did not run on a commit with the same content. Package, version, changelog section and support matrix all come from that commit.
+
 ## GitHub's second confirmation
 
 `.github/workflows/release-verify.yml` runs when a release is published. It checks out the tag, builds the package again and fails when it differs from the uploaded asset byte for byte, or when the pre-release flag does not match the version. `build_release.py` packs reproducibly - sorted entries, stored, fixed dates - so a difference means the published ZIP was not built from that tag. On every push and pull request `ci.yml` checks the release metadata and builds the package twice.

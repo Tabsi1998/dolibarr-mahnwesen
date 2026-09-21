@@ -413,7 +413,7 @@ trait DunningManagerMethods5
         }
 
         if (!$this->ensureRuleRows($actor)) {
-            $this->finishAutomationRun($runId, 'failed', $counters, 'Unable to initialize workflow rules: '.$this->error);
+            $this->finishCronRun($runId, 'failed', $counters, 'Unable to initialize workflow rules: '.$this->error);
             return 1;
         }
         // Problems with single invoices or pauses end the run as a warning
@@ -422,14 +422,14 @@ trait DunningManagerMethods5
         $warnings = array();
         $resumed = $this->resumeExpiredPauses($actor);
         if ($resumed === false) {
-            $this->finishAutomationRun($runId, 'failed', $counters, 'Unable to resume expired pauses: '.$this->error);
+            $this->finishCronRun($runId, 'failed', $counters, 'Unable to resume expired pauses: '.$this->error);
             return 1;
         }
         // A pause that could not be lifted keeps its case paused, so it is not sent.
         $warnings = array_merge($warnings, $this->errors);
         $sync = $this->syncCases($actor, $this->getMaxScan());
         if ($sync === false) {
-            $this->finishAutomationRun($runId, 'failed', $counters, 'Unable to synchronize cases: '.$this->error.($this->errors ? ' | '.implode(' | ', $this->errors) : ''));
+            $this->finishCronRun($runId, 'failed', $counters, 'Unable to synchronize cases: '.$this->error.($this->errors ? ' | '.implode(' | ', $this->errors) : ''));
             return 1;
         }
         $counters['synchronized'] = (int) $sync['created'] + (int) $sync['updated'] + (int) $sync['level_changed'] + (int) $sync['reopened'] + (int) $sync['closed'] + (int) $sync['unchanged'];
@@ -440,14 +440,14 @@ trait DunningManagerMethods5
 
         if (!$this->isAutomaticSendEnabled()) {
             $this->output = 'Daily Mahnwesen workflow: resumed '.$resumed.' dated pause(s); synchronized cases: created '.$sync['created'].', level '.$sync['level_changed'].', updated '.$sync['updated'].', closed '.$sync['closed'].'. Automatic email sending is OFF.'.$warningText;
-            return ($this->finishAutomationRun($runId, $warnings ? 'warning' : 'success', $counters, $this->output) && !$warnings) ? 0 : 1;
+            return ($this->finishCronRun($runId, $warnings ? 'warning' : 'success', $counters, $this->output) && !$warnings) ? 0 : 1;
         }
 
         require_once dol_buildpath('/mahnwesen/class/dunningnotice.class.php', 0);
         $service = new DunningNoticeService($this->db, $this);
         $rows = $this->scanDueInvoices($this->getMaxScan());
         if ($rows === false) {
-            $this->finishAutomationRun($runId, 'failed', $counters, 'Unable to scan due invoices: '.$this->error);
+            $this->finishCronRun($runId, 'failed', $counters, 'Unable to scan due invoices: '.$this->error);
             return 1;
         }
         $counters['scanned'] = count($rows);
@@ -455,71 +455,39 @@ trait DunningManagerMethods5
         $attempted = 0;
         $skipped = 0;
         $failed = 0;
-        $maxSend = $this->getAutomaticSendMax();
-        $maxRetry = $this->getAutomaticRetryMax();
-        $maxPerCustomer = $this->getAutomaticMaxPerCustomer();
-        $attemptedPerCustomer = array();
+        // The dry run takes the same decision for every invoice (#16).
+        $budget = $this->newAutomaticBudget($brokenInvoices);
+        $maxSend = $budget['max'];
+        $maxRetry = $budget['retry_max'];
+        $maxPerCustomer = $budget['max_per_customer'];
         foreach ($rows as $row) {
-            if ($attempted >= $maxSend) {
+            $decision = $this->decideAutomaticSend($row, $service, $budget);
+            if ($decision['detail'] === 'run_limit_reached') {
                 break;
             }
-            $calculatedLevel = (int) $row['stage'];
-            if ($calculatedLevel <= 0) { continue; }
-            if (isset($brokenInvoices[(int) $row['invoice_id']])) {
+            if ($decision['decision'] === 'skip') {
                 $skipped++;
                 continue;
             }
-            $case = $this->getCaseByInvoice((int) $row['invoice_id']);
-            if (!$case || $case['status'] !== 'open' || !empty($case['paused'])) {
-                $skipped++;
-                continue;
-            }
-            $workflow = $this->getWorkflowState((int) $row['invoice_id']);
-            $level = $workflow ? (int) $workflow['next_required_level'] : 0;
-            if (!$workflow || empty($workflow['actionable']) || $level <= 0) {
-                $skipped++;
-                continue;
-            }
-            $rule = $this->getRuleByLevel($level);
-            if (empty($rule['send_email'])) { continue; }
-            if ($this->hasSuccessfulNoticeAtLevel((int) $case['id'], $level) || $this->hasPendingNoticeAtLevel((int) $case['id'], $level) || $this->getAutomaticFailureCount((int) $case['id'], $level) >= $maxRetry) {
-                $skipped++;
-                continue;
-            }
-            $invoice = new Facture($this->db);
-            if ($invoice->fetch((int) $row['invoice_id']) <= 0) {
+            if ($decision['decision'] === 'fail') {
                 $failed++;
-                $this->errors[] = 'Auto-send invoice #'.$row['invoice_id'].': unable to load invoice';
+                $this->errors[] = 'Auto-send '.$row['invoice_ref'].': '.$decision['message'];
                 continue;
             }
-            $invoice->fetch_thirdparty();
-            $customerId = isset($invoice->socid) ? (int) $invoice->socid : 0;
-            if ($customerId > 0 && !empty($attemptedPerCustomer[$customerId]) && $attemptedPerCustomer[$customerId] >= $maxPerCustomer) {
-                $skipped++;
+            if ($decision['decision'] !== 'send') {
                 continue;
             }
-            $recipientOption = $service->getAutomaticRecipientOption($invoice, $this->getAutomaticRecipientPolicy());
-            if ($recipientOption === false) {
-                $skipped++;
-                continue;
-            }
-            $recipient = (string) $recipientOption['email'];
-            $customerLang = (!empty($invoice->thirdparty) && !empty($invoice->thirdparty->default_lang)) ? (string) $invoice->thirdparty->default_lang : (is_object($langs) ? $langs->defaultlang : 'de_DE');
-            $template = $service->getTemplate($level, $customerLang, $actor);
-            if ($template === false) {
-                $failed++;
-                $this->errors[] = 'Auto-send '.$invoice->ref.': '.$service->error;
-                continue;
-            }
+            $invoice = $decision['invoice'];
+            $case = $decision['case'];
+            $level = (int) $decision['level'];
+            $template = $decision['template'];
+            $customerLang = $decision['lang'];
             $subject = $service->renderTemplate($template['subject'], $invoice, $case, $level, $customerLang);
             $body = $service->renderTemplate($template['body'], $invoice, $case, $level, $customerLang);
             // Only native templates exist; their "join files" flag decides.
             $attachInvoice = ((string) ($template['joinfiles'] ?? '') === '1');
             $attempted++;
-            if ($customerId > 0) {
-                $attemptedPerCustomer[$customerId] = isset($attemptedPerCustomer[$customerId]) ? $attemptedPerCustomer[$customerId] + 1 : 1;
-            }
-            $result = $service->sendNotice($invoice, $case, $level, $recipient, $subject, $body, $attachInvoice, $actor, 'automatic', isset($template['email_from']) ? $template['email_from'] : '', isset($template['lang']) ? $template['lang'] : $customerLang, '', '', !empty($template['source_id']) ? (int) $template['source_id'] : 0);
+            $result = $service->sendNotice($invoice, $case, $level, $decision['recipient'], $subject, $body, $attachInvoice, $actor, 'automatic', isset($template['email_from']) ? $template['email_from'] : '', isset($template['lang']) ? $template['lang'] : $customerLang, '', '', !empty($template['source_id']) ? (int) $template['source_id'] : 0);
             if ($result === false) {
                 $failed++;
                 $this->errors[] = 'Auto-send '.$invoice->ref.': '.$service->error;
@@ -543,7 +511,7 @@ trait DunningManagerMethods5
         if ($failures) { $this->output .= ' Failed: '.implode(' | ', $failures); }
         if ($warnings) { $this->output .= ' Skipped because of errors: '.implode(' | ', $warnings); }
         $problems = $failed || $warnings;
-        $runFinalized = $this->finishAutomationRun($runId, $problems ? 'warning' : 'success', $counters, $this->output);
+        $runFinalized = $this->finishCronRun($runId, $problems ? 'warning' : 'success', $counters, $this->output);
         dol_syslog(__METHOD__.' '.$this->output, $problems ? LOG_WARNING : LOG_INFO);
         return ($problems || !$runFinalized) ? 1 : 0;
     }
