@@ -11,7 +11,7 @@ trait DunningManagerMethods5
             return $this->rulesCache;
         }
         $rules = array();
-        $sql = 'SELECT rowid, entity, code, label, level, days_after_due, minimum_amount, fee_amount, interest_rate, send_email, generate_pdf, email_template, enabled';
+        $sql = 'SELECT rowid, entity, code, label, level, days_after_due, fee_amount, fee_private, payment_days, interest_rate, send_email, email_template, enabled';
         $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_rule WHERE entity = '.((int) $conf->entity).' AND level BETWEEN 1 AND 4 ORDER BY level ASC';
         $res = $this->db->query($sql);
         if ($res) {
@@ -23,11 +23,11 @@ trait DunningManagerMethods5
                     'label' => (string) $o->label,
                     'level' => (int) $o->level,
                     'days_after_due' => (int) $o->days_after_due,
-                    'minimum_amount' => (float) $o->minimum_amount,
                     'fee_amount' => (float) $o->fee_amount,
+                    'fee_private' => (float) $o->fee_private,
+                    'payment_days' => (int) $o->payment_days,
                     'interest_rate' => (float) $o->interest_rate,
                     'send_email' => (int) $o->send_email,
-                    'generate_pdf' => (int) $o->generate_pdf,
                     'email_template' => $o->email_template !== null && $o->email_template !== '' ? (string) $o->email_template : 'internal',
                     'enabled' => (int) $o->enabled,
                 );
@@ -52,8 +52,8 @@ trait DunningManagerMethods5
         return $rules[$level];
     }
 
-    /** Save a complete stage rule into our own table and keep old constants in sync. */
-    public function saveRule($level, $days, $feeAmount, $sendEmail, $templateRef, $user, $enabled = 1)
+    /** Save all settings of a stage; the stage table is their only place (#20). */
+    public function saveRule($level, $days, $feeAmount, $sendEmail, $templateRef, $user, $enabled = 1, $feePrivate = 0.0, $paymentDays = 0)
     {
         global $conf;
         $level = max(1, min(4, (int) $level));
@@ -70,14 +70,11 @@ trait DunningManagerMethods5
         }
         $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
         $sql = 'UPDATE '.MAIN_DB_PREFIX.'mahnwesen_rule SET days_after_due = '.$days.', fee_amount = '.((float) $feeAmount).', send_email = '.$sendEmail;
+        $sql .= ', fee_private = '.max(0.0, (float) $feePrivate).', payment_days = '.max(0, min(365, (int) $paymentDays));
         $sql .= ", email_template = '".$this->db->escape($templateRef)."', enabled = ".$enabled.', fk_user_modif = '.$uid;
         $sql .= ' WHERE entity = '.((int) $conf->entity).' AND level = '.$level;
         if (!$this->db->query($sql)) {
             $this->error = $this->db->lasterror();
-            return false;
-        }
-        if (dolibarr_set_const($this->db, 'MAHNWESEN_STAGE'.$level.'_DAYS', (string) $days, 'chaine', 0, '', $conf->entity) <= 0) {
-            $this->error = 'Unable to persist stage threshold constant';
             return false;
         }
         $this->rulesCache = null;
@@ -160,19 +157,15 @@ trait DunningManagerMethods5
     /** Return configured private-person/consumer fee for a stage. */
     public function getPrivateFeeForLevel($level)
     {
-        $level = max(1, min(4, (int) $level));
-        $value = getDolGlobalString('MAHNWESEN_PRIVATE_FEE_'.$level);
-        if ($value === '') {
-            return 0.0;
-        }
-        return max(0.0, (float) price2num($value));
+        $rule = $this->getRuleByLevel($level);
+        return max(0.0, (float) $rule['fee_private']);
     }
 
     /** Payment period in days that a notice of this stage grants, 0 for none (#64). */
     public function getPaymentDaysForLevel($level)
     {
-        $level = max(1, min(4, (int) $level));
-        return max(0, min(365, getDolGlobalInt('MAHNWESEN_PAYMENT_DAYS_'.$level, 0)));
+        $rule = $this->getRuleByLevel($level);
+        return max(0, min(365, (int) $rule['payment_days']));
     }
 
     /** Payment deadline of a notice of this stage written at $from (default now), null without a period. */

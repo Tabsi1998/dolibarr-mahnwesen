@@ -10,7 +10,7 @@ CREATE TABLE llx_mahnwesen_case (
     next_action_at DATETIME,
     note_private TEXT,
     date_creation DATETIME,
-    tms TIMESTAMP,
+    tms TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     fk_user_create INTEGER,
     fk_user_modif INTEGER
 ) ENGINE=innodb;

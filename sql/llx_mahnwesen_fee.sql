@@ -13,5 +13,5 @@ CREATE TABLE llx_mahnwesen_fee (
     settlement_reason TEXT,
     fk_user_create INTEGER,
     fk_user_settlement INTEGER,
-    tms TIMESTAMP
+    tms TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=innodb;

@@ -54,12 +54,16 @@ The module arrives the way an administrator installs it. The package step
 builds `module_mahnwesen-x.y.z.zip`, and from the tag of the newest earlier
 release (`git archive`) the previous package. The first scenarios then:
 
-1. `upgrade`: deploy the previous package through *Deploy an external module*,
-   enable it from the module list, change a stage fee and synchronise; deploy
-   the new package, disable and enable it, and find cases, history, the fee and
-   the starter templates unchanged and every setting of the new descriptor
-   present. The `reset` fixture then removes the module's tables, settings,
-   templates and cron job.
+1. `upgrade`: for the newest earlier release and for `UPGRADE_TAGS`
+   (v1.0.0, v0.5.4-test.1) one after the other: deploy that package through
+   *Deploy an external module*, enable it, synchronise with its own code (the
+   `legacy` fixture), set stage settings where that version keeps them; deploy
+   the new package, disable and enable it, and find cases, history and starter
+   templates unchanged, the stage settings moved into the stage table, the old
+   constants gone and every setting of the new descriptor present. The `reset`
+   fixture then removes the module's tables, settings, templates and cron job.
+   After each upload the check waits for PHP's opcode cache to see the new
+   files. PHP messages of the old versions do not count.
 2. `deploy`: upload the new package; the files in `custom/mahnwesen` must be
    exactly those of the ZIP.
 3. `enable`: enable it from the module list, then the `enabled` fixture.

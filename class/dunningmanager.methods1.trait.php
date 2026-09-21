@@ -336,21 +336,13 @@ trait DunningManagerMethods1
      */
     public function getStageThresholds()
     {
-        $rules = $this->getRules();
+        // getRules() always returns the four stages, stored or default (#20).
         $out = array();
-        foreach ($rules as $level => $rule) {
+        foreach ($this->getRules() as $level => $rule) {
             $out[(int) $level] = (int) $rule['days_after_due'];
         }
-        if (count($out) === 4) {
-            ksort($out);
-            return $out;
-        }
-        return array(
-            1 => $this->getIntSetting('MAHNWESEN_STAGE1_DAYS', 3),
-            2 => $this->getIntSetting('MAHNWESEN_STAGE2_DAYS', 10),
-            3 => $this->getIntSetting('MAHNWESEN_STAGE3_DAYS', 20),
-            4 => $this->getIntSetting('MAHNWESEN_STAGE4_DAYS', 30),
-        );
+        ksort($out);
+        return $out;
     }
 
     /**

@@ -1004,34 +1004,50 @@ def package(context: Context) -> str:
     return f"{archive.name}: {files} files, identical from working copy and snapshot, sha256 {digest[:16]}{previous}"
 
 
+# Old releases the upgrade test starts from as well, besides the newest one (#23).
+UPGRADE_TAGS = ("v1.0.0", "v0.5.4-test.1")
+
+
 def previous_package(context: Context, builder) -> str:
-    """The package of the newest earlier release, built from its tag, for the upgrade test."""
+    """Packages of earlier releases, built from their tags, for the upgrade test.
+
+    The newest earlier release first, then UPGRADE_TAGS as far as they exist.
+    """
     import io
     import tarfile
     releaser = scripts_module("release")
     current = builder.module_version(SNAPSHOT)
     earlier = [version for version in releaser.released_versions()
                if releaser.version_key(version) < releaser.version_key(current)]
-    if not earlier:
-        context.cache.pop("previous_package", None)
+    tags = [f"v{earlier[0]}"] if earlier else []
+    known = set(run_text(context, git(context), "tag", "--list").split())
+    tags += [tag for tag in UPGRADE_TAGS if tag in known and tag not in tags]
+    packages = []
+    for tag in tags:
+        completed = subprocess.run([git(context), "archive", "--format=tar", tag], cwd=str(ROOT),
+                                   capture_output=True, timeout=300)
+        if completed.returncode != 0:
+            raise StepFailed(f"git archive {tag} failed: {completed.stderr.decode('utf-8', 'replace')}")
+        source = STATE / "previous-source" / tag
+        if source.exists():
+            shutil.rmtree(source)
+        source.mkdir(parents=True)
+        with tarfile.open(fileobj=io.BytesIO(completed.stdout)) as bundle:
+            if hasattr(tarfile, "data_filter"):
+                bundle.extractall(source, filter="data")
+            else:
+                bundle.extractall(source)
+        zip_path, _ = builder.build(source, PACKAGE_OUT / "previous" / tag)
+        packages.append(zip_path)
+    context.cache["previous_package"] = packages[0] if packages else None
+    context.cache["upgrade_packages"] = packages
+    if not packages:
         return "; no earlier release to upgrade from"
-    version = earlier[0]
-    completed = subprocess.run([git(context), "archive", "--format=tar", f"v{version}"], cwd=str(ROOT),
-                               capture_output=True, timeout=300)
-    if completed.returncode != 0:
-        raise StepFailed(f"git archive v{version} failed: {completed.stderr.decode('utf-8', 'replace')}")
-    source = STATE / "previous-source"
-    if source.exists():
-        shutil.rmtree(source)
-    source.mkdir(parents=True)
-    with tarfile.open(fileobj=io.BytesIO(completed.stdout)) as bundle:
-        if hasattr(tarfile, "data_filter"):
-            bundle.extractall(source, filter="data")
-        else:
-            bundle.extractall(source)
-    zip_path, _ = builder.build(source, PACKAGE_OUT / "previous")
-    context.cache["previous_package"] = zip_path
-    return f"; upgrade test from v{version}"
+    return "; upgrade test from " + ", ".join(tags)
+
+
+def run_text(context: Context, *command: str) -> str:
+    return subprocess.run(list(command), cwd=str(ROOT), capture_output=True, text=True, timeout=120).stdout
 
 
 def package_steps() -> list:
@@ -1112,7 +1128,8 @@ def start_runtime_stack(context: Context, version: str):
         sales_password=secrets.token_urlsafe(18), other_password=secrets.token_urlsafe(18),
         db_password=secrets.token_urlsafe(18), cron_key=secrets.token_hex(16),
         run=context.run, docker=binary, package=context.cache["package"],
-        previous_package=context.cache.get("previous_package"))
+        previous_package=context.cache.get("previous_package"),
+        upgrade_packages=list(context.cache.get("upgrade_packages") or []))
     context.cache.setdefault("runtime-networks", []).append(network)
     context.run(binary, "network", "create", network, timeout=60)
     # The images declare volumes; these containers are removed with theirs.

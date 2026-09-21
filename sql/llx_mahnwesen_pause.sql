@@ -10,5 +10,5 @@ CREATE TABLE llx_mahnwesen_pause (
     date_end DATETIME,
     fk_user_create INTEGER,
     fk_user_end INTEGER,
-    tms TIMESTAMP
+    tms TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=innodb;

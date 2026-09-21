@@ -68,6 +68,7 @@ class Stack:
     docker: str
     package: Path
     previous_package: Path | None = None
+    upgrade_packages: list = field(default_factory=list)
     fixtures: dict = field(default_factory=dict)
     notes: dict = field(default_factory=dict)
 
@@ -143,8 +144,10 @@ class Stack:
             raise CheckFailed(f"the Mahnwesen job ended with result {result!r}:\n{output[-1500:]}")
         return output
 
-    def log(self) -> str:
-        completed = self.run(self.docker, "logs", self.web, check=False, timeout=120)
+    def log(self, since: float | None = None) -> str:
+        """The web server's log, from a Unix time on when given."""
+        since_args = ("--since", f"{int(since)}") if since else ()
+        completed = self.run(self.docker, "logs", *since_args, self.web, check=False, timeout=120)
         return completed.stdout + completed.stderr
 
     def files(self, directory: str) -> list[str]:
@@ -279,49 +282,78 @@ def opcache_revalidate_seconds(stack: Stack) -> int:
 
 # ------------------------------------------------------------------ scenarios
 
-def upgrade(stack: Stack) -> str:
-    """An installation of the previous release takes the new package: cases, history and settings stay, new settings arrive."""
-    expect(stack.fixtures.get("dolibarr", "").startswith(stack.version.rsplit(".", 1)[0]),
-           f"the container runs Dolibarr {stack.fixtures.get('dolibarr')}, expected {stack.version}")
-    if stack.previous_package is None:
-        return "no earlier release to upgrade from"
-    old = package_version(stack.previous_package)
-    upload(stack, stack.previous_package)
+STAGE_CONSTANTS = r"name LIKE 'MAHNWESEN\\_STAGE_\\_DAYS' OR name LIKE 'MAHNWESEN\\_PRIVATE\\_FEE\\__' OR name LIKE 'MAHNWESEN\\_PAYMENT\\_DAYS\\__'"
+
+
+def set_const(stack: Stack, name: str, value: str) -> None:
+    stack.sql(f"DELETE FROM llx_const WHERE name = '{name}' AND entity = 1; "
+              f"INSERT INTO llx_const (name, entity, value, type, visible) VALUES ('{name}', 1, '{value}', 'chaine', 0)")
+
+
+def upgrade_from(stack: Stack, package: Path) -> str:
+    """One earlier release, with cases and settings, upgraded to this package."""
+    old = package_version(package)
+    upload(stack, package)
     switch_module(stack, "set")
     expect(stack.const("MAIN_MODULE_MAHNWESEN") == "1", f"{old} could not be enabled")
     tables = {row[0] for row in stack.sql("SHOW TABLES LIKE 'llx_mahnwesen_%'")}
     missing = [name for name in MODULE_TABLES if f"llx_{name}" not in tables]
     expect(not missing, f"enabling the package of {old} created no tables {', '.join(missing)}")
-    browser = stack.browser()
-    stages = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=stages"), f"stages setup of {old}")
-    page_ok(browser.submit(form_with_action(stages, "save_stages", f"stages setup of {old}"), {"stage_business_fee_3": "55"}),
-            f"save the stages in {old}")
-    dashboard = page_ok(browser.get("/custom/mahnwesen/index.php"), f"dashboard of {old}")
-    page_ok(browser.submit(form_with_action(dashboard, "sync_cases", f"dashboard of {old}")), f"synchronise in {old}")
+    stack.php_fixture("legacy")
+    # Settings where the old version keeps them: days and business fee in the
+    # stage table, the private fee and the payment period as constants.
+    stack.sql("UPDATE llx_mahnwesen_rule SET fee_amount = 55 WHERE level = 3 AND entity = 1")
+    stack.sql("UPDATE llx_mahnwesen_rule SET days_after_due = 12 WHERE level = 2 AND entity = 1")
+    set_const(stack, "MAHNWESEN_PRIVATE_FEE_3", "7.00")
+    set_const(stack, "MAHNWESEN_PAYMENT_DAYS_1", "14")
 
     def state() -> list:
         return stack.sql("SELECT (SELECT COUNT(*) FROM llx_mahnwesen_case), (SELECT COUNT(*) FROM llx_mahnwesen_history), "
-                         "(SELECT ROUND(fee_amount, 2) FROM llx_mahnwesen_rule WHERE level = 3 AND entity = 1), "
                          "(SELECT COUNT(*) FROM llx_c_email_templates WHERE module = 'mahnwesen')")[0]
     before = state()
-    expect(before[0] == "4" and before[2] == "55.00", f"{old} did not create the 4 cases and the fee of 55: {before}")
+    expect(before[0] == "4", f"{old} did not create the 4 cases: {before}")
 
     upload(stack, stack.package)
     switch_module(stack, "reset")
     switch_module(stack, "set")
     expect(stack.const("MAIN_MODULE_MAHNWESEN") == "1", f"{stack.module_version} could not be enabled over {old}")
     after = state()
-    expect(after == before, f"the upgrade changed cases, history, the stage fee or the starter templates: {before} -> {after}")
+    expect(after == before, f"the upgrade from {old} changed cases, history or the starter templates: {before} -> {after}")
+    rules = {row[0]: row[1:] for row in stack.sql(
+        "SELECT level, days_after_due, ROUND(fee_amount, 2), ROUND(fee_private, 2), payment_days FROM llx_mahnwesen_rule "
+        "WHERE entity = 1 ORDER BY level")}
+    expect(rules.get("1", [None] * 4)[3] == "14" and rules.get("2", [None])[0] == "12"
+           and rules.get("3", [None] * 3)[1:3] == ["55.00", "7.00"],
+           f"the upgrade from {old} did not move the stage settings into the stage table: {rules} (#20)")
+    leftovers = stack.sql(f"SELECT name FROM llx_const WHERE {STAGE_CONSTANTS}")
+    expect(not leftovers, f"the upgrade from {old} left the old stage constants {leftovers} (#20)")
+    columns = {row[0] for row in stack.sql("SHOW COLUMNS FROM llx_mahnwesen_rule")}
+    body = stack.value("SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
+                       "AND TABLE_NAME = 'llx_mahnwesen_attempt' AND COLUMN_NAME = 'body_html'")
+    expect(not columns & {"minimum_amount", "generate_pdf"} and body == "mediumtext",
+           f"the schema after the upgrade from {old}: rule columns {sorted(columns)}, body_html {body} (#20)")
     missing = [name for name in package_settings(stack.package) if stack.const(name) is None]
     if missing:
         rows = stack.sql("SELECT name, entity, value FROM llx_const WHERE name LIKE 'MAHNWESEN%' OR name = 'MAIN_MODULE_MAHNWESEN' ORDER BY name")
-        expect(False, f"the upgrade did not add the settings {missing}; the settings table holds {rows}")
-    page_ok(stack.browser().get("/custom/mahnwesen/index.php"), "dashboard after the upgrade")
-
+        expect(False, f"the upgrade from {old} did not add the settings {missing}; the settings table holds {rows}")
+    page_ok(stack.browser().get("/custom/mahnwesen/index.php"), f"dashboard after the upgrade from {old}")
     stack.php_fixture("reset")
     expect(stack.const("MAIN_MODULE_MAHNWESEN") is None and not stack.sql("SHOW TABLES LIKE 'llx_mahnwesen_%'"),
-           "the reset after the upgrade test left module state behind")
-    return f"{old} -> {stack.module_version}: 4 cases, history, stage fee and templates kept; all settings present"
+           f"the reset after the upgrade from {old} left module state behind")
+    return old
+
+
+def upgrade(stack: Stack) -> str:
+    """Installations of earlier releases take the new package: data stays, settings move, new settings arrive (#20, #23)."""
+    expect(stack.fixtures.get("dolibarr", "").startswith(stack.version.rsplit(".", 1)[0]),
+           f"the container runs Dolibarr {stack.fixtures.get('dolibarr')}, expected {stack.version}")
+    if not stack.upgrade_packages:
+        return "no earlier release to upgrade from"
+    done = [upgrade_from(stack, package) for package in stack.upgrade_packages]
+    # PHP messages of the old versions are not this package's.
+    stack.notes["log_since"] = time.time()
+    return (f"{', '.join(done)} -> {stack.module_version}: cases, history and templates kept; "
+            "stage settings moved into the stage table, old constants gone; all settings present")
 
 
 def deploy(stack: Stack) -> str:
@@ -441,6 +473,8 @@ def access(stack: Stack) -> str:
 
 PAYMENT_TEMPLATE_LINE = ("<p>Frist: __MAHNWESEN_PAYMENT_DEADLINE__ (__MAHNWESEN_PAYMENT_DAYS__ Tage), "
                          "naechste Stufe __MAHNWESEN_NEXT_STAGE_DATE__</p>")
+# A long legal footer: the body of the reminder passes the old 60 KB limit (#20).
+LONG_FOOTER = "<p>" + "Rechtlicher Hinweis zur Zahlungserinnerung. " * 1500 + "ENDE-DES-HINWEISES</p>"
 
 
 def payment_deadline(stack: Stack) -> str:
@@ -463,7 +497,7 @@ def payment_deadline(stack: Stack) -> str:
     expect("__MAHNWESEN_PAYMENT_DEADLINE__" in variables.text and "__MAHNWESEN_PAYMENT_DAYS__" in variables.text,
            "the variable help of the setup does not list the payment deadline variables")
 
-    stack.sql("UPDATE llx_c_email_templates SET content = CONCAT(content, '" + PAYMENT_TEMPLATE_LINE + "') "
+    stack.sql("UPDATE llx_c_email_templates SET content = CONCAT(content, '" + PAYMENT_TEMPLATE_LINE + LONG_FOOTER + "') "
               "WHERE module = 'mahnwesen' AND type_template = 'mahnwesen_reminder' AND lang = 'de_DE'")
     body = page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={company['id']}"), "composer").form(name="mailform").value("message") or ""
     deadline, after = container_date(stack, 10), container_date(stack, 11)
@@ -525,8 +559,12 @@ def manual_send(stack: Stack) -> str:
                           f"AND result = 'success' AND level = 1 AND fk_facture = {company['id']}")
     expect(history == "1", "no notice_sent history row for the reminder")
 
+    sent_html = mailpit.message(message["ID"]).get("HTML") or ""
+    stored = int(stack.value(f"SELECT LENGTH(body_html) FROM llx_mahnwesen_attempt WHERE rowid = {attempt_id}") or 0)
+    expect(stored > 60000 and "ENDE-DES-HINWEISES" in sent_html,
+           f"a reminder of {stored} bytes was not stored and sent in full (#20)")
     deadline = container_date(stack, 10)
-    expect(f"Frist: {deadline} (10 Tage)" in (mailpit.message(message["ID"]).get("HTML") or ""),
+    expect(f"Frist: {deadline} (10 Tage)" in sent_html,
            f"the sent email does not name the payment deadline {deadline} (#64)")
     recorded_text = stack.value("SELECT message FROM llx_mahnwesen_history WHERE action = 'notice_sent' "
                                 f"AND level = 1 AND fk_facture = {company['id']}") or ""
@@ -728,7 +766,7 @@ def automation(stack: Stack) -> str:
 def php_messages(stack: Stack) -> set:
     """PHP errors, warnings, notices and deprecations raised in module code."""
     found = set()
-    log = stack.log()
+    log = stack.log(stack.notes.get("log_since"))
     for match in PHP_PROBLEM.finditer(log):
         found.add(f"{match.group(3).replace('/var/www/html/custom/mahnwesen/', '')}: {match.group(1)}: {match.group(2)}")
     for match in PHP_UNCAUGHT.finditer(log):

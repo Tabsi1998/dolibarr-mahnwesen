@@ -275,7 +275,8 @@ trait DunningNoticeServiceMethods4
             $this->error = 'The email subject is invalid or longer than 255 bytes.';
             return false;
         }
-        if (strlen($bodyHtml) > 60000) {
+        // MEDIUMTEXT holds 16 MB; leave room for the other columns of the row (#20).
+        if (strlen($bodyHtml) > 15000000) {
             $this->error = 'The email message is too large for the immutable delivery snapshot.';
             return false;
         }

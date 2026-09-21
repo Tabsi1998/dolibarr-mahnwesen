@@ -7,6 +7,26 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-09-21
+
+All settings of a stage in one place, and emails of any size.
+
+### Changed
+
+- The settings of a stage - days, business and private-person fee, payment
+  period, automatic sending, template - live in the stage table only. The
+  private-person fees and payment periods that earlier versions kept as
+  separate settings move there when the module is activated after the update,
+  and the old settings are removed (#20).
+- The database is updated by `sql/update_1.1.4.sql`, which Dolibarr runs on
+  every activation: two unused columns of the stage table are removed and
+  timestamps follow every change (#20).
+
+### Fixed
+
+- An email over 60 KB, for example with a long footer or an embedded image,
+  was refused. The stored copy of a notice now holds up to 15 MB (#20).
+
 ## [1.1.3] - 2026-09-21
 
 The recipient from the customer's contact roles, and an invoice view that
@@ -336,7 +356,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.1.4...HEAD
+[1.1.4]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.4
 [1.1.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.3
 [1.1.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.2
 [1.1.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.1

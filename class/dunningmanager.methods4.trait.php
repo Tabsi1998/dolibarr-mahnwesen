@@ -393,15 +393,81 @@ trait DunningManagerMethods4
             'code' => 'STAGE'.$level,
             'label' => $this->getStageLabelKey($level),
             'level' => $level,
-            'days_after_due' => $this->getIntSetting('MAHNWESEN_STAGE'.$level.'_DAYS', $days[$level]),
-            'minimum_amount' => 0.0,
+            'days_after_due' => $days[$level],
             'fee_amount' => $fees[$level],
+            'fee_private' => 0.0,
+            'payment_days' => 0,
             'interest_rate' => 0.0,
             'send_email' => 0,
-            'generate_pdf' => 1,
             'email_template' => 'internal',
             'enabled' => 1,
         );
+    }
+
+    /**
+     * Move the stage settings that earlier versions kept as constants into the
+     * stage table, then remove the constants (#20).
+     *
+     * Days lived in MAHNWESEN_STAGE<n>_DAYS as well as in the table, private
+     * fees only in MAHNWESEN_PRIVATE_FEE_<n>, payment periods (1.0.5) only in
+     * MAHNWESEN_PAYMENT_DAYS_<n>. The table wins for the days; the other two
+     * move over. Runs on every activation; without constants it does nothing.
+     *
+     * @param User|null $user Acting user
+     * @return bool
+     */
+    public function migrateStageSettings($user = null)
+    {
+        global $conf;
+        $hadRows = count($this->getStoredRuleLevels()) === 4;
+        if (!$this->ensureRuleRows($user)) {
+            return false;
+        }
+        for ($level = 1; $level <= 4; $level++) {
+            $set = array();
+            $days = getDolGlobalString('MAHNWESEN_STAGE'.$level.'_DAYS');
+            // Only for rows created just now: before the table, the constants were the source.
+            if (!$hadRows && $days !== '' && is_numeric($days)) {
+                $set[] = 'days_after_due = '.max(0, (int) $days);
+            }
+            $private = getDolGlobalString('MAHNWESEN_PRIVATE_FEE_'.$level);
+            if ($private !== '') {
+                $set[] = 'fee_private = '.max(0.0, (float) price2num($private));
+            }
+            $payment = getDolGlobalString('MAHNWESEN_PAYMENT_DAYS_'.$level);
+            if ($payment !== '') {
+                $set[] = 'payment_days = '.max(0, min(365, (int) $payment));
+            }
+            if ($set) {
+                $sql = 'UPDATE '.MAIN_DB_PREFIX.'mahnwesen_rule SET '.implode(', ', $set).' WHERE entity = '.((int) $conf->entity).' AND level = '.$level;
+                if (!$this->db->query($sql)) {
+                    $this->error = $this->db->lasterror();
+                    return false;
+                }
+            }
+            foreach (array('MAHNWESEN_STAGE'.$level.'_DAYS', 'MAHNWESEN_PRIVATE_FEE_'.$level, 'MAHNWESEN_PAYMENT_DAYS_'.$level) as $name) {
+                if (getDolGlobalString($name) !== '' || isset($conf->global->$name)) {
+                    dolibarr_del_const($this->db, $name, $conf->entity);
+                }
+            }
+        }
+        $this->rulesCache = null;
+        return true;
+    }
+
+    /** Levels that have a row in the stage table of the active entity. */
+    protected function getStoredRuleLevels()
+    {
+        global $conf;
+        $levels = array();
+        $res = $this->db->query('SELECT level FROM '.MAIN_DB_PREFIX.'mahnwesen_rule WHERE entity = '.((int) $conf->entity).' AND level BETWEEN 1 AND 4');
+        while ($res && ($o = $this->db->fetch_object($res))) {
+            $levels[(int) $o->level] = true;
+        }
+        if ($res) {
+            $this->db->free($res);
+        }
+        return $levels;
     }
 
     /** Ensure four stage rows exist in the module's own rule table. */
@@ -423,8 +489,8 @@ trait DunningManagerMethods4
                 continue;
             }
             $d = $this->getDefaultRule($level);
-            $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_rule (entity, code, label, level, days_after_due, minimum_amount, fee_amount, interest_rate, send_email, generate_pdf, email_template, enabled, date_creation, fk_user_create, fk_user_modif) VALUES (';
-            $sql .= ((int) $conf->entity).", '".$this->db->escape($code)."', '".$this->db->escape($d['label'])."', ".$level.', '.((int) $d['days_after_due']).', 0, '.((float) $d['fee_amount']).", 0, 0, 1, 'internal', 1, '".$this->db->escape($this->db->idate(dol_now()))."', ".$uid.', '.$uid.')';
+            $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_rule (entity, code, label, level, days_after_due, fee_amount, fee_private, payment_days, interest_rate, send_email, email_template, enabled, date_creation, fk_user_create, fk_user_modif) VALUES (';
+            $sql .= ((int) $conf->entity).", '".$this->db->escape($code)."', '".$this->db->escape($d['label'])."', ".$level.', '.((int) $d['days_after_due']).', '.((float) $d['fee_amount']).", 0, 0, 0, 0, 'internal', 1, '".$this->db->escape($this->db->idate(dol_now()))."', ".$uid.', '.$uid.')';
             if (!$this->db->query($sql)) {
                 $this->error = $this->db->lasterror();
                 return false;
