@@ -60,6 +60,16 @@ if ($action === 'resolve_attempt' && $attemptId > 0) {
     }
     header('Location: '.dol_buildpath('/mahnwesen/attempts.php', 1)); exit;
 }
+if ($action === 'release_run' && GETPOSTINT('run_id') > 0) {
+    if (!$user->hasRight('mahnwesen', 'notice', 'send')) { accessforbidden(); }
+    $released = $manager->releaseFailedAttemptsOfRun(GETPOSTINT('run_id'), trim(GETPOST('reason', 'nohtml')), $user);
+    if ($released === false) {
+        setEventMessages($langs->trans('MahnwesenAttemptResolveFailed'), array($manager->error), 'errors');
+    } else {
+        setEventMessages($langs->trans('MahnwesenRunAttemptsReleased', $released), $manager->errors, $manager->errors ? 'warnings' : 'mesgs');
+    }
+    header('Location: '.dol_buildpath('/mahnwesen/attempts.php', 1)); exit;
+}
 $feeId = GETPOSTINT('fee_id');
 if ($action === 'settle_fee' && $feeId > 0) {
     $feeStatus = GETPOST('fee_status', 'aZ09');
@@ -180,6 +190,13 @@ print '<tr class="liste_titre"><th>ID</th><th>'.$langs->trans('Date').'</th><th>
 foreach ((array) $runs as $run) {
     print '<tr class="oddeven"><td>'.((int) $run['rowid']).'</td><td>'.dol_print_date($db->jdate($run['started_at']), 'dayhour').'</td><td>'.dol_escape_htmltag((string) $run['mode']).'</td><td>'.dol_escape_htmltag((string) $run['status']).'</td><td class="right">'.((int) $run['scanned']).'</td><td class="right">'.((int) $run['synchronized']).'</td><td class="right">'.((int) $run['attempted']).'</td><td class="right">'.((int) $run['sent']).'</td><td class="right">'.((int) $run['skipped']).'</td><td class="right">'.((int) $run['failed']).'</td></tr>';
     if (!empty($run['summary'])) { print '<tr class="oddeven"><td></td><td colspan="9" class="opacitymedium">'.dol_escape_htmltag((string) $run['summary']).'</td></tr>'; }
+    // After a mail server outage: send the failed attempts of this run again (#21).
+    if ($run['mode'] === 'cron' && (int) $run['failed'] > 0 && $user->hasRight('mahnwesen', 'notice', 'send')) {
+        print '<tr class="oddeven"><td></td><td colspan="9"><form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'">';
+        print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="release_run"><input type="hidden" name="run_id" value="'.((int) $run['rowid']).'">';
+        print '<input type="text" required name="reason" maxlength="255" placeholder="'.dol_escape_htmltag($langs->trans('Reason')).'"> ';
+        print '<button class="button smallpaddingimp" type="submit">'.$langs->trans('MahnwesenReleaseRunAttempts').'</button> <span class="opacitymedium">'.$langs->trans('MahnwesenReleaseRunAttemptsHelp').'</span></form></td></tr>';
+    }
 }
 print '</table></div>';
 

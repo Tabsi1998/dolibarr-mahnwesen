@@ -34,7 +34,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import build_release  # noqa: E402 - lives next to this script
 
-CHANGELOG = ROOT / "CHANGELOG.md"
 REPORT = ROOT / ".local-testing" / "local-check.json"
 REPOSITORY = "Tabsi1998/dolibarr-mahnwesen"
 # Groups of scripts/local_check.py a release needs to have passed, none skipped.
@@ -56,7 +55,7 @@ def version_parts(version: str) -> tuple[int, int, int, bool]:
 
 def changelog_section(version: str, text: str | None = None) -> tuple[str, str]:
     """The dated section of a version: (date, body)."""
-    text = CHANGELOG.read_text(encoding="utf-8") if text is None else text
+    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8") if text is None else text
     headings = list(re.finditer(r"^## \[([^\]]+)\](?: - (\d{4}-\d{2}-\d{2}))?[ \t]*$", text, re.MULTILINE))
     if not headings or headings[0].group(1) != "Unreleased":
         raise ReleaseRefused("CHANGELOG.md must start its versions with ## [Unreleased]")
@@ -209,13 +208,24 @@ def git_state(tag: str) -> str:
     remote = run("git", "rev-parse", "origin/main").stdout.strip()
     if head != remote:
         raise ReleaseRefused(f"main ({head[:7]}) is not origin/main ({remote[:7]}); pull or push first")
+    tag_free(tag)
+    return head
+
+
+def tag_free(tag: str) -> None:
     if run("git", "tag", "--list", tag).stdout.strip():
         raise ReleaseRefused(f"the tag {tag} exists already")
     if run("git", "ls-remote", "--tags", "origin", f"refs/tags/{tag}").stdout.strip():
         raise ReleaseRefused(f"the tag {tag} exists on GitHub already")
     if run("gh", "release", "view", tag, "--repo", REPOSITORY, check=False).returncode == 0:
         raise ReleaseRefused(f"a GitHub release {tag} exists already")
-    return head
+
+
+def same_content(first: str, second: str) -> bool:
+    """Whether two commits hold the same files, as a merge commit and the branch commit it merged."""
+    trees = [run("git", "rev-parse", "--verify", "--quiet", f"{commit}^{{tree}}", check=False).stdout.strip()
+             for commit in (first, second)]
+    return bool(trees[0]) and trees[0] == trees[1]
 
 
 def local_check_passed(head: str) -> str:
@@ -224,8 +234,10 @@ def local_check_passed(head: str) -> str:
     except (OSError, ValueError) as error:
         raise ReleaseRefused(f"no readable {REPORT.relative_to(ROOT)}; run python scripts/local_check.py") from error
     git = report.get("git") or {}
-    if not head.startswith(str(git.get("head") or "-")):
-        raise ReleaseRefused(f"the last local check ran on {git.get('head')}, not on {head[:7]}; run it again")
+    checked = str(git.get("head") or "")
+    if not checked or not (head.startswith(checked) or same_content(head, checked)):
+        raise ReleaseRefused(f"the last local check ran on {checked or '-'}, not on {head[:7]} or a commit with the "
+                             "same content; run it again")
     if git.get("dirty"):
         raise ReleaseRefused("the last local check ran on a working copy with changes; run it again on the clean commit")
     missing = [group for group in REQUIRED_GROUPS if group not in (report.get("groups") or [])]
@@ -270,12 +282,12 @@ def run_bytes(*command: str) -> bytes:
 
 # ------------------------------------------------------------------- publish
 
-def publish(info: dict, zip_path: Path, digest: str, work: Path) -> None:
+def publish(info: dict, zip_path: Path, digest: str, work: Path, commit: str = "HEAD") -> None:
     tag = info["tag"]
     notes = work / "notes.md"
     notes.write_text(info["notes"] + "\n", encoding="utf-8", newline="\n")
     checksum = zip_path.with_name(zip_path.name + ".sha256")
-    run("git", "tag", "--annotate", tag, "--message", info["title"])
+    run("git", "tag", "--annotate", tag, commit, "--message", info["title"])
     try:
         run("git", "push", "origin", f"refs/tags/{tag}")
     except ReleaseRefused:
@@ -300,6 +312,51 @@ def publish(info: dict, zip_path: Path, digest: str, work: Path) -> None:
                              f"Delete the release {tag} and investigate before anyone installs it.")
 
 
+def release_commit(commit: str, check_only: bool) -> int:
+    """Publish the version of a merge commit on main that is no longer its head (#70).
+
+    For a pull request that was merged before the one before it was released.
+    Everything comes from that commit: the package, and the version, changelog
+    and support matrix read from its files. Its version must still be higher
+    than every release, and the last local check must have run on a commit
+    with the same content, such as the branch commit the merge brought in.
+    """
+    global ROOT
+    require_tool("git", "Install Git for Windows.")
+    require_tool("gh", "winget install GitHub.cli, then gh auth login.")
+    run("git", "fetch", "--prune", "--tags", "origin")
+    sha = run("git", "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}", check=False).stdout.strip()
+    if not sha:
+        raise ReleaseRefused(f"{commit} is not a commit of this repository")
+    if run("git", "merge-base", "--is-ancestor", sha, "origin/main", check=False).returncode != 0:
+        raise ReleaseRefused(f"{sha[:7]} is not on origin/main; only merged work is released")
+    with tempfile.TemporaryDirectory(prefix="mahnwesen-release-") as folder:
+        work = Path(folder)
+        zip_path, digest = package_from_commit(sha, work)
+        main_root, ROOT = ROOT, work / "source"
+        try:
+            info = metadata(None)
+        finally:
+            ROOT = main_root
+        kind = "pre-release" if info["prerelease"] else "release (latest)"
+        tag_free(info["tag"])
+        version_progress(info["version"])
+        checked = local_check_passed(sha)
+        print(f"Tag:          {info['tag']} on {sha[:7]} (not the head of main)")
+        print(f"Title:        {info['title']}")
+        print(f"Kind:         {kind}")
+        print(f"Package:      {zip_path.name}  sha256 {digest}")
+        print(f"Local check:  {checked}")
+        print(f"Notes ({info['date']}):\n" + "\n".join(f"  {line}" for line in info["notes"].splitlines()))
+        if check_only:
+            print("\nRelease check: OK - nothing was tagged or published (--check).")
+            return 0
+        publish(info, zip_path, digest, work, sha)
+    print(f"\nPublished {info['title']}: https://github.com/{REPOSITORY}/releases/tag/{info['tag']}")
+    print("GitHub now rebuilds the package from the tag and compares it (Verify release workflow).")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -311,10 +368,16 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--metadata", action="store_true", help="only compare version, changelog and support matrix")
     mode.add_argument("--check", action="store_true", help="check everything and build, but publish nothing")
     parser.add_argument("--tag", help="with --metadata: the tag that must match the module version")
+    parser.add_argument("--commit", help="release this merge commit on main instead of its head, when a later "
+                                         "pull request was merged before this one was released")
     arguments = parser.parse_args(argv)
     if arguments.tag and not arguments.metadata:
         parser.error("--tag only goes with --metadata")
+    if arguments.commit and arguments.metadata:
+        parser.error("--commit does not go with --metadata")
     try:
+        if arguments.commit:
+            return release_commit(arguments.commit, arguments.check)
         info = metadata(arguments.tag)
         kind = "pre-release" if info["prerelease"] else "release (latest)"
         if arguments.metadata:

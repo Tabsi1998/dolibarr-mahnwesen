@@ -116,58 +116,38 @@ if ($rows === false) {
 }
 $diag = $manager->diagnostics;
 $dryRunRows = array();
+$dryRunCounts = array();
 if ($action === 'dry_run') {
+    if (!$user->hasRight('mahnwesen', 'automation', 'dryrun')) { accessforbidden(); }
+    // The cron's decision for every invoice, as if it ran now (#16): all
+    // customers in the cron's order, since limits depend on them, the cases
+    // as the synchronisation would leave them, nothing written. The table
+    // shows only invoices this user may see.
     $dryService = new DunningNoticeService($db, $manager);
-    $dryRetryMax = $manager->getAutomaticRetryMax();
-    $dryMaxPerCustomer = $manager->getAutomaticMaxPerCustomer();
-    $drySendMax = $manager->getAutomaticSendMax();
-    $dryReadyTotal = 0;
-    $dryReadyPerCustomer = array();
     $dryRunId = $manager->beginAutomationRun('dry_run', $user);
     if ($dryRunId === false) { setEventMessages($langs->trans('MahnwesenDryRunAuditFailed'), null, 'warnings'); }
-    foreach ($rows as $row) {
-        $decision = 'ready'; $detail = '';
-        $dryInvoice = null;
-        $case = $manager->getCaseByInvoice((int) $row['invoice_id']);
-        $workflow = $manager->getWorkflowState((int) $row['invoice_id']);
-        $level = $workflow ? (int) $workflow['next_required_level'] : 0;
-        if ($dryReadyTotal >= $drySendMax) { $decision = 'blocked'; $detail = 'run_limit_reached'; }
-        elseif (!$case) { $decision = 'blocked'; $detail = 'case_missing'; }
-        elseif ($case['status'] !== 'open') { $decision = 'blocked'; $detail = 'case_'.$case['status']; }
-        elseif (!empty($case['paused'])) { $decision = 'blocked'; $detail = 'paused'; }
-        elseif (!$workflow || empty($workflow['actionable']) || $level <= 0) { $decision = 'blocked'; $detail = 'not_due'; }
-        elseif (empty($manager->getRuleByLevel($level)['send_email'])) { $decision = 'blocked'; $detail = 'stage_auto_disabled'; }
-        elseif ($manager->hasSuccessfulNoticeAtLevel((int) $case['id'], $level)) { $decision = 'blocked'; $detail = 'already_sent'; }
-        elseif ($manager->hasPendingNoticeAtLevel((int) $case['id'], $level)) { $decision = 'blocked'; $detail = 'attempt_pending'; }
-        elseif ($manager->getAutomaticFailureCount((int) $case['id'], $level) >= $dryRetryMax) { $decision = 'blocked'; $detail = 'retry_limit_reached'; }
-        else {
-            $dryInvoice = new Facture($db);
-            if ($dryInvoice->fetch((int) $row['invoice_id']) <= 0) { $decision = 'blocked'; $detail = 'invoice_load_failed'; }
-            else {
-                $dryInvoice->fetch_thirdparty();
-                $recipient = $dryService->getAutomaticRecipientOption($dryInvoice, $manager->getAutomaticRecipientPolicy());
-                $customerLang = !empty($dryInvoice->thirdparty->default_lang) ? (string) $dryInvoice->thirdparty->default_lang : $langs->defaultlang;
-                if ($recipient === false) { $decision = 'blocked'; $detail = $dryService->recipientLookupFailed ? 'recipient_lookup_failed' : 'recipient_ambiguous'; }
-                else {
-                    $dryTemplate = $dryService->getTemplate($level, $customerLang, $user);
-                    if ($dryTemplate === false) { $decision = 'blocked'; $detail = 'template_missing'; }
-                    elseif ($dryService->getFromEmail((string) ($dryTemplate['email_from'] ?? '')) === '') { $decision = 'blocked'; $detail = 'sender_missing'; }
-                    elseif ((string) ($dryTemplate['joinfiles'] ?? '') === '1' && $dryService->getInvoicePdfPath($dryInvoice) === '') { $decision = 'blocked'; $detail = 'invoice_pdf_missing'; }
-                    elseif ((int) $dryInvoice->socid > 0 && !empty($dryReadyPerCustomer[(int) $dryInvoice->socid]) && $dryReadyPerCustomer[(int) $dryInvoice->socid] >= $dryMaxPerCustomer) { $decision = 'blocked'; $detail = 'customer_run_limit_reached'; }
-                }
-            }
-        }
-        if ($decision === 'ready' && is_object($dryInvoice) && (int) $dryInvoice->socid > 0) {
-            $dryReadyPerCustomer[(int) $dryInvoice->socid] = isset($dryReadyPerCustomer[(int) $dryInvoice->socid]) ? $dryReadyPerCustomer[(int) $dryInvoice->socid] + 1 : 1;
-        }
-        if ($decision === 'ready') { $dryReadyTotal++; }
-        $dryRunRows[] = array('row' => $row, 'level' => $level, 'decision' => $decision, 'detail' => $detail);
+    $dryAll = $manager->scanDueInvoices($manager->getMaxScan());
+    if ($dryAll === false) { $dryAll = array(); setEventMessages($manager->error, $manager->errors, 'errors'); }
+    $dryVisible = null;
+    if (!$user->hasRight('societe', 'client', 'voir')) {
+        $dryVisible = array();
+        $resVisible = $db->query('SELECT fk_soc FROM '.MAIN_DB_PREFIX.'societe_commerciaux WHERE fk_user = '.((int) $user->id));
+        while ($resVisible && ($o = $db->fetch_object($resVisible))) { $dryVisible[(int) $o->fk_soc] = true; }
+        if ($resVisible) { $db->free($resVisible); }
+    }
+    $dryBudget = $manager->newAutomaticBudget();
+    $dryRunCounts = array('send' => 0, 'skip' => 0, 'fail' => 0, 'off' => 0, 'wait' => 0, 'shown' => 0);
+    foreach ($dryAll as $row) {
+        $dry = $manager->decideAutomaticSend($row, $dryService, $dryBudget, true);
+        $dryRunCounts[$dry['decision']]++;
+        if ($dry['decision'] === 'wait' || ($dryVisible !== null && empty($dryVisible[(int) $row['socid']]))) { continue; }
+        $dryRunCounts['shown']++;
+        $dryRunRows[] = array('row' => $row, 'level' => $dry['level'], 'decision' => $dry['decision'], 'detail' => $dry['detail']);
     }
     if ($dryRunId !== false) {
-        $dryReady = 0;
-        foreach ($dryRunRows as $dryResult) { if ($dryResult['decision'] === 'ready') { $dryReady++; } }
-        $dryCounters = array('scanned' => count($rows), 'synchronized' => 0, 'attempted' => 0, 'sent' => 0, 'skipped' => count($rows) - $dryReady, 'failed' => 0);
-        if (!$manager->finishAutomationRun($dryRunId, 'success', $dryCounters, 'Dry run: '.$dryReady.' ready, '.(count($rows) - $dryReady).' blocked. No state changed and no email sent.')) {
+        $dryCounters = array('scanned' => count($dryAll), 'synchronized' => 0, 'attempted' => 0, 'sent' => 0, 'skipped' => $dryRunCounts['skip'], 'failed' => $dryRunCounts['fail']);
+        $drySummary = 'Dry run: '.$dryRunCounts['send'].' ready, '.$dryRunCounts['skip'].' skipped, '.$dryRunCounts['fail'].' failing, '.$dryRunCounts['off'].' without automatic sending. No state changed and no email sent.';
+        if (!$manager->finishAutomationRun($dryRunId, 'success', $dryCounters, $drySummary)) {
             setEventMessages($langs->trans('MahnwesenDryRunAuditFailed'), null, 'warnings');
         }
     }
@@ -193,7 +173,11 @@ print load_fiche_titre($langs->trans('MahnwesenDashboard'), '', 'bill');
 
 print '<div class="info"><strong>'.$langs->trans('MahnwesenV04Mode').'</strong> - '.$langs->trans('MahnwesenV04DashboardIntro').'</div>';
 $autoEnabled = getDolGlobalInt('MAHNWESEN_AUTO_SEND_ENABLED', 0) > 0;
-print '<div class="'.($autoEnabled ? 'warning' : 'opacitymedium').' margintoponly">'.$langs->trans($autoEnabled ? 'MahnwesenDashboardAutoOn' : 'MahnwesenDashboardAutoOff').'</div><br>';
+print '<div class="'.($autoEnabled ? 'warning' : 'opacitymedium').' margintoponly">'.$langs->trans($autoEnabled ? 'MahnwesenDashboardAutoOn' : 'MahnwesenDashboardAutoOff').'</div>';
+if ($manager->isCoreReminderJobActive()) {
+    print '<div class="warning margintoponly">'.$langs->trans('MahnwesenCoreReminderActive', dol_buildpath('/cron/list.php', 1)).'</div>';
+}
+print '<br>';
 
 if ($user->hasRight('mahnwesen', 'case', 'write')) {
     print '<form method="POST" action="'.$_SERVER['PHP_SELF'].'" class="marginbottomonly" onsubmit="var b=this.querySelector(\'input[type=submit]\'); if(b){b.disabled=true;}">';
@@ -203,15 +187,20 @@ if ($user->hasRight('mahnwesen', 'case', 'write')) {
     print ' <span class="opacitymedium">'.$langs->trans('SyncDunningCasesHelp').'</span>';
     print '</form><br>';
 }
-print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'" class="marginbottomonly"><input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="dry_run"><button class="button" type="submit">'.$langs->trans('MahnwesenAutomaticDryRun').'</button> <span class="opacitymedium">'.$langs->trans('MahnwesenAutomaticDryRunHelp').'</span></form><br>';
+if ($user->hasRight('mahnwesen', 'automation', 'dryrun')) {
+    print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'" class="marginbottomonly"><input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="dry_run"><button class="button" type="submit">'.$langs->trans('MahnwesenAutomaticDryRun').'</button> <span class="opacitymedium">'.$langs->trans('MahnwesenAutomaticDryRunHelp').'</span></form><br>';
+}
 
-if (!empty($dryRunRows)) {
+if ($action === 'dry_run' && !empty($dryRunCounts)) {
     print load_fiche_titre($langs->trans('MahnwesenAutomaticDryRunResult'), '', 'debug');
+    print '<div class="info" id="mahnwesen-dry-run-summary">'.$langs->trans('MahnwesenDryRunSummary', $dryRunCounts['send'], $dryRunCounts['skip'], $dryRunCounts['fail'], $dryRunCounts['off'], $dryRunCounts['shown']).'</div>';
+}
+if (!empty($dryRunRows)) {
     print '<div class="div-table-responsive"><table class="tagtable liste centpercent"><tr class="liste_titre"><th>'.$langs->trans('Invoice').'</th><th>'.$langs->trans('ThirdParty').'</th><th>'.$langs->trans('DunningStage').'</th><th>'.$langs->trans('Decision').'</th><th>'.$langs->trans('Reason').'</th></tr>';
     foreach ($dryRunRows as $dry) {
         $r = $dry['row'];
         $url = dol_buildpath('/mahnwesen/invoice.php?id='.(int) $r['invoice_id'], 1);
-        print '<tr class="oddeven"><td><a href="'.dol_escape_htmltag($url).'">'.dol_escape_htmltag($r['invoice_ref']).'</a></td><td>'.dol_escape_htmltag($r['socname']).'</td><td>'.($dry['level'] > 0 ? $langs->trans($manager->getStageLabelKey($dry['level'])) : '-').'</td><td>'.$langs->trans($dry['decision'] === 'ready' ? 'MahnwesenDryRunReady' : 'MahnwesenDryRunBlocked').'</td><td><code>'.dol_escape_htmltag($dry['detail']).'</code></td></tr>';
+        print '<tr class="oddeven"><td><a href="'.dol_escape_htmltag($url).'">'.dol_escape_htmltag($r['invoice_ref']).'</a></td><td>'.dol_escape_htmltag($r['socname']).'</td><td>'.($dry['level'] > 0 ? $langs->trans($manager->getStageLabelKey($dry['level'])) : '-').'</td><td data-decision="'.dol_escape_htmltag($dry['decision']).'">'.$langs->trans('MahnwesenDryRunDecision_'.$dry['decision']).'</td><td data-detail="'.dol_escape_htmltag($dry['detail']).'">'.($dry['decision'] === 'send' ? '' : $langs->trans('MahnwesenDryRunDetail_'.$dry['detail'])).'</td></tr>';
     }
     print '</table></div><br>';
 }
