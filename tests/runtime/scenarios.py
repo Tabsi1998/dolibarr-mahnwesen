@@ -1193,7 +1193,7 @@ def invoice_view(stack: Stack) -> str:
     expect(not any(form.value("action") == "skip_stage" for form in tab.forms()),
            "the dunning tab offers the skip form without a confirmation (#56)")
     composer = html.unescape(re.sub(r"<[^>]+>", " ", page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={overdue['id']}"), "composer").text))
-    expect(not any(label in composer for label in translations("CalculatedStage")),
+    expect(not any(label in composer for label in old_wording[2:]),
            "the composer still shows the calculated stage next to the next step (#56)")
     return "one action on the invoice card; tab and composer without codes and technical labels"
 
