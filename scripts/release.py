@@ -342,7 +342,7 @@ def release_commit(commit: str, check_only: bool) -> int:
         tag_free(info["tag"])
         version_progress(info["version"])
         checked = local_check_passed(sha)
-        print(f"Tag:          {info['tag']} on {sha[:7]} (not the head of main)")
+        print(f"Tag:          {info['tag']} on {sha[:7]} (--commit)")
         print(f"Title:        {info['title']}")
         print(f"Kind:         {kind}")
         print(f"Package:      {zip_path.name}  sha256 {digest}")

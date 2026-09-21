@@ -302,7 +302,9 @@ def upgrade(stack: Stack) -> str:
     after = state()
     expect(after == before, f"the upgrade changed cases, history, the stage fee or the starter templates: {before} -> {after}")
     missing = [name for name in package_settings(stack.package) if stack.const(name) is None]
-    expect(not missing, f"the upgrade did not add the settings {missing}")
+    if missing:
+        rows = stack.sql("SELECT name, entity, value FROM llx_const WHERE name LIKE 'MAHNWESEN%' OR name = 'MAIN_MODULE_MAHNWESEN' ORDER BY name")
+        expect(False, f"the upgrade did not add the settings {missing}; the settings table holds {rows}")
     page_ok(stack.browser().get("/custom/mahnwesen/index.php"), "dashboard after the upgrade")
 
     stack.php_fixture("reset")
