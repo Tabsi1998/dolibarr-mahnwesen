@@ -62,11 +62,52 @@ class ActionsMahnwesen extends CommonHookActions
      * @param HookManager $hookmanager Hook manager
      * @return int
      */
+    public function addHtmlHeader($parameters, &$object, &$action, $hookmanager)
+    {
+        global $langs;
+        // Only Dolibarr's email template page needs the variable help (#27),
+        // in the user's language (#28).
+        if (!preg_match('#/admin/mails_templates\.php$#', (string) ($_SERVER['PHP_SELF'] ?? ''))) {
+            return 0;
+        }
+        $langs->load('mahnwesen@mahnwesen');
+        $tokens = array(
+            '__MAHNWESEN_STAGE__' => 'MahnwesenTokenStageDesc',
+            '__MAHNWESEN_OPEN_AMOUNT__' => 'MahnwesenTokenOpenAmountDesc',
+            '__MAHNWESEN_FEE__' => 'MahnwesenTokenFeeDesc',
+            '__MAHNWESEN_TOTAL__' => 'MahnwesenTokenTotalDesc',
+            '__MAHNWESEN_CUSTOMER_CLASS__' => 'MahnwesenTokenCustomerClassDesc',
+            '__MAHNWESEN_NEXT_STAGE_DATE__' => 'MahnwesenTokenNextStageDesc',
+            '__MAHNWESEN_FEE_PARAGRAPH__' => 'MahnwesenTokenFeeParagraphDesc',
+            '__MAHNWESEN_PAYMENT_DEADLINE__' => 'MahnwesenTokenPaymentDeadlineDesc',
+            '__MAHNWESEN_PAYMENT_DAYS__' => 'MahnwesenTokenPaymentDaysDesc',
+            '{INVOICE_REF}' => 'MahnwesenTokenInvoiceRefDesc',
+            '{CUSTOMER_NAME}' => 'MahnwesenTokenCustomerNameDesc',
+            '{INVOICE_DATE}' => 'MahnwesenTokenInvoiceDateDesc',
+            '{DUE_DATE}' => 'MahnwesenTokenDueDateDesc',
+            '{TODAY}' => 'MahnwesenTokenTodayDesc',
+            '{COMPANY_NAME}' => 'MahnwesenTokenCompanyNameDesc',
+        );
+        $help = array('title' => $langs->transnoentities('MahnwesenTemplateVariables'), 'hint' => $langs->transnoentities('MahnwesenTemplateVariablesHint'),
+            'copy' => $langs->transnoentities('MahnwesenTemplateVariableCopy'), 'tokens' => array());
+        foreach ($tokens as $token => $key) {
+            $help['tokens'][] = array($token, $langs->transnoentities($key));
+        }
+        // Safe inside <script>: no tag or entity can close it.
+        $json = str_replace(array('<', '>', '&'), array('\u003c', '\u003e', '\u0026'), (string) json_encode($help));
+        $this->resprints = '<script>window.mahnwesenTemplateHelp = '.$json.';</script>'
+            .'<script src="'.dol_escape_htmltag(dol_buildpath('/mahnwesen/js/mahnwesen-emailtemplates.js', 1)).'"></script>';
+        return 0;
+    }
+
     public function addMoreActionsButtons($parameters, &$object, &$action, $hookmanager)
     {
         global $langs, $user;
 
-        if (empty($parameters['currentcontext']) || strpos((string) $parameters['currentcontext'], 'invoicecard') === false) {
+        // Dolibarr calls a module once per hook and page, in the first of the
+        // page's contexts that it registered; with 'main' that is not the card's.
+        $contexts = explode(':', (string) ($parameters['context'] ?? ($parameters['currentcontext'] ?? '')));
+        if (!in_array('invoicecard', $contexts, true)) {
             return 0;
         }
         if (!is_object($object) || empty($object->id) || !isset($object->element) || $object->element !== 'facture') {

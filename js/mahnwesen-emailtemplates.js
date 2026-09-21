@@ -2,29 +2,9 @@
 (function () {
     'use strict';
 
-    var tokens = [
-        ['__MAHNWESEN_STAGE__', 'aktuelle Mahnstufe'],
-        ['__MAHNWESEN_OPEN_AMOUNT__', 'offener Rechnungsbetrag'],
-        ['__MAHNWESEN_FEE__', 'Mahnspesen der aktuellen Stufe'],
-        ['__MAHNWESEN_TOTAL__', 'offener Betrag + Mahnspesen'],
-        ['__MAHNWESEN_CUSTOMER_CLASS__', 'Privatperson / Unternehmen / unklar'],
-        ['__MAHNWESEN_NEXT_STAGE_DATE__', 'Datum der nächsten Mahnstufe'],
-        ['__MAHNWESEN_FEE_PARAGRAPH__', 'fertiger Absatz zu Mahnspesen'],
-        ['__MAHNWESEN_PAYMENT_DEADLINE__', 'Zahlungsfrist (Datum)'],
-        ['__MAHNWESEN_PAYMENT_DAYS__', 'Zahlungsfrist in Tagen'],
-        ['{INVOICE_REF}', 'Rechnungsnummer'],
-        ['{CUSTOMER_NAME}', 'Kundenname'],
-        ['{INVOICE_DATE}', 'Rechnungsdatum'],
-        ['{DUE_DATE}', 'Fälligkeitsdatum'],
-        ['{OPEN_AMOUNT}', 'offener Rechnungsbetrag'],
-        ['{DUNNING_FEE}', 'Mahnspesen'],
-        ['{DUNNING_TOTAL}', 'Gesamtbetrag des Mahnschreibens'],
-        ['{DUNNING_STAGE}', 'Mahnstufe'],
-        ['{TODAY}', 'heutiges Datum'],
-        ['{COMPANY_NAME}', 'eigene Firma / Institution'],
-        ['{NEXT_STAGE_DATE}', 'nächste Mahnstufe'],
-        ['{FEE_PARAGRAPH}', 'fertiger Mahnspesen-Absatz']
-    ];
+    // Labels in the user's language come from the page (actions_mahnwesen.class.php, addHtmlHeader).
+    var help = window.mahnwesenTemplateHelp || {title: 'Mahnwesen', hint: '', copy: '', tokens: []};
+    var tokens = help.tokens || [];
 
     function isDunningType(value) {
         return /^mahnwesen_(reminder|dunning1|dunning2|dunning3)$/.test(value || '');
@@ -38,7 +18,13 @@
         box.style.maxWidth = '980px';
 
         var title = document.createElement('div');
-        title.innerHTML = '<strong>ⓘ Mahnwesen-Variablen</strong> <span class="opacitymedium">– anklicken zum Kopieren; verwendbar in Betreff und Inhalt. Dolibarr-Standardvariablen funktionieren zusätzlich.</span>';
+        var strong = document.createElement('strong');
+        strong.textContent = 'ⓘ ' + help.title;
+        var hint = document.createElement('span');
+        hint.className = 'opacitymedium';
+        hint.textContent = ' – ' + help.hint;
+        title.appendChild(strong);
+        title.appendChild(hint);
         box.appendChild(title);
 
         var wrap = document.createElement('div');
@@ -51,7 +37,7 @@
             chip.type = 'button';
             chip.className = 'button smallpaddingimp';
             chip.setAttribute('data-mahn-token', item[0]);
-            chip.title = item[1] + ' – klicken zum Kopieren';
+            chip.title = item[1] + ' – ' + help.copy;
             chip.style.fontFamily = 'monospace';
             chip.textContent = item[0];
             chip.addEventListener('click', function () {

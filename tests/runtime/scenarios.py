@@ -348,6 +348,8 @@ def upgrade_from(stack: Stack, package: Path) -> str:
            f"the upgrade from {old} did not move the stage settings into the stage table: {rules} (#20)")
     leftovers = stack.sql(f"SELECT name FROM llx_const WHERE {STAGE_CONSTANTS}")
     expect(not leftovers, f"the upgrade from {old} left the old stage constants {leftovers} (#20)")
+    assets = stack.sql("SELECT name FROM llx_const WHERE name IN ('MAIN_MODULE_MAHNWESEN_CSS', 'MAIN_MODULE_MAHNWESEN_JS')")
+    expect(not assets, f"the upgrade from {old} still loads the module's CSS or JS on every page: {assets} (#27)")
     columns = {row[0] for row in stack.sql("SHOW COLUMNS FROM llx_mahnwesen_rule")}
     body = stack.value("SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
                        "AND TABLE_NAME = 'llx_mahnwesen_attempt' AND COLUMN_NAME = 'body_html'")
@@ -413,6 +415,30 @@ def install(stack: Stack) -> str:
             f"{len(MODULE_TABLES)} tables, cron job, 4 German starter templates")
 
 
+def case_list(stack: Stack) -> str:
+    """The dashboard lists the stored cases with filters, sorting and pages (#26)."""
+    browser = stack.browser()
+
+    def refs(query: str) -> list[str]:
+        page = page_ok(browser.get("/custom/mahnwesen/index.php" + query), f"case list {query}")
+        return [html.unescape(ref) for ref in re.findall(r'<tr class="oddeven" data-case="\d+">\s*<td[^>]*><a [^>]*>([^<]+)</a>', page.text)]
+
+    everything = {invoice(stack, key)["ref"] for key in ("company_overdue", "company_recent", "private_overdue", "company_renamed")}
+    listed = refs("")
+    expect(set(listed) == everything, f"the case list shows {listed}, expected the 4 cases (#26)")
+    level4 = refs("?search_level=4&search_status=all")
+    expect(level4 == [invoice(stack, "company_overdue")["ref"]], f"filtering on the 3rd dunning notice shows {level4} (#26)")
+    rita = refs("?search_company=Rita")
+    expect(rita == [invoice(stack, "private_overdue")["ref"]], f"filtering on the customer shows {rita} (#26)")
+    by_amount = refs("?sortfield=c.remaining_amount&sortorder=desc")
+    expected = [invoice(stack, key)["ref"] for key in ("company_overdue", "private_overdue", "company_recent", "company_renamed")]
+    expect(by_amount == expected, f"sorted by amount the list is {by_amount}, expected {expected} (#26)")
+    first = refs("?sortfield=c.remaining_amount&sortorder=desc&limit=2")
+    second = refs("?sortfield=c.remaining_amount&sortorder=desc&limit=2&page=1")
+    expect(first == expected[:2] and second == expected[2:], f"pages of two show {first} and {second} (#26)")
+    return "4 stored cases, filtered by stage and customer, sorted by amount, in pages"
+
+
 def synchronise(stack: Stack) -> str:
     """The dashboard button creates one case per overdue invoice and mirrors history to the agenda."""
     browser = stack.browser()
@@ -469,6 +495,19 @@ def pages(stack: Stack) -> str:
     templates = page_ok(browser.get("/admin/mails_templates.php"), "email templates")
     expect("mahnwesen_reminder" in templates.text,
            "Dolibarr's email template page does not offer the Mahnwesen types (emailtemplates hook)")
+    # The variable help loads with the template page only, in the user's language; the CSS with the module's pages (#27, #28).
+    expect("mahnwesen-emailtemplates.js" in templates.text and "window.mahnwesenTemplateHelp" in templates.text
+           and "Aktuelle Mahnstufe" in html.unescape(templates.text),
+           "the email template page lacks the translated variable help (#27, #28)")
+    foreign = page_ok(browser.get("/societe/list.php"), "third-party list")
+    expect("/mahnwesen/css/" not in foreign.text and "/mahnwesen/js/" not in foreign.text,
+           "a Dolibarr page outside the module loads the module's CSS or JS (#27)")
+    expect("/mahnwesen/css/mahnwesen.css" in browser.get(paths["dashboard"]).text, "the dashboard lacks the module's CSS")
+    before = stack.sql("SELECT rowid, name FROM llx_const WHERE name LIKE 'MAIN_MODULE_MAHNWESEN%' ORDER BY rowid")
+    page_ok(browser.get(paths["setup general"]), "setup")
+    after = stack.sql("SELECT rowid, name FROM llx_const WHERE name LIKE 'MAIN_MODULE_MAHNWESEN%' ORDER BY rowid")
+    expect(before == after and not any(row[1] == "MAIN_MODULE_MAHNWESEN_JS" for row in after),
+           f"opening the setup rewrote the module's settings: {before} -> {after} (#27)")
     return f"{len(paths) + 2} pages render, invoice card action and template types present"
 
 
@@ -560,6 +599,8 @@ def manual_send(stack: Stack) -> str:
            f"attachments received {sorted(received)} differ from those recorded {sorted(recorded)}")
     differing = [name for name in received if received[name] != recorded[name]]
     expect(not differing, f"SHA-256 in the database differs from the delivered bytes: {differing}")
+    headers = json.dumps(mailpit._json(f"/api/v1/message/{message['ID']}/headers"))
+    expect(f"inv{company['id']}" in headers, f"the email carries no Dolibarr track id inv{company['id']} (#28)")
     expected_names = {f"{company['ref']}_Zahlungserinnerung.pdf", f"{company['ref']}.pdf"}
     expect(set(received) == expected_names,
            f"the email's attachments are named {sorted(received)}, expected {sorted(expected_names)} (#52)")
@@ -876,6 +917,9 @@ def templates(stack: Stack) -> str:
               "defaultfortype, enabled, active, email_from, topic, joinfiles, content) VALUES (1, 'mahnwesen', 'mahnwesen_dunning3', 'en_US', "
               "0, NULL, NOW(), 'Mahnwesen - 3. Mahnung (English)', 40, 1, '1', 1, '', 'Third reminder', '1', '<p>Legacy</p>')")
     stack.sql(f"UPDATE llx_societe SET default_lang = 'en_US' WHERE rowid = {int(private)}")
+    english = html.unescape(page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={invoice(stack, 'private_overdue')['id']}"), "composer").text)
+    expect("_1stNotice.pdf" in english and "_1.Mahnung.pdf" not in english,
+           "the composer for an English customer does not name the PDF in English (#28)")
     setup = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=templates"), "templates setup")
     page_ok(browser.submit(form_with_action(setup, "create_starter_templates", "templates setup")), "create starter templates")
     english = stack.sql("SELECT type_template, label FROM llx_c_email_templates WHERE module = 'mahnwesen' AND lang = 'en_US' ORDER BY type_template")
@@ -1140,14 +1184,16 @@ def invoice_view(stack: Stack) -> str:
            f"the invoice card should carry one dunning action, it links the composer {actions} time(s) or offers the PDF form (#56)")
     tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={overdue['id']}"), "dunning tab")
     shown = html.unescape(re.sub(r"<[^>]+>", " ", tab.text))
-    for code in ("TE_SMALL", "TE_PRIVATE", *translations("StoredOpenAmount"), *translations("CalculatedStage")):
+    # The wording before #56; its language keys are gone since #27.
+    old_wording = ("Gespeicherter Restbetrag", "Stored remaining amount", "Aktuell berechnete Mahnstufe", "Currently calculated stage")
+    for code in ("TE_SMALL", "TE_PRIVATE", *old_wording):
         expect(code not in shown, f"the dunning tab still shows {code!r} (#56)")
     expect(any(label in shown for label in translations("MahnwesenNextRequiredStage")),
            "the dunning tab does not name the next step (#56)")
     expect(not any(form.value("action") == "skip_stage" for form in tab.forms()),
            "the dunning tab offers the skip form without a confirmation (#56)")
     composer = html.unescape(re.sub(r"<[^>]+>", " ", page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={overdue['id']}"), "composer").text))
-    expect(not any(label in composer for label in translations("CalculatedStage")),
+    expect(not any(label in composer for label in old_wording[2:]),
            "the composer still shows the calculated stage next to the next step (#56)")
     return "one action on the invoice card; tab and composer without codes and technical labels"
 
@@ -1178,6 +1224,7 @@ SCENARIOS = (
     ("enable", "Enabling from the module list", enable, ("deploy",)),
     ("install", "Module, tables, cron job and templates after activation", install, ("enable",)),
     ("synchronise", "Synchronise creates the expected cases", synchronise, ("install",)),
+    ("case-list", "The dashboard lists the stored cases", case_list, ("synchronise",)),
     ("pages", "Every page and integration point renders", pages, ("synchronise",)),
     ("access", "Sales representatives only reach their customers", access, ("synchronise",)),
     ("invoice-view", "One dunning action on the invoice card, plain wording", invoice_view, ("pages",)),

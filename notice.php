@@ -236,7 +236,7 @@ $breakdown = $level > 0 ? $manager->getAmountBreakdown($invoice, $caseForAmounts
 $expectedDunningFilename = $level > 0 ? $service->getFinalPdfFilename($invoice, $level) : '';
 $canOperate = $workflow && !empty($workflow['actionable']) && $template !== false && $user->hasRight('mahnwesen', 'notice', 'send');
 
-llxHeader('', $langs->trans('PrepareDunningNotice').' - '.$invoice->ref, '', '', 0, 0, '', '', '', 'mod-mahnwesen page-notice');
+llxHeader('', $langs->trans('PrepareDunningNotice').' - '.$invoice->ref, '', '', 0, 0, '', array('/mahnwesen/css/mahnwesen.css'), '', 'mod-mahnwesen page-notice');
 $head = facture_prepare_head($invoice);
 print dol_get_fiche_head($head, 'mahnwesen', $langs->trans('InvoiceCustomer'), -1, 'bill');
 print '<div class="fichecenter"><div class="fichehalfleft"><table class="border centpercent tableforfield">';

@@ -113,7 +113,7 @@ $amountLevel = $requiredLevel > 0 ? $requiredLevel : ($case ? (int) $case['curre
 $caseForAmounts = $case ?: array('remaining_amount' => (float) $evaluation['remain_to_pay']);
 $breakdown = $amountLevel > 0 ? $manager->getAmountBreakdown($invoice, $caseForAmounts, $amountLevel) : array('invoice'=>(float)$evaluation['remain_to_pay'],'fee'=>0.0,'total'=>(float)$evaluation['remain_to_pay'],'classification'=>$classification);
 
-llxHeader('', $langs->trans('Mahnwesen').' - '.$invoice->ref, '', '', 0, 0, '', '', '', 'mod-mahnwesen page-invoice');
+llxHeader('', $langs->trans('Mahnwesen').' - '.$invoice->ref, '', '', 0, 0, '', array('/mahnwesen/css/mahnwesen.css'), '', 'mod-mahnwesen page-invoice');
 if ($action === 'ask_skip' && $user->hasRight('mahnwesen', 'case', 'write') && $user->hasRight('mahnwesen', 'notice', 'send')) {
     $form = new Form($db);
     print $form->formconfirm($_SERVER['PHP_SELF'].'?id='.$id, $langs->trans('MahnwesenSkipStage'), $langs->trans('MahnwesenSkipStageConfirm'), 'skip_stage',

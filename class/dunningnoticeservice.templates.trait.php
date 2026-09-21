@@ -431,7 +431,7 @@ trait DunningNoticeServiceTemplates
         }
         $feeParagraph = '';
         if ($breakdown['fee'] > 0.000001) {
-            $feeParagraph = stripos($lang, 'de') === 0 ? 'Zusätzlich werden Mahn-/Betreibungskosten in Höhe von <strong>'.$feeAmount.'</strong> berücksichtigt.' : 'In addition, dunning/collection costs of <strong>'.$feeAmount.'</strong> are included.';
+            $feeParagraph = $outputlangs->trans('MahnwesenFeeParagraph', $feeAmount);
         }
         $formmail = new FormMail($this->db);
         $formmail->setSubstitFromObject($invoice, $outputlangs);

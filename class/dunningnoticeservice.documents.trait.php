@@ -113,7 +113,16 @@ trait DunningNoticeServiceDocuments
      */
     public function getFinalPdfFilename($invoice, $level)
     {
-        return dol_sanitizeFileName($invoice->ref).'_'.$this->getStageFilenamePart((int) $level).'.pdf';
+        return dol_sanitizeFileName($invoice->ref).'_'.$this->getStageFilenamePart((int) $level, $this->getCustomerLanguage($invoice)).'.pdf';
+    }
+
+    /** The customer's language, or the company's when the customer has none. */
+    public function getCustomerLanguage($invoice)
+    {
+        global $langs;
+        if (empty($invoice->thirdparty) && method_exists($invoice, 'fetch_thirdparty')) { $invoice->fetch_thirdparty(); }
+        if (!empty($invoice->thirdparty) && !empty($invoice->thirdparty->default_lang)) { return (string) $invoice->thirdparty->default_lang; }
+        return is_object($langs) ? (string) $langs->defaultlang : 'de_DE';
     }
 
     /**
@@ -208,15 +217,15 @@ trait DunningNoticeServiceDocuments
      * @param int $level Dunning level
      * @return string
      */
-    protected function getStageFilenamePart($level)
+    protected function getStageFilenamePart($level, $lang = 'de_DE')
     {
-        switch ((int) $level) {
-            case 1: return 'Zahlungserinnerung';
-            case 2: return '1.Mahnung';
-            case 3: return '2.Mahnung';
-            case 4: return '3.Mahnung';
-            default: return 'Mahnung';
-        }
+        global $conf;
+        // In the customer's language; files already written keep their name (#28).
+        $outputlangs = new Translate('', $conf);
+        $outputlangs->setDefaultLang($lang);
+        $outputlangs->load('mahnwesen@mahnwesen');
+        $level = max(0, min(4, (int) $level));
+        return dol_sanitizeFileName($outputlangs->transnoentities('MahnwesenFileStage'.$level));
     }
 
     /**

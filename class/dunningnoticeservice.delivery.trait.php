@@ -242,7 +242,8 @@ trait DunningNoticeServiceDelivery
                 1,
                 '',
                 '',
-                'mahnwesen'.$freshInvoice->id.'-attempt'.$attemptId,
+                // Dolibarr's track id of the invoice: its email collector links replies to it (#28).
+                'inv'.$freshInvoice->id,
                 '',
                 'standard',
                 $from

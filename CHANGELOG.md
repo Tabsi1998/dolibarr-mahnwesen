@@ -7,6 +7,33 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-09-21
+
+A dashboard that opens quickly, and texts in your language.
+
+### Changed
+
+- The dashboard lists the stored dunning cases as a normal Dolibarr list with
+  filters (invoice, customer, stage, status), sorting and pages. It no longer
+  loads every overdue invoice on each visit; invoices are checked when you
+  synchronise and in the daily run, and the scan figures appear after a
+  synchronisation (#26).
+- The module's CSS loads with its own pages and the help for template
+  variables with Dolibarr's email template page only, instead of on every
+  Dolibarr page, also after an upgrade: re-enabling the module removes the
+  settings of earlier versions for this. Opening the setup no longer rewrites
+  settings (#27).
+- The fee paragraph, the note of an automatically ended pause, the variable
+  help and the PDF file names follow the language - the file name the
+  customer's, for new files (#28).
+- Emails carry Dolibarr's track id of the invoice, so Dolibarr's email
+  collector files customer replies with the invoice (#28).
+
+### Removed
+
+- 140 language texts and the setting `MAHNWESEN_MODE` nothing used any more;
+  the local check now fails on unused texts and functions (#27).
+
 ## [1.2.2] - 2026-09-21
 
 Dunning letters that look like your invoices.
@@ -405,7 +432,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.2.2...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.2.3...HEAD
+[1.2.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.3
 [1.2.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.2
 [1.2.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.1
 [1.2.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.0

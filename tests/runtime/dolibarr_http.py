@@ -18,9 +18,12 @@ from html.parser import HTMLParser
 
 # Text that must never appear in a page Dolibarr renders for a working module.
 ERROR_MARKERS = (
-    "Fatal error", "Parse error", "Uncaught ", "Stack trace:", "Warning: ", "Notice: ",
-    "Deprecated: ", "DB_ERROR", "Error SQL", "SQL error", "Include of main fails",
+    "Fatal error", "Parse error", "Uncaught ", "Stack trace:", "DB_ERROR", "Error SQL", "SQL error",
+    "Include of main fails",
 )
+# A PHP warning, notice or deprecation as PHP prints it, with or without HTML. The
+# words alone also appear in Dolibarr's own JavaScript comments.
+PHP_MESSAGE = re.compile(r"\b(Warning|Notice|Deprecated)(?:</b>)?:[^\n]*? on line (?:<b>)?\d+")
 ACCESS_DENIED_MARKERS = ("Access denied", "Zugriff verweigert", "accessforbidden", "Accès refusé")
 
 
@@ -37,7 +40,8 @@ class Page:
 
     def errors(self) -> list[str]:
         text = self.text
-        return [marker.strip() for marker in ERROR_MARKERS if marker in text]
+        return ([marker.strip() for marker in ERROR_MARKERS if marker in text]
+                + sorted({match.group(1) + ":" for match in PHP_MESSAGE.finditer(text)}))
 
     def denied(self) -> bool:
         return self.status == 403 or any(marker in self.text for marker in ACCESS_DENIED_MARKERS)

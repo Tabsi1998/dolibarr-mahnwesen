@@ -32,24 +32,6 @@ $langs->loadLangs(array('admin', 'mails', 'mahnwesen@mahnwesen'));
 if (!$user->admin) { accessforbidden(); }
 if (!isModEnabled('mahnwesen')) { accessforbidden(); }
 
-// Self-heal the two module parts that are required for native email-template
-// integration. This also repairs installations that upgraded while the module
-// stayed enabled. The next request will reload the persisted values normally.
-$requiredHooks = array('emailtemplates', 'invoicecard');
-$hookConst = getDolGlobalString('MAIN_MODULE_MAHNWESEN_HOOKS');
-$storedHooks = json_decode((string) $hookConst, true);
-if (!is_array($storedHooks)) {
-    $storedHooks = preg_split('/[,;:]+/', trim((string) $hookConst), -1, PREG_SPLIT_NO_EMPTY);
-}
-$storedHooks = array_values(array_unique(array_merge((array) $storedHooks, $requiredHooks)));
-sort($storedHooks);
-if (json_encode($storedHooks) !== (string) $hookConst) {
-    dolibarr_set_const($db, 'MAIN_MODULE_MAHNWESEN_HOOKS', json_encode($storedHooks), 'chaine', 0, '', $conf->entity);
-}
-dolibarr_set_const($db, 'MAIN_MODULE_MAHNWESEN_JS', json_encode(array('/mahnwesen/js/mahnwesen-emailtemplates.js')), 'chaine', 0, '', $conf->entity);
-if (!isset($conf->modules_parts['hooks']) || !is_array($conf->modules_parts['hooks'])) { $conf->modules_parts['hooks'] = array(); }
-$conf->modules_parts['hooks']['mahnwesen'] = $storedHooks;
-
 $manager = new DunningManager($db);
 $notice = new DunningNoticeService($db, $manager);
 $manager->ensureRuleRows($user);
@@ -224,7 +206,7 @@ $policy = getDolGlobalString('MAHNWESEN_AUTO_RECIPIENT_POLICY', 'single_billing'
 $notifyEmail = getDolGlobalString('MAHNWESEN_RUN_NOTIFY_EMAIL');
 $allowLanguageFallback = getDolGlobalInt('MAHNWESEN_ALLOW_LANGUAGE_FALLBACK', 0);
 
-llxHeader('', $langs->trans('MahnwesenSetup'), '', '', 0, 0, '', '', '', 'mod-mahnwesen page-admin');
+llxHeader('', $langs->trans('MahnwesenSetup'), '', '', 0, 0, '', array('/mahnwesen/css/mahnwesen.css'), '', 'mod-mahnwesen page-admin');
 $linkback = '<a href="'.DOL_URL_ROOT.'/admin/modules.php?restore_lastsearch_values=1">'.$langs->trans('BackToModuleList').'</a>';
 print load_fiche_titre($langs->trans('MahnwesenSetup'), $linkback, 'title_setup');
 
