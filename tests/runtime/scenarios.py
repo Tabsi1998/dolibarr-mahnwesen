@@ -856,7 +856,7 @@ def open_attempt(stack: Stack) -> str:
     blocked = [label.replace("%s", ambiguous) for label in translations("MahnwesenSkipBlockedByAttempt")]
     expect(any(label in html.unescape(tab.text) for label in blocked), "the invoice tab does not say why skipping is blocked")
     browser.post(tab_url, [("token", token_of(tab)), ("id", str(renamed["id"])), ("action", "skip_stage"),
-                           ("skip_reason", "Runtime check: skip despite the open attempt")])
+                           ("confirm", "yes"), ("skip_reason", "Runtime check: skip despite the open attempt")])
     skipped = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE fk_facture = {renamed['id']} AND action = 'stage_skipped'")
     expect(skipped == "0", f"a stage was skipped while its attempt {ambiguous} was unresolved (#17)")
 
@@ -1047,6 +1047,47 @@ def dry_run(stack: Stack) -> str:
     return f"dry run and cron agree on {ready}, the expired pause included; no dry run without the right; reminder job warned"
 
 
+def invoice_view(stack: Stack) -> str:
+    """The invoice card has one dunning action; tab and composer speak plainly; skipping asks first (#56)."""
+    overdue = invoice(stack, "company_overdue")
+    browser = stack.browser()
+    card = page_ok(browser.get(f"/compta/facture/card.php?facid={overdue['id']}"), "invoice card")
+    actions = card.text.count(f"mahnwesen/notice.php?id={overdue['id']}")
+    expect(actions == 1 and not any(form.value("action") == "generate_notice_pdf" for form in card.forms()),
+           f"the invoice card should carry one dunning action, it links the composer {actions} time(s) or offers the PDF form (#56)")
+    tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={overdue['id']}"), "dunning tab")
+    shown = html.unescape(re.sub(r"<[^>]+>", " ", tab.text))
+    for code in ("TE_SMALL", "TE_PRIVATE", *translations("StoredOpenAmount"), *translations("CalculatedStage")):
+        expect(code not in shown, f"the dunning tab still shows {code!r} (#56)")
+    expect(any(label in shown for label in translations("MahnwesenNextRequiredStage")),
+           "the dunning tab does not name the next step (#56)")
+    expect(not any(form.value("action") == "skip_stage" for form in tab.forms()),
+           "the dunning tab offers the skip form without a confirmation (#56)")
+    composer = html.unescape(re.sub(r"<[^>]+>", " ", page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={overdue['id']}"), "composer").text))
+    expect(not any(label in composer for label in translations("CalculatedStage")),
+           "the composer still shows the calculated stage next to the next step (#56)")
+    return "one action on the invoice card; tab and composer without codes and technical labels"
+
+
+def billing_role(stack: Stack) -> str:
+    """Without a billing contact on the invoice, the customer's default billing contact is the recipient (#22)."""
+    private = invoice(stack, "private_overdue")
+    customer = stack.fixtures["customers"]["private"]
+    stack.sql("INSERT INTO llx_socpeople (entity, fk_soc, lastname, firstname, email, statut, datec) VALUES "
+              f"(1, {customer}, 'Payer', 'Paula', 'paula.payer@privat.test', 1, NOW())")
+    contact = stack.value("SELECT rowid FROM llx_socpeople WHERE email = 'paula.payer@privat.test'")
+    role = stack.value("SELECT rowid FROM llx_c_type_contact WHERE element = 'facture' AND source = 'external' AND code = 'BILLING'")
+    stack.sql("INSERT INTO llx_societe_contacts (entity, date_creation, fk_soc, fk_c_type_contact, fk_socpeople) "
+              f"VALUES (1, NOW(), {customer}, {role}, {contact})")
+    composer = page_ok(stack.browser().get(f"/custom/mahnwesen/notice.php?id={private['id']}"), "composer")
+    expect(f'value="{contact}"' in composer.text and "paula.payer@privat.test" in html.unescape(composer.text),
+           "the composer does not offer the customer's default billing contact for an invoice without one (#22)")
+    company = invoice(stack, "company_overdue")
+    other = html.unescape(page_ok(stack.browser().get(f"/custom/mahnwesen/notice.php?id={company['id']}"), "composer").text)
+    expect("paula.payer@privat.test" not in other, "another customer's billing contact appears in the composer")
+    return "the customer's default billing contact is offered when the invoice has none"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1055,6 +1096,7 @@ SCENARIOS = (
     ("synchronise", "Synchronise creates the expected cases", synchronise, ("install",)),
     ("pages", "Every page and integration point renders", pages, ("synchronise",)),
     ("access", "Sales representatives only reach their customers", access, ("synchronise",)),
+    ("invoice-view", "One dunning action on the invoice card, plain wording", invoice_view, ("pages",)),
     ("preview", "The preview PDF opens for permitted users only", preview, ("pages",)),
     ("failure-reason", "A refused action says why", failure_reason, ("pages",)),
     ("payment-deadline", "A stage's payment period reaches the templates", payment_deadline, ("pages",)),
@@ -1071,6 +1113,7 @@ SCENARIOS = (
     ("smtp-outage", "A mail server outage fails retryably up to the retry limit", smtp_outage, ("stage-spacing",)),
     ("broken-invoice", "One broken invoice does not stop automatic dunning", broken_invoice, ("smtp-outage",)),
     ("dry-run", "The dry run decides exactly as the cron", dry_run, ("broken-invoice",)),
+    ("billing-role", "The customer's default billing contact as recipient", billing_role, ("dry-run",)),
 )
 
 

@@ -244,13 +244,16 @@ print '<tr><td class="titlefieldmiddle">'.$langs->trans('Invoice').'</td><td>'.$
 print '<tr><td>'.$langs->trans('ThirdParty').'</td><td>'.$invoice->thirdparty->getNomUrl(1).'</td></tr>';
 print '<tr><td>'.$langs->trans('DaysOverdue').'</td><td>'.((int) ($evaluation ? $evaluation['row']['days_late'] : 0)).'</td></tr></table></div>';
 print '<div class="fichehalfright"><table class="border centpercent tableforfield">';
-print '<tr><td class="titlefieldmiddle">'.$langs->trans('CalculatedStage').'</td><td><strong>'.($calculatedLevel > 0 ? $langs->trans($manager->getStageLabelKey($calculatedLevel)) : '-').'</strong></td></tr>';
-print '<tr><td>'.$langs->trans('MahnwesenNextRequiredStage').'</td><td><strong>'.($level > 0 ? $langs->trans($manager->getStageLabelKey($level)) : $langs->trans('MahnwesenNoDueWorkflowStage')).'</strong></td></tr>';
-print '<tr><td>'.$langs->trans('MahnwesenDunningTotal').'</td><td><strong>'.price($breakdown['total'], 0, $langs, 1, -1, -1, $conf->currency).'</strong> <span class="opacitymedium">('.price($breakdown['invoice'], 0, $langs, 1, -1, -1, $conf->currency).' + '.price($breakdown['fee'], 0, $langs, 1, -1, -1, $conf->currency).')</span></td></tr>';
+print '<tr><td class="titlefieldmiddle">'.$langs->trans('MahnwesenNextRequiredStage').'</td><td>'.$manager->describeNextStep($calculatedLevel, $level, 0).'</td></tr>';
+print '<tr><td>'.$langs->trans('MahnwesenAmountDue').'</td><td>'.$manager->describeAmountDue($breakdown).'</td></tr>';
 print '</table></div></div><div class="clearboth"></div>'.dol_get_fiche_end();
 
 print '<div id="formmailbeforetitle"></div>'.load_fiche_titre($langs->trans('SendMail'), '', 'email');
-if (!$manualSendEnabled) { print '<div class="warning">'.$langs->trans('ManualSendDisabledHelp').'</div><br>'; }
+if (!$manualSendEnabled) {
+    print '<div class="warning">'.$langs->trans('ManualSendDisabledHelp');
+    if (!empty($user->admin)) { print ' <a href="'.dol_escape_htmltag(dol_buildpath('/mahnwesen/admin/setup.php?tab=automation', 1)).'">'.$langs->trans('MahnwesenOpenSetting').'</a>'; }
+    print '</div><br>';
+}
 if ($sendPending) { print '<div class="warning">'.$langs->trans('NoticeSendPendingAtLevel').'</div><br>'; }
 if (empty($recipientOptions)) { print '<div class="error">'.$langs->trans('NoticeNoRecipient').'</div><br>'; }
 if ($level > 0 && !empty($workflow['required_at']) && ((int) $db->jdate($workflow['required_at'])) > dol_now()) { print '<div class="info">'.$langs->trans('MahnwesenSequentialCooldownInfo', $langs->trans($manager->getStageLabelKey($level)), dol_print_date($db->jdate($workflow['required_at']), 'day')).'</div><br>'; }

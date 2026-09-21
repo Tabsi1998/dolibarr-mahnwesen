@@ -63,6 +63,8 @@ if ($action === 'sync_case') {
     mahnwesenInvoiceRedirect($id);
 } elseif ($action === 'skip_stage') {
     if (!$user->hasRight('mahnwesen', 'case', 'write') || !$user->hasRight('mahnwesen', 'notice', 'send')) { accessforbidden(); }
+    // Only through the confirmation dialog (#56).
+    if (GETPOST('confirm', 'alpha') !== 'yes') { mahnwesenInvoiceRedirect($id); }
     if ($manager->skipCurrentStage($id, $skipReason, $user)) { setEventMessages($langs->trans('MahnwesenStageSkipped'), null, 'mesgs'); }
     else { setEventMessages($langs->trans('MahnwesenStageSkipFailed'), array($manager->error), 'errors'); }
     mahnwesenInvoiceRedirect($id);
@@ -112,6 +114,11 @@ $caseForAmounts = $case ?: array('remaining_amount' => (float) $evaluation['rema
 $breakdown = $amountLevel > 0 ? $manager->getAmountBreakdown($invoice, $caseForAmounts, $amountLevel) : array('invoice'=>(float)$evaluation['remain_to_pay'],'fee'=>0.0,'total'=>(float)$evaluation['remain_to_pay'],'classification'=>$classification);
 
 llxHeader('', $langs->trans('Mahnwesen').' - '.$invoice->ref, '', '', 0, 0, '', '', '', 'mod-mahnwesen page-invoice');
+if ($action === 'ask_skip' && $user->hasRight('mahnwesen', 'case', 'write') && $user->hasRight('mahnwesen', 'notice', 'send')) {
+    $form = new Form($db);
+    print $form->formconfirm($_SERVER['PHP_SELF'].'?id='.$id, $langs->trans('MahnwesenSkipStage'), $langs->trans('MahnwesenSkipStageConfirm'), 'skip_stage',
+        array(array('type' => 'text', 'name' => 'skip_reason', 'label' => $langs->trans('MahnwesenSkipReason'), 'value' => '', 'moreattr' => 'required maxlength="255"')), 'no', 0);
+}
 $head = facture_prepare_head($invoice);
 print dol_get_fiche_head($head, 'mahnwesen', $langs->trans('InvoiceCustomer'), -1, 'bill');
 
@@ -136,16 +143,8 @@ if (!$case) {
         : (!empty($case['paused'])
             ? '<span class="badge badge-status1">'.$langs->trans('Paused').'</span>'
             : '<span class="badge badge-status4">'.$langs->trans('CaseActive').'</span>'));
-    $calendarStageHtml = $calculatedLevel > 0
-        ? '<strong>'.$langs->trans($manager->getStageLabelKey($calculatedLevel)).'</strong>'
-        : '<span class="opacitymedium">'.$langs->trans('DunningStageNone').'</span>';
-    if ($requiredLevel > 0) {
-        $requiredStageHtml = '<strong>'.$langs->trans($manager->getStageLabelKey($requiredLevel)).'</strong>';
-    } elseif ($futureLevel > 0) {
-        $requiredStageHtml = '<span class="opacitymedium">'.$langs->trans('MahnwesenNoDueWorkflowStage').'</span>';
-    } else {
-        $requiredStageHtml = '<span class="badge badge-status4">'.$langs->trans('MahnwesenWorkflowComplete').'</span>';
-    }
+    // One phrase for the next step, the calendar stage only when it is ahead (#56).
+    $requiredStageHtml = $manager->describeNextStep($calculatedLevel, $requiredLevel, $futureLevel);
     $timingHtml = '-';
     if ($requiredLevel > 0 && !empty($workflow['required_at'])) {
         $requiredTs = (int) $db->jdate($workflow['required_at']);
@@ -158,16 +157,12 @@ if (!$case) {
 
     // One compact four-column field table instead of two widely separated half tables.
     print '<table class="border centpercent tableforfield">';
-    print '<tr><td class="titlefield">'.$langs->trans('CaseStatus').'</td><td>'.$statusHtml.'</td><td class="titlefield">'.$langs->trans('CalculatedStage').'</td><td>'.$calendarStageHtml.'</td></tr>';
-    print '<tr><td>'.$langs->trans('StoredOpenAmount').'</td><td>'.price((float) $case['remaining_amount'], 0, $langs, 1, -1, -1, $conf->currency).'</td><td>'.$langs->trans('MahnwesenNextRequiredStage').'</td><td>'.$requiredStageHtml.'</td></tr>';
-    print '<tr><td>'.$langs->trans('DaysOverdue').'</td><td>'.((int) $evaluation['row']['days_late']).'</td><td>'.$langs->trans('NextAction').'</td><td>'.$timingHtml.'</td></tr>';
-    print '<tr><td>'.$langs->trans('MahnwesenCustomerMasterType').'</td><td>'.$langs->trans($manager->getCustomerClassLabelKey($classification['class'])).' <span class="opacitymedium">'.dol_escape_htmltag($classification['code']).'</span></td><td>'.$langs->trans('MahnwesenLastNoticeAt').'</td><td>'.(!empty($case['last_notice_at']) ? dol_print_date($db->jdate($case['last_notice_at']), 'dayhour') : '-').'</td></tr>';
-    print '<tr><td>'.$langs->trans('MahnwesenDunningFee').'</td><td>'.price((float) $breakdown['fee'], 0, $langs, 1, -1, -1, $conf->currency).'</td><td><strong>'.$langs->trans('MahnwesenDunningTotal').'</strong></td><td><strong>'.price((float) $breakdown['total'], 0, $langs, 1, -1, -1, $conf->currency).'</strong></td></tr>';
+    print '<tr><td class="titlefield">'.$langs->trans('CaseStatus').'</td><td>'.$statusHtml.'</td><td class="titlefield">'.$langs->trans('MahnwesenNextRequiredStage').'</td><td>'.$requiredStageHtml.'</td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenOpenInvoiceAmount').'</td><td>'.price((float) $case['remaining_amount'], 0, $langs, 1, -1, -1, $conf->currency).'</td><td>'.$langs->trans('NextAction').'</td><td>'.$timingHtml.'</td></tr>';
+    print '<tr><td>'.$langs->trans('DaysOverdue').'</td><td>'.((int) $evaluation['row']['days_late']).'</td><td>'.$langs->trans('MahnwesenLastNoticeAt').'</td><td>'.(!empty($case['last_notice_at']) ? dol_print_date($db->jdate($case['last_notice_at']), 'dayhour') : '-').'</td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenCustomerMasterType').'</td><td>'.$langs->trans($manager->getCustomerClassLabelKey($classification['class'])).'</td><td>'.$langs->trans('MahnwesenAmountDue').'</td><td>'.$manager->describeAmountDue($breakdown).'</td></tr>';
     print '</table>';
 
-    if ($calculatedLevel > $requiredLevel && $requiredLevel > 0) {
-        print '<br><div class="info">'.$langs->trans('MahnwesenSequentialGuardInfo', $langs->trans($manager->getStageLabelKey($calculatedLevel)), $langs->trans($manager->getStageLabelKey($requiredLevel))).'</div>';
-    }
 
     // Compact read mode, similar to Dolibarr's note fields. Only the selected row
     // expands into an edit form after clicking its pencil.
@@ -236,9 +231,7 @@ if (!$case) {
         if ($user->hasRight('mahnwesen', 'case', 'write') && $openAttempt) {
             print '<a class="butActionRefused classfortooltip" href="'.dol_escape_htmltag(dol_buildpath('/mahnwesen/attempts.php', 1)).'" title="'.dol_escape_htmltag($langs->trans('MahnwesenSkipBlockedByAttempt', (int) $openAttempt)).'">'.$langs->trans('MahnwesenSkipStage').'</a>';
         } elseif ($user->hasRight('mahnwesen', 'case', 'write')) {
-            print '<form method="POST" class="inline-block" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'" onsubmit="return window.confirm(\''.dol_escape_js($langs->trans('MahnwesenSkipStageConfirm')).'\');">';
-            print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="id" value="'.$id.'"><input type="hidden" name="action" value="skip_stage">';
-            print '<input required type="text" name="skip_reason" maxlength="255" placeholder="'.dol_escape_htmltag($langs->trans('MahnwesenSkipReason')).'"> <button class="butActionDelete" type="submit">'.$langs->trans('MahnwesenSkipStage').'</button></form>';
+            print '<a class="butActionDelete" href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?id='.$id.'&action=ask_skip&token='.newToken()).'">'.$langs->trans('MahnwesenSkipStage').'</a>';
         }
     } elseif (!empty($case['paused'])) {
         print '<span class="butActionRefused classfortooltip" title="'.dol_escape_htmltag($langs->trans('NoticeCasePaused')).'">'.$langs->trans('MahnwesenPrepareNotice').'</span>';

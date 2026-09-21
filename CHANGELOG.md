@@ -7,6 +7,28 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-09-21
+
+The recipient from the customer's contact roles, and an invoice view that
+speaks plainly.
+
+### Added
+
+- When an invoice has no billing contact, the customer's default billing
+  contact for invoices is the recipient, before the company address (#22).
+
+### Changed
+
+- The invoice card has one dunning action instead of two; the PDF stays on
+  the dunning tab (#56).
+- The dunning tab and the composer name the next step in one phrase, for
+  example "2. Mahnung (zeitlich wäre bereits die 3. Mahnung erreicht)", show
+  the amount to pay with its parts only when a fee applies, and no longer show
+  internal codes such as `TE_PRIVATE` (#56).
+- Skipping a stage asks for confirmation with a reason in a dialog (#56).
+- The hint that manual sending is off links administrators to the setting, and
+  the minimum amount in the setup uses the user's number format (#56).
+
 ## [1.1.2] - 2026-09-21
 
 A dry run you can trust, and help for operating automatic dunning.
@@ -314,7 +336,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.3
 [1.1.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.2
 [1.1.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.1.0

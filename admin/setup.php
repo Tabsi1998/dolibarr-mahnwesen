@@ -243,7 +243,7 @@ if ($tab === 'general') {
     print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=general">';
     print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="save_general">';
     print '<table class="border centpercent tableforfield">';
-    print '<tr><td class="titlefield">'.$langs->trans('MinimumOpenAmount').'</td><td><input class="width100" name="min_amount" value="'.dol_escape_htmltag((string) $minAmount).'"></td><td>'.$langs->trans('MinimumOpenAmountHelp').'</td></tr>';
+    print '<tr><td class="titlefield">'.$langs->trans('MinimumOpenAmount').'</td><td><input class="width100" name="min_amount" value="'.dol_escape_htmltag(price((float) price2num($minAmount), 0, $langs, 0, -1, -1)).'"> '.$conf->currency.'</td><td>'.$langs->trans('MinimumOpenAmountHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('MaximumScan').'</td><td><input type="number" min="1" max="5000" class="width100" name="max_scan" value="'.((int) $maxScan).'"></td><td>'.$langs->trans('MaximumScanHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('IncludeDepositInvoices').'</td><td><input type="checkbox" name="include_deposits" value="1"'.($includeDeposits ? ' checked' : '').'></td><td>'.$langs->trans('IncludeDepositInvoicesHelp').'</td></tr>';
     print '</table><div class="center"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button></div></form>';

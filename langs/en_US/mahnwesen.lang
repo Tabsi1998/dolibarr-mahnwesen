@@ -243,7 +243,7 @@ MahnwesenAutoSendConfirmationHelp=To save with automation enabled, confirm each 
 MahnwesenAutoSendConfirmationRequired=Risk confirmation is required to enable automatic delivery.
 MahnwesenAutomationSafetyHelp=The workflow blocks duplicate/pending sends at the same stage. Failed automatic sends are not blindly retried and require review. Paused and closed cases are never sent.
 MahnwesenReactivationHelp=Disabling the module, for example during an update, switches automatic sending off; it has to be switched on again deliberately. Manual sending keeps its setting.
-MahnwesenCustomerMasterType=Customer type from master data
+MahnwesenCustomerMasterType=Kind of customer
 MahnwesenCustomerClassHeuristic=This classification is based on the Dolibarr third-party type and is a safety heuristic, not a legal determination of an individual transaction.
 CustomerClassBusiness=Business / B2B candidate
 CustomerClassConsumer=Private person / consumer
@@ -331,7 +331,12 @@ MahnwesenPdfRecipient=Recipient
 
 # development - sequential workflow, Dolibarr-style invoice UI and Agenda projection
 MahnwesenNoDueWorkflowStage=No further dunning stage is currently due.
-MahnwesenNextRequiredStage=Next required step
+MahnwesenNextRequiredStage=Next
+MahnwesenNextStepBehind=(by date the %s would be reached already)
+MahnwesenAmountDue=To pay
+MahnwesenAmountParts=(invoice %s + dunning fee %s)
+MahnwesenOpenSetting=Open the setting
+MahnwesenPrepareStageHelp=Opens the notice of this stage to check and send it. PDF, pause and skipping are on the dunning tab.
 MahnwesenEmailComposer=Send email
 MahnwesenSequentialGuardInfo=The calendar threshold has already reached “%s”. Because “%s” has not yet been sent successfully or explicitly skipped, it remains the next allowed step.
 MahnwesenNoTemplateForStage=No active email template is available for this dunning stage.

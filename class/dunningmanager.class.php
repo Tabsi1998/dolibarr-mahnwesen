@@ -15,6 +15,7 @@ require_once __DIR__.'/dunningmanager.methods3.trait.php';
 require_once __DIR__.'/dunningmanager.methods4.trait.php';
 require_once __DIR__.'/dunningmanager.methods5.trait.php';
 require_once __DIR__.'/dunningmanager.methods6.trait.php';
+require_once __DIR__.'/dunningmanager.methods7.trait.php';
 
 /**
  * Read-only dunning scanner for customer invoices.
@@ -23,5 +24,5 @@ require_once __DIR__.'/dunningmanager.methods6.trait.php';
  */
 class DunningManager
 {
-    use DunningManagerMethods1, DunningManagerMethods2, DunningManagerMethods3, DunningManagerMethods4, DunningManagerMethods5, DunningManagerMethods6;
+    use DunningManagerMethods1, DunningManagerMethods2, DunningManagerMethods3, DunningManagerMethods4, DunningManagerMethods5, DunningManagerMethods6, DunningManagerMethods7;
 }

@@ -244,7 +244,7 @@ MahnwesenAutoSendConfirmationHelp=Zum Speichern mit aktivierter Automatik muss d
 MahnwesenAutoSendConfirmationRequired=Für die Aktivierung des automatischen Versands ist die Gefahrenbestätigung erforderlich.
 MahnwesenAutomationSafetyHelp=Der Workflow blockiert doppelte/ausstehende Sendungen derselben Mahnstufe. Fehlgeschlagene automatische Sendungen werden nicht blind wiederholt, sondern müssen geprüft werden. Pausierte und geschlossene Fälle werden nicht versendet.
 MahnwesenReactivationHelp=Beim Deaktivieren des Moduls, etwa bei einem Update, wird der automatische Versand ausgeschaltet und muss danach bewusst wieder eingeschaltet werden. Der manuelle Versand bleibt so eingestellt, wie er ist.
-MahnwesenCustomerMasterType=Kundentyp aus Stammdaten
+MahnwesenCustomerMasterType=Kundenart
 MahnwesenCustomerClassHeuristic=Diese Zuordnung basiert auf dem Dolibarr-Drittparteityp und ist eine Sicherheitsheuristik, keine rechtliche Einzelfallbeurteilung.
 CustomerClassBusiness=Unternehmen / B2B-Kandidat
 CustomerClassConsumer=Privatperson / Verbraucher
@@ -332,7 +332,12 @@ MahnwesenPdfRecipient=Empfänger
 
 # development - sequential workflow, Dolibarr-style invoice UI and Agenda projection
 MahnwesenNoDueWorkflowStage=Aktuell ist noch keine weitere Mahnstufe fällig.
-MahnwesenNextRequiredStage=Nächster erforderlicher Schritt
+MahnwesenNextRequiredStage=Als Nächstes
+MahnwesenNextStepBehind=(zeitlich wäre bereits die %s erreicht)
+MahnwesenAmountDue=Zu zahlen
+MahnwesenAmountParts=(Rechnung %s + Mahnspesen %s)
+MahnwesenOpenSetting=Zur Einstellung
+MahnwesenPrepareStageHelp=Öffnet das Mahnschreiben dieser Stufe zum Prüfen und Senden. PDF, Pause und Überspringen stehen im Reiter Mahnwesen.
 MahnwesenEmailComposer=E-Mail versenden
 MahnwesenSequentialGuardInfo=Zeitlich wäre bereits „%s“ erreicht. Da „%s“ noch nicht erfolgreich versendet oder bewusst übersprungen wurde, bleibt dies der nächste erlaubte Schritt.
 MahnwesenNoTemplateForStage=Für diese Mahnstufe ist keine aktive E-Mail-Vorlage verfügbar.

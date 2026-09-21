@@ -16,24 +16,40 @@ trait DunningNoticeServiceMethods2
         $options = array();
         $seen = array();
 
-        $sql = 'SELECT sp.rowid, sp.firstname, sp.lastname, sp.email';
-        $sql .= ' FROM '.MAIN_DB_PREFIX.'element_contact as ec';
-        $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'c_type_contact as tc ON tc.rowid = ec.fk_c_type_contact';
-        $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'socpeople as sp ON sp.rowid = ec.fk_socpeople';
-        $sql .= ' WHERE ec.element_id = '.((int) $invoice->id);
-        $sql .= " AND tc.element = 'facture' AND tc.source = 'external' AND tc.code = 'BILLING'";
-        $sql .= " AND sp.email IS NOT NULL AND sp.email <> ''";
-        $sql .= ' AND sp.statut = 1';
-        $sql .= ' ORDER BY sp.lastname ASC, sp.firstname ASC, sp.rowid ASC';
-        $resql = $this->db->query($sql);
-        if ($resql) {
+        // The billing contacts of the invoice; without one, the customer's
+        // default billing contact for invoices (#22). Both are BILLING roles.
+        $select = 'SELECT sp.rowid, sp.firstname, sp.lastname, sp.email';
+        $where = " AND tc.element = 'facture' AND tc.source = 'external' AND tc.code = 'BILLING'";
+        $where .= " AND sp.email IS NOT NULL AND sp.email <> '' AND sp.statut = 1";
+        $order = ' ORDER BY sp.lastname ASC, sp.firstname ASC, sp.rowid ASC';
+        foreach (array('invoice', 'customer') as $origin) {
+            if ($origin === 'invoice') {
+                $sql = $select.' FROM '.MAIN_DB_PREFIX.'element_contact as ec';
+                $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'c_type_contact as tc ON tc.rowid = ec.fk_c_type_contact';
+                $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'socpeople as sp ON sp.rowid = ec.fk_socpeople';
+                $sql .= ' WHERE ec.element_id = '.((int) $invoice->id).$where.$order;
+            } elseif (!empty($options)) {
+                break;
+            } else {
+                $sql = $select.' FROM '.MAIN_DB_PREFIX.'societe_contacts as sc';
+                $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'c_type_contact as tc ON tc.rowid = sc.fk_c_type_contact';
+                $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'socpeople as sp ON sp.rowid = sc.fk_socpeople';
+                $sql .= ' WHERE sc.fk_soc = '.((int) $invoice->socid).' AND sc.entity IN ('.getEntity('societe').')'.$where.$order;
+            }
+            $resql = $this->db->query($sql);
+            if (!$resql) {
+                $this->recipientLookupFailed = true;
+                $this->error = 'Recipient contact lookup failed.';
+                $this->errors[] = $this->error;
+                dol_syslog(__METHOD__.' '.$this->db->lasterror(), LOG_ERR);
+                // A technical lookup failure is not equivalent to there being no
+                // billing contact. Fail closed and never use the company fallback.
+                return array();
+            }
             while ($obj = $this->db->fetch_object($resql)) {
                 $email = trim((string) $obj->email);
-                if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                    continue;
-                }
                 $key = strtolower($email);
-                if (isset($seen[$key])) {
+                if (!filter_var($email, FILTER_VALIDATE_EMAIL) || isset($seen[$key])) {
                     continue;
                 }
                 $name = trim((string) $obj->firstname.' '.(string) $obj->lastname);
@@ -41,19 +57,12 @@ trait DunningNoticeServiceMethods2
                     'email' => $email,
                     'label' => ($name !== '' ? $name.' <'.$email.'>' : $email),
                     'source' => 'billing_contact',
+                    'origin' => $origin,
                     'contact_id' => (int) $obj->rowid,
                 );
                 $seen[$key] = 1;
             }
             $this->db->free($resql);
-        } else {
-            $this->recipientLookupFailed = true;
-            $this->error = 'Recipient contact lookup failed.';
-            $this->errors[] = $this->error;
-            dol_syslog(__METHOD__.' '.$this->db->lasterror(), LOG_ERR);
-            // A technical lookup failure is not equivalent to there being no
-            // billing contact. Fail closed and never use the company fallback.
-            return array();
         }
 
         if (empty($invoice->thirdparty)) {
