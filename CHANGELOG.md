@@ -20,7 +20,9 @@ A dashboard that opens quickly, and texts in your language.
   synchronisation (#26).
 - The module's CSS loads with its own pages and the help for template
   variables with Dolibarr's email template page only, instead of on every
-  Dolibarr page; opening the setup no longer rewrites settings (#27).
+  Dolibarr page, also after an upgrade: re-enabling the module removes the
+  settings of earlier versions for this. Opening the setup no longer rewrites
+  settings (#27).
 - The fee paragraph, the note of an automatically ended pause, the variable
   help and the PDF file names follow the language - the file name the
   customer's, for new files (#28).
