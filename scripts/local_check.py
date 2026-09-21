@@ -93,6 +93,11 @@ RUNTIME_BUILDS = {
     "local-ci/dolibarr:24.0.1": "https://github.com/Dolibarr/dolibarr-docker.git"
                                 "#ec6b10487e52244b64142b6d8806eb26409ac406:images/24.0.1-php8.2",
 }
+# Static analysis (#31): PHPStan runs with the PHP of a Dolibarr image, so it
+# reads Dolibarr's own classes and functions. The phar is pinned by checksum.
+PHPSTAN_VERSION = "2.2.14"
+PHPSTAN_SHA256 = "a7d45c01d3bd5aceb2cb9e596a67e50ff9f12b8757a373b93c0761deb8cd77e1"
+PHPSTAN_IMAGE = "dolibarr/dolibarr:23.0.4"
 MARIADB_IMAGE = "mariadb:11.4.13"
 MAILPIT_IMAGE = "axllent/mailpit:v1.31.1"
 RUNTIME_TESTS = ROOT / "tests" / "runtime"
@@ -935,9 +940,62 @@ def php_step(version: str):
     return action
 
 
+def phpstan_phar(context: Context) -> Path:
+    """The pinned PHPStan phar, downloaded once into the toolchain folder and checked every time."""
+    phar = TOOLCHAIN / f"phpstan-{PHPSTAN_VERSION}.phar"
+    if not phar.is_file():
+        url = f"https://github.com/phpstan/phpstan/releases/download/{PHPSTAN_VERSION}/phpstan.phar"
+        TOOLCHAIN.mkdir(parents=True, exist_ok=True)
+        try:
+            with urllib.request.urlopen(url, timeout=120) as response:
+                data = response.read()
+        except OSError as error:
+            raise StepSkipped(f"PHPStan {PHPSTAN_VERSION} could not be downloaded ({error}); put it at {phar}") from error
+        partial = phar.with_suffix(".part")
+        partial.write_bytes(data)
+        partial.replace(phar)
+    digest = hashlib.sha256(phar.read_bytes()).hexdigest()
+    if digest != PHPSTAN_SHA256:
+        raise StepFailed(f"{phar} has SHA-256 {digest}, expected {PHPSTAN_SHA256}; delete it to download it again")
+    return phar
+
+
+PHPSTAN_LINE = re.compile(r"^/work/(?P<file>[^:(]+?)(?: \(in context of class \w+\))?:(?P<line>\d+):(?P<message>.*)$")
+
+
+def phpstan(context: Context) -> str:
+    """PHPStan level 3 over the module's PHP, against Dolibarr's own code.
+
+    Findings are compared without line numbers, so moving code does not make
+    known findings new.
+    """
+    phar = phpstan_phar(context)
+    cache = STATE / "phpstan-cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    completed = context.run(docker(context), "run", "--rm", "--entrypoint", "php",
+                            "--mount", f"type=bind,source={SNAPSHOT},target=/work,readonly",
+                            "--mount", f"type=bind,source={phar},target=/tools/phpstan.phar,readonly",
+                            "--mount", f"type=bind,source={cache},target=/cache",
+                            "--workdir", "/work/scripts", PHPSTAN_IMAGE, "-d", "memory_limit=2G",
+                            "/tools/phpstan.phar", "analyse", "-c", "/work/scripts/phpstan.neon",
+                            "--error-format=raw", "--no-progress", check=False, timeout=1800)
+    text = completed.stdout + completed.stderr
+    path = context.log("phpstan", text)
+    found = set()
+    for line in completed.stdout.splitlines():
+        match = PHPSTAN_LINE.match(line.strip())
+        if match:
+            found.add(f"{match.group('file')}: {match.group('message').strip()}")
+    if completed.returncode not in (0, 1) or (completed.returncode == 1 and not found):
+        raise StepFailed(f"PHPStan did not run to the end. Full output: {path}\n" + tail(completed, 20))
+    return ratchet(context, "phpstan", found, "PHPStan findings")
+
+
 def php_steps() -> list:
     return [Step("php", f"php-{version}", f"check-module.sh on PHP {version}", php_step(version),
-                 ("repository/snapshot",)) for version in PHP_VERSIONS]
+                 ("repository/snapshot",)) for version in PHP_VERSIONS] + [
+        Step("php", "phpstan", f"PHPStan {PHPSTAN_VERSION} level 3 against Dolibarr's code, new findings fail",
+             phpstan, ("repository/snapshot",))]
 
 
 # ------------------------------------------------------------------ dolibarr

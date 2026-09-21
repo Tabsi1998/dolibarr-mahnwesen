@@ -8,7 +8,7 @@ trait DunningNoticeServiceMethods2
      * the third-party email is the fallback.
      *
      * @param Facture $invoice Invoice
-     * @return array<int,array{email:string,label:string,source:string}>
+     * @return array<int,array{email:string,label:string,source:string,contact_id:int,origin?:string}>
      */
     public function getRecipientOptions($invoice)
     {
@@ -181,7 +181,7 @@ trait DunningNoticeServiceMethods2
      *
      * @param User|null $user Current user
      * @param string $preferred Template-specific sender
-     * @return array<int,array{email:string,label:string,source:string}>
+     * @return array<int,array{email:string,label:string,source:string,contact_id:int,origin?:string}>
      */
     public function getSenderOptions($user = null, $preferred = '')
     {

@@ -1,0 +1,35 @@
+# Static analysis of the module (#31), run by scripts/local_check.py inside the
+# Dolibarr image, so PHPStan reads Dolibarr's own classes and functions.
+parameters:
+    level: 3
+    paths:
+        - /work/admin
+        - /work/class
+        - /work/core
+        - /work/attempts.php
+        - /work/index.php
+        - /work/invoice.php
+        - /work/notice.php
+    scanDirectories:
+        - /var/www/html/core
+        - /var/www/html/compta/facture/class
+        - /var/www/html/compta/paiement/class
+        - /var/www/html/societe/class
+        - /var/www/html/contact/class
+        - /var/www/html/user/class
+        - /var/www/html/comm/action/class
+        - /var/www/html/cron/class
+        - /var/www/html/compta/bank/class
+        - /var/www/html/includes/tecnickcom/tcpdf
+    scanFiles:
+        - /var/www/html/main.inc.php
+    excludePaths:
+        analyseAndScan:
+            - /var/www/html/core/modules/*/doc/*
+    bootstrapFiles:
+        - phpstan-bootstrap.php
+    tmpDir: /cache
+    reportUnmatchedIgnoredErrors: false
+    ignoreErrors:
+        # Pages get these from Dolibarr's main.inc.php, which PHPStan cannot follow.
+        - '#Variable \$(db|conf|langs|user|mysoc|hookmanager|action|object) might not be defined#'

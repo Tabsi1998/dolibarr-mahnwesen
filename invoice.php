@@ -124,7 +124,7 @@ print dol_get_fiche_head($head, 'mahnwesen', $langs->trans('InvoiceCustomer'), -
 
 // Same visual object identity as the regular invoice tabs.
 print '<div class="fichecenter">';
-print dol_banner_tab($invoice, 'ref', '', 0, 'ref', 'ref');
+dol_banner_tab($invoice, 'ref', '', 0, 'ref', 'ref');
 print '</div>';
 
 print '<br>'.load_fiche_titre($langs->trans('DunningCase'), '', 'bill');

@@ -492,11 +492,13 @@ trait DunningManagerMethods3
      * together. If this finalization fails, the pending reservation remains
      * and blocks an unsafe retry.
      *
-     * @param int $historyId Reservation history id
+     * @param int $attemptId Reserved attempt
      * @param bool $success True on SMTP success
      * @param string $message Audit message
      * @param array $case Stored case
      * @param User $user Acting user
+     * @param bool $ambiguous The outcome is unknown
+     * @param string $messageId Message-ID of the sent email
      * @return bool
      */
     public function finalizeNoticeAttempt($attemptId, $success, $message, $case, $user, $ambiguous = false, $messageId = '')

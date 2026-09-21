@@ -26,7 +26,7 @@ ignored by Git.
 | Group | Mirrors | Runs |
 | --- | --- | --- |
 | repository | - | every `*.sh` parses, no CRLF in the index, `git diff --check` over every tracked line, Gitleaks over the history and over uncommitted files |
-| php | ci.yml `php-lint` matrix | `scripts/check-module.sh` in `php:7.4-cli` to `php:8.4-cli`, and proof that its lint, policy tests, language keys and contracts really ran (it skips them silently without php) |
+| php | ci.yml `php-lint` matrix | `scripts/check-module.sh` in `php:7.4-cli` to `php:8.4-cli`, and proof that its lint, policy tests, language keys and contracts really ran (it skips them silently without php); PHPStan level 3 (`scripts/phpstan.neon`, pinned phar in `~/.local-toolchain`) with the PHP and code of the Dolibarr image, through the ratchet |
 | dolibarr | ci.yml `dolibarr-api` matrix | `scripts/check-dolibarr-api.sh` for 21.0, 22.0, 23.0 and 24.0 |
 | package | ci.yml `package` | `scripts/build_release.py` from the working copy and from the snapshot, byte for byte identical, verified file by file |
 | release | ci.yml `package`, release-verify.yml | `scripts/release.py --metadata`: version, dated changelog section with link, support matrix (descriptor, `PHP_VERSIONS`, `DOLIBARR_VERSIONS`, `check-dolibarr-api.sh`, ci.yml, README tables); any tag matches; a package changed since the newest release needs a new version |
