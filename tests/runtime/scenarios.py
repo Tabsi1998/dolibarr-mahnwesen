@@ -296,8 +296,9 @@ def upgrade_from(stack: Stack, package: Path) -> str:
     upload(stack, package)
     switch_module(stack, "set")
     expect(stack.const("MAIN_MODULE_MAHNWESEN") == "1", f"{old} could not be enabled")
+    # Cases, history and stages exist in every version; later tables came with later versions.
     tables = {row[0] for row in stack.sql("SHOW TABLES LIKE 'llx_mahnwesen_%'")}
-    missing = [name for name in MODULE_TABLES if f"llx_{name}" not in tables]
+    missing = [name for name in ("mahnwesen_case", "mahnwesen_history", "mahnwesen_rule") if f"llx_{name}" not in tables]
     expect(not missing, f"enabling the package of {old} created no tables {', '.join(missing)}")
     stack.php_fixture("legacy")
     # Settings where the old version keeps them: days and business fee in the
@@ -319,6 +320,9 @@ def upgrade_from(stack: Stack, package: Path) -> str:
     expect(stack.const("MAIN_MODULE_MAHNWESEN") == "1", f"{stack.module_version} could not be enabled over {old}")
     after = state()
     expect(after == before, f"the upgrade from {old} changed cases, history or the starter templates: {before} -> {after}")
+    tables = {row[0] for row in stack.sql("SHOW TABLES LIKE 'llx_mahnwesen_%'")}
+    missing = [name for name in MODULE_TABLES if f"llx_{name}" not in tables]
+    expect(not missing, f"after the upgrade from {old} the tables {', '.join(missing)} are missing")
     rules = {row[0]: row[1:] for row in stack.sql(
         "SELECT level, days_after_due, ROUND(fee_amount, 2), ROUND(fee_private, 2), payment_days FROM llx_mahnwesen_rule "
         "WHERE entity = 1 ORDER BY level")}
