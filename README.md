@@ -14,6 +14,7 @@ A custom Dolibarr module for controlled dunning workflows on overdue customer in
 - Sponge-aligned dunning PDF
 - manual and controlled automatic sending
 - pause indefinitely or until a date
+- dunning block on a customer or an invoice, in Dolibarr's own fields, with reason and end date
 - strict duplicate-send protection
 - multi-version compatibility with maintained Dolibarr releases
 

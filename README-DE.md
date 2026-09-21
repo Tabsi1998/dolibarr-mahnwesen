@@ -14,6 +14,7 @@ Custom-Modul für ein kontrolliertes Mahnwesen bei überfälligen Kundenrechnung
 - Mahn-PDF im Sponge-nahen Dolibarr-Stil
 - kontrollierter manueller und automatischer Versand
 - Pause unbefristet oder bis zu einem Datum
+- Mahnsperre am Kunden oder an der Rechnung, in Dolibarrs eigenen Feldern, mit Grund und Enddatum
 - Schutz vor Doppelversand
 - möglichst breite Kompatibilität über mehrere Dolibarr-Hauptversionen
 

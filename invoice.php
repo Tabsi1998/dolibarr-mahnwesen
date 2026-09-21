@@ -140,9 +140,11 @@ if (!$case) {
         ? '<span class="badge badge-status0">'.$langs->trans('CaseClosed').'</span>'
         : ($case['status'] === 'fee_open'
             ? '<span class="badge badge-status1">'.$langs->trans('MahnwesenCaseFeeOpen').'</span>'
+        : (!empty($workflow['block'])
+            ? '<span class="badge badge-status8">'.$langs->trans('MahnwesenBlocked').'</span>'
         : (!empty($case['paused'])
             ? '<span class="badge badge-status1">'.$langs->trans('Paused').'</span>'
-            : '<span class="badge badge-status4">'.$langs->trans('CaseActive').'</span>'));
+            : '<span class="badge badge-status4">'.$langs->trans('CaseActive').'</span>')));
     // One phrase for the next step, the calendar stage only when it is ahead (#56).
     $requiredStageHtml = $manager->describeNextStep($calculatedLevel, $requiredLevel, $futureLevel);
     $timingHtml = '-';
@@ -161,6 +163,10 @@ if (!$case) {
     print '<tr><td>'.$langs->trans('MahnwesenOpenInvoiceAmount').'</td><td>'.price((float) $case['remaining_amount'], 0, $langs, 1, -1, -1, $conf->currency).'</td><td>'.$langs->trans('NextAction').'</td><td>'.$timingHtml.'</td></tr>';
     print '<tr><td>'.$langs->trans('DaysOverdue').'</td><td>'.((int) $evaluation['row']['days_late']).'</td><td>'.$langs->trans('MahnwesenLastNoticeAt').'</td><td>'.(!empty($case['last_notice_at']) ? dol_print_date($db->jdate($case['last_notice_at']), 'dayhour') : '-').'</td></tr>';
     print '<tr><td>'.$langs->trans('MahnwesenCustomerMasterType').'</td><td>'.$langs->trans($manager->getCustomerClassLabelKey($classification['class'])).'</td><td>'.$langs->trans('MahnwesenAmountDue').'</td><td>'.$manager->describeAmountDue($breakdown).'</td></tr>';
+    // The block lives in Dolibarr's fields of the invoice and the customer (#37).
+    $blockHtml = !empty($workflow['block']) ? $manager->describeBlock($workflow['block']) : '<span class="opacitymedium">'.$langs->trans('None').'</span>';
+    $blockHtml .= ' <span class="opacitymedium small">'.$langs->trans('MahnwesenBlockWhere', DOL_URL_ROOT.'/compta/facture/card.php?facid='.$id, DOL_URL_ROOT.'/societe/card.php?socid='.((int) $invoice->socid)).'</span>';
+    print '<tr><td>'.$langs->trans('MahnwesenBlocked').'</td><td colspan="3" id="mahnwesen-block">'.$blockHtml.'</td></tr>';
     print '</table>';
 
 
@@ -233,6 +239,8 @@ if (!$case) {
         } elseif ($user->hasRight('mahnwesen', 'case', 'write')) {
             print '<a class="butActionDelete" href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?id='.$id.'&action=ask_skip&token='.newToken()).'">'.$langs->trans('MahnwesenSkipStage').'</a>';
         }
+    } elseif (!empty($workflow['block'])) {
+        print '<span class="butActionRefused classfortooltip" title="'.dol_escape_htmltag(dol_string_nohtmltag($manager->describeBlock($workflow['block']))).'">'.$langs->trans('MahnwesenPrepareNotice').'</span>';
     } elseif (!empty($case['paused'])) {
         print '<span class="butActionRefused classfortooltip" title="'.dol_escape_htmltag($langs->trans('NoticeCasePaused')).'">'.$langs->trans('MahnwesenPrepareNotice').'</span>';
     } elseif ($requiredLevel > 0 && !empty($workflow['required_at']) && ((int) $db->jdate($workflow['required_at'])) > dol_now()) {

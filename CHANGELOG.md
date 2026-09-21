@@ -7,6 +7,19 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-22
+
+A dunning block for customers and invoices.
+
+### Added
+
+- The fields *Do not dun*, *Dunning block until* and *Reason for the dunning
+  block* on customers and invoices, in Dolibarr's own cards. While a block
+  applies, Mahnwesen sends no notice, by hand or automatically; on the
+  customer it covers all their invoices. The dunning tab, the composer and the
+  dry run name the block and its reason, and the dashboard lists blocked cases
+  under *With dunning block*. The day after its last day the block ends (#37).
+
 ## [1.2.3] - 2026-09-21
 
 A dashboard that opens quickly, and texts in your language.

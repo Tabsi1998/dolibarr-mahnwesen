@@ -75,6 +75,10 @@ While paused:
 
 For a dated pause, the daily job may resume the case after the pause date, then re-evaluate the same sequential rule.
 
+## Dunning block
+
+A pause belongs to one case. A dunning block lives in Dolibarr's own fields of the customer (all their invoices) or of one invoice: *Do not dun*, *Dunning block until* (last day, empty = without end) and a reason. While a block applies, no notice is sent by hand or automatically and no dunning PDF is made; the dry run names the block. The day after its last day it no longer applies. A block that cannot be read counts as a block.
+
 ## Invoice UI target
 
 Show both:

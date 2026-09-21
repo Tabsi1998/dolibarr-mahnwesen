@@ -1218,6 +1218,64 @@ def billing_role(stack: Stack) -> str:
     return "the customer's default billing contact is offered when the invoice has none"
 
 
+def dunning_block(stack: Stack) -> str:
+    """A block on the customer or the invoice stops manual and automatic notices until its last day (#37)."""
+    company = invoice(stack, "company_overdue")
+    private = invoice(stack, "private_overdue")
+    browser = stack.browser()
+    fields = stack.sql("SELECT elementtype, name FROM llx_extrafields WHERE name LIKE 'mahnwesen_block%' ORDER BY elementtype, name")
+    expect(len(fields) == 6, f"activation did not add the block fields to customers and invoices: {fields} (#37)")
+    card = html.unescape(page_ok(browser.get(f"/compta/facture/card.php?facid={company['id']}"), "invoice card").text)
+    expect(any(label in card for label in translations("MahnwesenBlock")), "the invoice card lacks the field for the dunning block (#37)")
+    customer = stack.value(f"SELECT fk_soc FROM llx_facture WHERE rowid = {company['id']}")
+
+    def block(table: str, object_id, until: str, reason: str) -> None:
+        stack.sql(f"DELETE FROM llx_{table}_extrafields WHERE fk_object = {object_id}")
+        stack.sql(f"INSERT INTO llx_{table}_extrafields (fk_object, mahnwesen_block, mahnwesen_block_until, mahnwesen_block_reason) "
+                  f"VALUES ({object_id}, 1, {until}, '{reason}')")
+
+    def details() -> dict:
+        result = page_ok(browser.submit(form_with_action(page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard"),
+                                                         "dry_run", "dashboard")), "dry run")
+        found = {}
+        for row in result.text.split('<tr class="oddeven">'):
+            ref = re.search(r"invoice\.php\?id=\d+\">([^<]+)</a>", row)
+            detail = re.search(r'data-detail="(\w+)"', row)
+            if ref and detail:
+                found[html.unescape(ref.group(1))] = detail.group(1)
+        return found
+
+    reason = "Runtime check: Ratenzahlung vereinbart"
+    try:
+        block("societe", customer, "NULL", reason)
+        block("facture", private["id"], f"'{container_date(stack, 0, 'Y-m-d')}'", "Runtime check: Rechnung strittig")
+        found = details()
+        expect(found.get(company["ref"]) == "blocked_customer" and found.get(private["ref"]) == "blocked_invoice",
+               f"the dry run does not name the blocks, it decided {found} (#37)")
+        tab = html.unescape(page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={company['id']}"), "dunning tab").text)
+        expect(reason in tab and any(label in tab for label in translations("MahnwesenBlockOnCustomer")),
+               "the dunning tab does not name the customer's block and its reason (#37)")
+        composer = page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={company['id']}"), "composer")
+        expect(reason in html.unescape(composer.text) and 'id="sendmail"' not in composer.text,
+               "the composer offers sending despite the customer's block (#37)")
+        listed = html.unescape(page_ok(browser.get("/custom/mahnwesen/index.php?search_status=blocked"), "blocked cases").text)
+        expected = {row[0] for row in stack.sql("SELECT f.ref FROM llx_mahnwesen_case c JOIN llx_facture f ON f.rowid = c.fk_facture "
+                                                f"WHERE c.status = 'open' AND (f.fk_soc = {customer} OR f.rowid = {private['id']})")}
+        shown = set(re.findall(r'<tr class="oddeven" data-case="\d+">\s*<td[^>]*><a [^>]*>([^<]+)</a>', listed))
+        expect(shown == expected and reason in listed and "Runtime check: Rechnung strittig" in listed,
+               f"the dashboard lists {shown} as blocked, expected {expected} with their reasons (#37)")
+
+        # The customer's block ended yesterday; the invoice's lasts through today.
+        block("societe", customer, f"'{container_date(stack, -1, 'Y-m-d')}'", reason)
+        found = details()
+        expect(not found.get(company["ref"], "").startswith("blocked") and found.get(private["ref"]) == "blocked_invoice",
+               f"a block applies after its last day or ends before it, the dry run decided {found} (#37)")
+    finally:
+        stack.sql(f"DELETE FROM llx_societe_extrafields WHERE fk_object = {customer}")
+        stack.sql(f"DELETE FROM llx_facture_extrafields WHERE fk_object = {private['id']}")
+    return "customer and invoice blocks named in dry run, tab, composer and list; a block ends after its last day"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1245,6 +1303,7 @@ SCENARIOS = (
     ("broken-invoice", "One broken invoice does not stop automatic dunning", broken_invoice, ("smtp-outage",)),
     ("dry-run", "The dry run decides exactly as the cron", dry_run, ("broken-invoice",)),
     ("billing-role", "The customer's default billing contact as recipient", billing_role, ("dry-run",)),
+    ("dunning-block", "A dunning block stops notices until its last day", dunning_block, ("billing-role",)),
 )
 
 

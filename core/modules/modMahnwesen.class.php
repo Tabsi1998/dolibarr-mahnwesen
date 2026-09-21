@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '1.2.3';
+        $this->version = '1.3.0';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -218,6 +218,26 @@ class modMahnwesen extends DolibarrModules
             $this->error = 'Unable to move the stage settings into the stage table: '.$migration->error;
             dol_syslog(__METHOD__.' '.$this->error, LOG_ERR);
             return -1;
+        }
+
+        // Dolibarr's own fields hold the dunning block of a customer and of an
+        // invoice (#37). Adding a field that exists changes nothing.
+        require_once DOL_DOCUMENT_ROOT.'/core/class/extrafields.class.php';
+        $extrafields = new ExtraFields($this->db);
+        $blockFields = array(
+            array('mahnwesen_block', 'MahnwesenBlock', 'boolean', '', 'MahnwesenBlockHelp'),
+            array('mahnwesen_block_until', 'MahnwesenBlockUntil', 'date', '', 'MahnwesenBlockUntilHelp'),
+            array('mahnwesen_block_reason', 'MahnwesenBlockReason', 'varchar', '255', ''),
+        );
+        foreach (array('societe', 'facture') as $elementtype) {
+            foreach ($blockFields as $position => $field) {
+                $added = $extrafields->addExtraField($field[0], $field[1], $field[2], 1100 + $position, $field[3], $elementtype, 0, 0, '', '', 1, '', '1', $field[4], '', '', 'mahnwesen@mahnwesen', "isModEnabled('mahnwesen')");
+                if ($added <= 0) {
+                    $this->error = 'Unable to add the field '.$field[0].' to '.$elementtype.': '.$extrafields->error;
+                    dol_syslog(__METHOD__.' '.$this->error, LOG_ERR);
+                    return -1;
+                }
+            }
         }
 
         $this->remove($options);

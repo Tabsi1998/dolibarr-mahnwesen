@@ -27,6 +27,10 @@ trait DunningNoticeServiceDelivery
             $this->error = 'Dunning case is closed or paused.';
             return false;
         }
+        if ($this->manager->getDunningBlock((int) $invoice->id) !== null) {
+            $this->error = 'Dunning is blocked on the invoice or its customer (#37).';
+            return false;
+        }
         $evaluation = $this->manager->evaluateInvoice((int) $invoice->id);
         $calculatedLevel = ($evaluation !== false && !empty($evaluation['eligible'])) ? (int) $evaluation['row']['stage'] : 0;
         $requiredLevel = $this->manager->getNextRequiredLevel((int) $case['id'], $calculatedLevel);
