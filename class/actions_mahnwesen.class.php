@@ -93,7 +93,9 @@ class ActionsMahnwesen extends CommonHookActions
         foreach ($tokens as $token => $key) {
             $help['tokens'][] = array($token, $langs->transnoentities($key));
         }
-        $this->resprints = '<script>window.mahnwesenTemplateHelp = '.json_encode($help, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE).';</script>'
+        // Safe inside <script>: no tag or entity can close it.
+        $json = str_replace(array('<', '>', '&'), array('\u003c', '\u003e', '\u0026'), (string) json_encode($help));
+        $this->resprints = '<script>window.mahnwesenTemplateHelp = '.$json.';</script>'
             .'<script src="'.dol_escape_htmltag(dol_buildpath('/mahnwesen/js/mahnwesen-emailtemplates.js', 1)).'"></script>';
         return 0;
     }
@@ -102,7 +104,10 @@ class ActionsMahnwesen extends CommonHookActions
     {
         global $langs, $user;
 
-        if (empty($parameters['currentcontext']) || strpos((string) $parameters['currentcontext'], 'invoicecard') === false) {
+        // Dolibarr calls a module once per hook and page, in the first of the
+        // page's contexts that it registered; with 'main' that is not the card's.
+        $contexts = explode(':', (string) ($parameters['context'] ?? ($parameters['currentcontext'] ?? '')));
+        if (!in_array('invoicecard', $contexts, true)) {
             return 0;
         }
         if (!is_object($object) || empty($object->id) || !isset($object->element) || $object->element !== 'facture') {
