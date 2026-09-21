@@ -478,7 +478,8 @@ def access(stack: Stack) -> str:
 PAYMENT_TEMPLATE_LINE = ("<p>Frist: __MAHNWESEN_PAYMENT_DEADLINE__ (__MAHNWESEN_PAYMENT_DAYS__ Tage), "
                          "naechste Stufe __MAHNWESEN_NEXT_STAGE_DATE__</p>")
 # A long legal footer: the body of the reminder passes the old 60 KB limit (#20).
-LONG_FOOTER = "<p>" + "Rechtlicher Hinweis zur Zahlungserinnerung. " * 1500 + "ENDE-DES-HINWEISES</p>"
+# The database repeats the text; a command line on Windows holds 32 KB only.
+LONG_FOOTER_SQL = "'<p>', REPEAT('Rechtlicher Hinweis zur Zahlungserinnerung. ', 1500), 'ENDE-DES-HINWEISES</p>'"
 
 
 def payment_deadline(stack: Stack) -> str:
@@ -501,7 +502,7 @@ def payment_deadline(stack: Stack) -> str:
     expect("__MAHNWESEN_PAYMENT_DEADLINE__" in variables.text and "__MAHNWESEN_PAYMENT_DAYS__" in variables.text,
            "the variable help of the setup does not list the payment deadline variables")
 
-    stack.sql("UPDATE llx_c_email_templates SET content = CONCAT(content, '" + PAYMENT_TEMPLATE_LINE + LONG_FOOTER + "') "
+    stack.sql("UPDATE llx_c_email_templates SET content = CONCAT(content, '" + PAYMENT_TEMPLATE_LINE + "', " + LONG_FOOTER_SQL + ") "
               "WHERE module = 'mahnwesen' AND type_template = 'mahnwesen_reminder' AND lang = 'de_DE'")
     body = page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={company['id']}"), "composer").form(name="mailform").value("message") or ""
     deadline, after = container_date(stack, 10), container_date(stack, 11)
