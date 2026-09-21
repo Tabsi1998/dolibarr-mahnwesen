@@ -91,14 +91,8 @@ class ActionsMahnwesen extends CommonHookActions
         if (!empty($workflow['actionable']) && $requiredLevel > 0) {
             $stage = $langs->trans($manager->getStageLabelKey($requiredLevel));
             $label = $langs->trans('MahnwesenPrepareStage', $stage);
-            $pdfAction = dol_buildpath('/mahnwesen/invoice.php', 1);
-            $pdfLabel = $langs->trans('MahnwesenGenerateLinkedPdf', $stage);
-            $out = '<a class="butAction" href="'.dol_escape_htmltag($url).'">'.img_picto('', 'email').' '.dol_escape_htmltag($label).'</a>';
-            $out .= '<form method="POST" class="inline-block" action="'.dol_escape_htmltag($pdfAction).'">';
-            $out .= '<input type="hidden" name="token" value="'.newToken().'">';
-            $out .= '<input type="hidden" name="id" value="'.((int) $object->id).'">';
-            $out .= '<input type="hidden" name="action" value="generate_notice_pdf">';
-            $out .= '<button class="butAction" type="submit">'.img_picto('', 'pdf').' '.dol_escape_htmltag($pdfLabel).'</button></form>';
+            // One action on the invoice card; the PDF and the rest are on the dunning tab (#56).
+            $out = dolGetButtonAction($langs->trans('MahnwesenPrepareStageHelp'), img_picto('', 'email').' '.dol_escape_htmltag($label), 'default', $url, 'mahnwesen-prepare');
             // The invoice card does not print the hook manager's output for
             // this hook, so the buttons are printed here, as Dolibarr expects.
             print $out;
