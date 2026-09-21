@@ -274,6 +274,15 @@ class modMahnwesen extends DolibarrModules
      */
     public function remove($options = '')
     {
+        global $conf;
+
+        require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
+
+        // Versions before 1.2.3 loaded the CSS and JS on every page (#27). Dolibarr
+        // only removes the parts the module still declares, so these go by name.
+        foreach (array('MAIN_MODULE_MAHNWESEN_CSS', 'MAIN_MODULE_MAHNWESEN_JS') as $name) {
+            dolibarr_del_const($this->db, $name, $conf->entity);
+        }
         $sql = array();
         return $this->_remove($sql, $options);
     }

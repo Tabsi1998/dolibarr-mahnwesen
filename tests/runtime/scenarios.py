@@ -348,6 +348,8 @@ def upgrade_from(stack: Stack, package: Path) -> str:
            f"the upgrade from {old} did not move the stage settings into the stage table: {rules} (#20)")
     leftovers = stack.sql(f"SELECT name FROM llx_const WHERE {STAGE_CONSTANTS}")
     expect(not leftovers, f"the upgrade from {old} left the old stage constants {leftovers} (#20)")
+    assets = stack.sql("SELECT name FROM llx_const WHERE name IN ('MAIN_MODULE_MAHNWESEN_CSS', 'MAIN_MODULE_MAHNWESEN_JS')")
+    expect(not assets, f"the upgrade from {old} still loads the module's CSS or JS on every page: {assets} (#27)")
     columns = {row[0] for row in stack.sql("SHOW COLUMNS FROM llx_mahnwesen_rule")}
     body = stack.value("SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
                        "AND TABLE_NAME = 'llx_mahnwesen_attempt' AND COLUMN_NAME = 'body_html'")
