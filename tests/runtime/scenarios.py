@@ -499,9 +499,7 @@ def pages(stack: Stack) -> str:
     expect("mahnwesen-emailtemplates.js" in templates.text and "window.mahnwesenTemplateHelp" in templates.text
            and "Aktuelle Mahnstufe" in html.unescape(templates.text),
            "the email template page lacks the translated variable help (#27, #28)")
-    # Dolibarr's own list may show its own PHP notices here; only the assets matter.
-    foreign = browser.get("/societe/list.php")
-    expect(foreign.status == 200, f"the third-party list answered HTTP {foreign.status}")
+    foreign = page_ok(browser.get("/societe/list.php"), "third-party list")
     expect("/mahnwesen/css/" not in foreign.text and "/mahnwesen/js/" not in foreign.text,
            "a Dolibarr page outside the module loads the module's CSS or JS (#27)")
     expect("/mahnwesen/css/mahnwesen.css" in browser.get(paths["dashboard"]).text, "the dashboard lacks the module's CSS")
