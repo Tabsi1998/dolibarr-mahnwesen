@@ -178,6 +178,13 @@ if (!$case) {
     $blockHtml = !empty($workflow['block']) ? $manager->describeBlock($workflow['block']) : '<span class="opacitymedium">'.$langs->trans('None').'</span>';
     $blockHtml .= ' <span class="opacitymedium small">'.$langs->trans('MahnwesenBlockWhere', DOL_URL_ROOT.'/compta/facture/card.php?facid='.$id, DOL_URL_ROOT.'/societe/card.php?socid='.((int) $invoice->socid)).'</span>';
     print '<tr><td>'.$langs->trans('MahnwesenBlocked').'</td><td colspan="3" id="mahnwesen-block">'.$blockHtml.'</td></tr>';
+    // The membership this invoice belongs to, through Dolibarr's own link (#58).
+    $membership = $manager->getMembershipOfInvoice($id);
+    if ($membership && $membership['member'] > 0 && $user->hasRight('adherent', 'lire')) {
+        $memberUrl = DOL_URL_ROOT.'/adherents/card.php?rowid='.((int) $membership['member']);
+        print '<tr><td>'.$langs->trans('MahnwesenMembership').'</td><td colspan="3"><a href="'.dol_escape_htmltag($memberUrl).'">'
+            .dol_escape_htmltag($membership['name'] !== '' ? $membership['name'] : '#'.$membership['member']).'</a></td></tr>';
+    }
     // Which profile holds the stages and fees of this invoice, and why (#32).
     print '<tr><td>'.$langs->trans('MahnwesenProfile').'</td><td colspan="3" id="mahnwesen-profile">'.(!empty($workflow['profile']) ? $manager->describeProfile($workflow['profile']) : '-').'</td></tr>';
     print '</table>';

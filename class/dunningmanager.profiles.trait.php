@@ -14,6 +14,7 @@ trait DunningManagerProfiles
         return array(
             'company_at' => array('label' => 'MahnwesenPresetCompanyAt', 'auto_allowed' => 1, 'final_step' => 'collection', 'customer_type' => 'company'),
             'club' => array('label' => 'MahnwesenPresetClub', 'auto_allowed' => 0, 'final_step' => 'membership_review', 'customer_type' => ''),
+            'membership' => array('label' => 'MahnwesenPresetMembership', 'auto_allowed' => 0, 'final_step' => 'membership_review', 'customer_type' => '', 'membership' => 1),
         );
     }
 
@@ -98,14 +99,16 @@ trait DunningManagerProfiles
         if (!$refresh && is_array($this->profileMatchesCache)) {
             return $this->profileMatchesCache;
         }
-        $matches = array('product_category' => array(), 'customer_category' => array(), 'customer_type' => array());
+        $matches = array('product_category' => array(), 'customer_category' => array(), 'customer_type' => array(), 'membership' => 0);
         $res = $this->db->query('SELECT fk_profile, kind, fk_categorie, customer_type FROM '.MAIN_DB_PREFIX.'mahnwesen_profile_match WHERE entity = '.((int) $conf->entity));
         if (!$res) {
             $this->error = $this->db->lasterror();
             return false;
         }
         while ($o = $this->db->fetch_object($res)) {
-            if ($o->kind === 'customer_type') {
+            if ($o->kind === 'membership') {
+                $matches['membership'] = (int) $o->fk_profile;
+            } elseif ($o->kind === 'customer_type') {
                 $matches['customer_type'][(string) $o->customer_type] = (int) $o->fk_profile;
             } elseif (isset($matches[$o->kind])) {
                 $matches[$o->kind][(int) $o->fk_categorie] = (int) $o->fk_profile;
@@ -124,8 +127,12 @@ trait DunningManagerProfiles
      */
     public function getMatchesOfProfile($profileId)
     {
-        $out = array('product_category' => array(), 'customer_category' => array(), 'customer_type' => '');
+        $out = array('product_category' => array(), 'customer_category' => array(), 'customer_type' => '', 'membership' => 0);
         foreach ((array) $this->getProfileMatches() as $kind => $map) {
+            if ($kind === 'membership') {
+                $out['membership'] = ((int) $map === (int) $profileId) ? 1 : 0;
+                continue;
+            }
             foreach ($map as $key => $owner) {
                 if ((int) $owner !== (int) $profileId) {
                     continue;
@@ -138,6 +145,42 @@ trait DunningManagerProfiles
             }
         }
         return $out;
+    }
+
+    /**
+     * The membership an invoice belongs to, through Dolibarr's own link
+     * between a subscription and the invoice (#58).
+     *
+     * Only that documented link counts. A customer category, a note or the
+     * same email is no proof, so a sale to a member stays an ordinary sale.
+     *
+     * @param int $invoiceId Invoice
+     * @return array{subscription:int,member:int,name:string}|null
+     */
+    public function getMembershipOfInvoice($invoiceId)
+    {
+        $invoiceId = (int) $invoiceId;
+        if (isset($this->membershipCache[$invoiceId])) {
+            return $this->membershipCache[$invoiceId];
+        }
+        $sql = 'SELECT s.rowid as subscription, a.rowid as member, a.firstname, a.lastname, a.societe';
+        $sql .= ' FROM '.MAIN_DB_PREFIX.'element_element as e';
+        $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'subscription as s ON s.rowid = e.fk_source';
+        $sql .= ' LEFT JOIN '.MAIN_DB_PREFIX.'adherent as a ON a.rowid = s.fk_adherent';
+        $sql .= " WHERE e.sourcetype = 'subscription' AND e.targettype = 'facture' AND e.fk_target = ".$invoiceId;
+        $sql .= ' ORDER BY s.rowid ASC'.$this->db->plimit(1);
+        $res = $this->db->query($sql);
+        if (!$res) {
+            // Without the members module the tables can be missing; that is no membership.
+            $this->membershipCache[$invoiceId] = null;
+            return null;
+        }
+        $o = $this->db->fetch_object($res);
+        $this->db->free($res);
+        $membership = $o ? array('subscription' => (int) $o->subscription, 'member' => (int) $o->member,
+            'name' => trim(trim((string) $o->firstname.' '.(string) $o->lastname).' '.(string) $o->societe)) : null;
+        $this->membershipCache[$invoiceId] = $membership;
+        return $membership;
     }
 
     /**
@@ -297,8 +340,17 @@ trait DunningManagerProfiles
                 $found[$choice] = array();
                 $reason = 'invoice_choice';
             }
+            // A membership fee is proven by the link to its subscription (#58).
+            // On a mixed invoice the categories count as well, and the most
+            // careful profile of them all applies.
+            $categories = $this->profilesForCategories($matches['product_category'], $this->getInvoiceProductCategories($invoiceId), 0, $active);
+            if (!$found && !empty($matches['membership']) && isset($active[$matches['membership']]) && $this->getMembershipOfInvoice($invoiceId)) {
+                $found = $categories;
+                $found[$matches['membership']] = array();
+                $reason = 'membership';
+            }
             if (!$found) {
-                $found = $this->profilesForCategories($matches['product_category'], $this->getInvoiceProductCategories($invoiceId), 0, $active);
+                $found = $categories;
                 $reason = 'product_category';
             }
             if (!$found) {
@@ -387,6 +439,7 @@ trait DunningManagerProfiles
             'product_category' => 'MahnwesenProfileReasonProductCategory',
             'customer_category' => 'MahnwesenProfileReasonCustomerCategory',
             'customer_type' => 'MahnwesenProfileReasonCustomerType',
+            'membership' => 'MahnwesenProfileReasonMembership',
             'unreadable' => 'MahnwesenProfileReasonUnreadable',
             'default' => 'MahnwesenProfileReasonDefault',
         );
@@ -470,6 +523,9 @@ trait DunningManagerProfiles
         if ($ok && $settings['customer_type'] !== '' && is_array($matches) && !isset($matches['customer_type'][$settings['customer_type']])) {
             $ok = $this->addProfileMatch($profileId, 'customer_type', 0, $settings['customer_type'], $uid);
         }
+        if ($ok && !empty($settings['membership']) && is_array($matches) && empty($matches['membership'])) {
+            $ok = $this->addProfileMatch($profileId, 'membership', 0, '', $uid);
+        }
         if (!$ok) {
             $this->error = $this->error ?: $this->db->lasterror();
             $this->db->rollback();
@@ -488,7 +544,7 @@ trait DunningManagerProfiles
      *
      * @return bool
      */
-    public function saveProfile($profileId, $label, $active, $autoAllowed, $finalStep, $productCategories, $customerCategories, $customerType, $user, $interestMode = 'none', $interestRate = 0.0)
+    public function saveProfile($profileId, $label, $active, $autoAllowed, $finalStep, $productCategories, $customerCategories, $customerType, $user, $interestMode = 'none', $interestRate = 0.0, $membership = 0)
     {
         global $conf, $langs;
         $profiles = $this->getProfiles(true);
@@ -517,6 +573,9 @@ trait DunningManagerProfiles
             if (in_array($customerType, array('private', 'company'), true)) {
                 $wanted[] = array('customer_type', 0, $customerType);
             }
+            if (!empty($membership)) {
+                $wanted[] = array('membership', 0, '');
+            }
         }
         $matches = $this->getProfileMatches(true);
         if ($matches === false) {
@@ -524,7 +583,11 @@ trait DunningManagerProfiles
         }
         $taken = array();
         foreach ($wanted as $match) {
-            $owner = (int) ($matches[$match[0]][$match[0] === 'customer_type' ? $match[2] : $match[1]] ?? 0);
+            if ($match[0] === 'membership') {
+                $owner = (int) $matches['membership'];
+            } else {
+                $owner = (int) ($matches[$match[0]][$match[0] === 'customer_type' ? $match[2] : $match[1]] ?? 0);
+            }
             if ($owner > 0 && $owner !== $profileId) {
                 $taken[$owner] = isset($profiles[$owner]) ? $profiles[$owner]['label'] : '#'.$owner;
             }
@@ -592,6 +655,7 @@ trait DunningManagerProfiles
     /** Forget what this request read about profiles and stages. */
     public function forgetProfiles()
     {
+        $this->membershipCache = array();
         $this->profilesCache = null;
         $this->profileMatchesCache = null;
         $this->profileResolutionCache = array();

@@ -10,6 +10,7 @@
  *            module, apart from its files
  *   profiles products in categories and invoices for them, for the dunning
  *            profiles (#32)
+ *   member   a member with a subscription whose invoice Dolibarr links to it (#58)
  *
  * Passwords come from the environment only.
  */
@@ -310,4 +311,79 @@ if ($stage === 'profiles') {
     exit(0);
 }
 
-rt_fail('unknown stage "'.$stage.'", use base, enabled, legacy, reset or profiles');
+if ($stage === 'member') {
+    // A member of the club, a subscription, and the invoice Dolibarr links to it (#58).
+    require_once DOL_DOCUMENT_ROOT.'/adherents/class/adherent.class.php';
+    require_once DOL_DOCUMENT_ROOT.'/adherents/class/adherent_type.class.php';
+    require_once DOL_DOCUMENT_ROOT.'/adherents/class/subscription.class.php';
+    $result = activateModule('modAdherent');
+    if (!empty($result['errors'])) {
+        rt_fail('activating modAdherent failed: '.implode(' | ', (array) $result['errors']));
+    }
+    $conf->setValues($db);
+    $admin->loadRights('', 1);
+
+    $customer = new Societe($db);
+    if ($customer->fetch(0, 'Rita Privat') <= 0) {
+        rt_fail('customer Rita Privat: '.$customer->error);
+    }
+    $type = new AdherentType($db);
+    $type->label = 'Runtime Mitglied';
+    $type->subscription = 1;
+    $type->status = 1;
+    if ($type->create($admin) <= 0) {
+        rt_fail('member type: '.$type->error);
+    }
+    $member = new Adherent($db);
+    $member->firstname = 'Rita';
+    $member->lastname = 'Privat';
+    $member->login = 'rt-rita';
+    $member->morphy = 'phy';
+    $member->typeid = (int) $type->id;
+    $member->email = 'rita@privat.test';
+    $member->statut = 1;
+    $member->socid = (int) $customer->id;
+    if ($member->create($admin) <= 0) {
+        rt_fail('member: '.$member->error.' '.implode(' | ', (array) $member->errors));
+    }
+    $member->fetch((int) $member->id);
+    $subscription = new Subscription($db);
+    $subscription->fk_adherent = (int) $member->id;
+    $subscription->fk_type = (int) $type->id;
+    $subscription->dateh = dol_now() - (90 * 86400);
+    $subscription->datef = dol_now() + (275 * 86400);
+    $subscription->amount = 60;
+    $subscription->note_public = 'Runtime';
+    if ($subscription->create($admin) <= 0) {
+        rt_fail('subscription: '.$subscription->error);
+    }
+    // The dues invoice, linked to the subscription the way Dolibarr's member card links it.
+    $invoice = new Facture($db);
+    $invoice->socid = (int) $customer->id;
+    $invoice->type = Facture::TYPE_STANDARD;
+    $invoice->date = dol_now() - (44 * 86400);
+    $invoice->cond_reglement_id = (int) rt_value($db, "SELECT rowid FROM ".MAIN_DB_PREFIX."c_payment_term WHERE code = 'RECEP'");
+    $invoice->linked_objects['subscription'] = (int) $subscription->id;
+    if ($invoice->create($admin) <= 0) {
+        rt_fail('dues invoice: '.$invoice->error.' '.implode(' | ', (array) $invoice->errors));
+    }
+    if ($invoice->addline('Mitgliedsbeitrag 2026 (Beitragslauf)', 60, 1, 0) <= 0) {
+        rt_fail('dues invoice line: '.$invoice->error);
+    }
+    if ($invoice->validate($admin) <= 0) {
+        rt_fail('validate dues invoice: '.$invoice->error);
+    }
+    rt_exec($db, "UPDATE ".MAIN_DB_PREFIX."facture SET date_lim_reglement = '".$db->idate(dol_now() - (30 * 86400))."' WHERE rowid = ".((int) $invoice->id));
+    $invoice->fetch((int) $invoice->id);
+    $outputlangs = new Translate('', $GLOBALS['conf']);
+    $outputlangs->setDefaultLang('de_DE');
+    $invoice->generateDocument('sponge', $outputlangs);
+    print json_encode(array(
+        'member' => (int) $member->id,
+        'subscription' => (int) $subscription->id,
+        'invoice' => array('id' => (int) $invoice->id, 'ref' => (string) $invoice->ref),
+    ), JSON_PRETTY_PRINT)."\n";
+    exit(0);
+}
+
+rt_fail('unknown stage "'.$stage.'", use base, enabled, legacy, reset, profiles or member');

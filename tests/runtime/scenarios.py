@@ -1506,6 +1506,57 @@ def claim_invoice(stack: Stack) -> str:
     return f"fees and interest of {total:.2f} on their own draft invoice, settled once it is paid"
 
 
+def membership(stack: Stack) -> str:
+    """A dues invoice is known by Dolibarr's link to its subscription, a sale to the member is not (#58)."""
+    browser = stack.browser()
+    setup = "/custom/mahnwesen/admin/setup.php"
+    data = stack.php_fixture("member")
+    dues = data["invoice"]
+    merchandise = stack.fixtures["profile_invoices"]["merchandise"]
+
+    presets = page_ok(browser.get(f"{setup}?tab=profiles"), "profiles setup")
+    preset = next((form for form in presets.forms() if form.value("action") == "add_profile_preset" and form.value("preset") == "membership"), None)
+    expect(preset is not None, "the setup does not offer the membership preset (#58)")
+    page_ok(browser.submit(preset), "add the membership preset")
+    profile = stack.sql("SELECT rowid, active, auto_allowed, final_step FROM llx_mahnwesen_profile WHERE code = 'membership'")
+    expect(profile and profile[0][1:] == ["0", "0", "membership_review"], f"the membership preset should come switched off: {profile} (#58)")
+    profile_id = profile[0][0]
+    linked = stack.value(f"SELECT p.code FROM llx_mahnwesen_profile_match m JOIN llx_mahnwesen_profile p ON p.rowid = m.fk_profile WHERE m.kind = 'membership'")
+    expect(linked == "membership", f"the preset is not tied to membership fee invoices: {linked} (#58)")
+
+    # While it is switched off, the dues invoice keeps the ordinary profile.
+    def profile_of(invoice_id: str) -> str:
+        page = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={invoice_id}"), "dunning tab")
+        row = re.search(r'id="mahnwesen-profile">(.*?)</td>', page.text, re.S)
+        expect(row is not None, "the dunning tab names no profile (#32)")
+        return html.unescape(re.sub(r"<[^>]+>", " ", row.group(1)))
+
+    before = profile_of(dues["id"])
+    expect("Mitgliedsbeitrag" not in before, f"a switched-off profile already applies: {before} (#58)")
+    form = page_ok(browser.get(f"{setup}?tab=profiles&profile={profile_id}&edit=1"), "profile form")
+    page_ok(browser.submit(form_with_action(form, "save_profile", "profile form"), {"profile_active": "1"}), "switch the profile on")
+
+    after = profile_of(dues["id"])
+    expect("Mitgliedsbeitrag" in after and any(text in after for text in translations("MahnwesenProfileReasonMembership")),
+           f"the dues invoice does not get the membership profile: {after} (#58)")
+    sale = profile_of(merchandise["id"])
+    expect("Mitgliedsbeitrag" not in sale, f"a sale to the same member got the membership profile: {sale} (#58)")
+    member_tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={dues['id']}"), "dunning tab")
+    expect(f"adherents/card.php?rowid={data['member']}" in member_tab.text,
+           "the dunning tab of a dues invoice does not link to the membership (#58)")
+
+    # A mixed invoice: the dues link and a merchandise line, the most careful profile wins.
+    shop_category = stack.fixtures["profile_ids"]["shop"]
+    mixed = stack.fixtures["profile_invoices"]["mixed"]
+    stack.sql(f"INSERT INTO llx_element_element (fk_source, sourcetype, fk_target, targettype) VALUES "
+              f"({data['subscription']}, 'subscription', {mixed['id']}, 'facture')")
+    both = profile_of(mixed["id"])
+    expect("Mitgliedsbeitrag" in both and any(text in both for text in translations("MahnwesenProfileMostCareful")),
+           f"a mixed invoice does not take the most careful profile: {both} (#58)")
+    expect(stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_profile WHERE rowid = {shop_category}") == "1", "the merchandise profile disappeared")
+    return "dues invoice by its subscription link, sale to the member untouched, mixed invoice most careful"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1537,6 +1588,7 @@ SCENARIOS = (
     ("profiles", "Each kind of claim gets its dunning profile", profiles, ("dunning-block",)),
     ("interest", "Late-payment interest per profile, to the cent", interest, ("profiles",)),
     ("claim-invoice", "Open fees and interest as their own invoice", claim_invoice, ("interest",)),
+    ("membership", "A dues invoice is known by its subscription", membership, ("claim-invoice",)),
 )
 
 

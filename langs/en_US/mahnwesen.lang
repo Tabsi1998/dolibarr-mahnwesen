@@ -488,3 +488,10 @@ MahnwesenFeeStatus_invoiced=on an invoice
 MahnwesenFeeStatus_paid=paid
 MahnwesenFeeStatus_waived=waived
 MahnwesenFeeStatus_superseded=replaced
+
+# Membership fees (#58)
+MahnwesenPresetMembership=Membership fee
+MahnwesenProfileMembership=Membership fee invoices
+MahnwesenProfileMembershipHelp=Applies to invoices Dolibarr links to a membership fee. Only that link counts as proof; a sale to a member stays an ordinary sale. Only one profile can have it.
+MahnwesenProfileReasonMembership=the invoice belongs to a membership fee
+MahnwesenMembership=Membership
