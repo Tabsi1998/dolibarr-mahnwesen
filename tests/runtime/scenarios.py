@@ -332,6 +332,8 @@ def upgrade_from(stack: Stack, package: Path) -> str:
                          "(SELECT COUNT(*) FROM llx_c_email_templates WHERE module = 'mahnwesen')")[0]
     before = state()
     expect(before[0] == "4", f"{old} did not create the 4 cases: {before}")
+    # A version that already knows profiles keeps its own; older fee settings are split up (#32).
+    had_profiles = stack.const("MAHNWESEN_PROFILES_MIGRATED") == "1"
 
     upload(stack, stack.package)
     switch_module(stack, "reset")
@@ -349,13 +351,19 @@ def upgrade_from(stack: Stack, package: Path) -> str:
             "SELECT r.level, r.days_after_due, ROUND(r.fee_amount, 2), r.payment_days FROM llx_mahnwesen_rule r "
             f"JOIN llx_mahnwesen_profile p ON p.rowid = r.fk_profile WHERE p.code = '{code}' AND r.entity = 1 ORDER BY r.level")}
     default, company, private = rules_of("default"), rules_of("company"), rules_of("private")
-    expect(all(rules.get("1", [None] * 3)[2] == "14" and rules.get("2", [None])[0] == "12" for rules in (default, company, private))
-           and [rules.get("3", [None] * 2)[1] for rules in (default, company, private)] == ["0.00", "55.00", "7.00"],
-           f"the upgrade from {old} did not move the stage and fee settings into profiles: "
-           f"default {default}, company {company}, private {private} (#20, #32)")
     types = {row[0]: row[1] for row in stack.sql("SELECT m.customer_type, p.code FROM llx_mahnwesen_profile_match m "
                                                   "JOIN llx_mahnwesen_profile p ON p.rowid = m.fk_profile WHERE m.kind = 'customer_type'")}
-    expect(types == {"company": "company", "private": "private"}, f"the profiles after the upgrade from {old} apply to {types} (#32)")
+    if had_profiles:
+        expect(default.get("1", [None] * 3)[2] == "14" and default.get("2", [None])[0] == "12" and default.get("3", [None] * 2)[1] == "55.00"
+               and not company and not private and not types,
+               f"the upgrade from {old} changed the profiles it already had: default {default}, company {company}, "
+               f"private {private}, customer types {types} (#32)")
+    else:
+        expect(all(rules.get("1", [None] * 3)[2] == "14" and rules.get("2", [None])[0] == "12" for rules in (default, company, private))
+               and [rules.get("3", [None] * 2)[1] for rules in (default, company, private)] == ["0.00", "55.00", "7.00"],
+               f"the upgrade from {old} did not move the stage and fee settings into profiles: "
+               f"default {default}, company {company}, private {private} (#20, #32)")
+        expect(types == {"company": "company", "private": "private"}, f"the profiles after the upgrade from {old} apply to {types} (#32)")
     leftovers = stack.sql(f"SELECT name FROM llx_const WHERE {STAGE_CONSTANTS} OR name LIKE 'MAHNWESEN\\_%\\_FEES\\_ALLOWED'")
     expect(not leftovers, f"the upgrade from {old} left the old stage constants {leftovers} (#20, #32)")
     assets = stack.sql("SELECT name FROM llx_const WHERE name IN ('MAIN_MODULE_MAHNWESEN_CSS', 'MAIN_MODULE_MAHNWESEN_JS')")
