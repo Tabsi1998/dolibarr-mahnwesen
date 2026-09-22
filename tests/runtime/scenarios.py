@@ -1351,7 +1351,10 @@ def profiles(stack: Stack) -> str:
     page_ok(browser.submit(preset), "add the club preset")
     club = stack.sql("SELECT rowid, active, auto_allowed, final_step FROM llx_mahnwesen_profile WHERE code = 'club'")
     expect(club and club[0][1:] == ["0", "0", "membership_review"], f"the club preset should come switched off: {club} (#32)")
-    card = page_ok(browser.get(f"/compta/facture/card.php?facid={made['merchandise']['id']}&action=edit_extras&attribute=mahnwesen_profile"),
+    # Dolibarr 24 asks for the session token on a link with an action.
+    card_url = f"/compta/facture/card.php?facid={made['merchandise']['id']}"
+    token = token_of(page_ok(browser.get(card_url), "invoice card"))
+    card = page_ok(browser.get(f"{card_url}&action=edit_extras&attribute=mahnwesen_profile&token={token}"),
                    "invoice card, dunning profile field")
     options = set(re.findall(r'<option value="(\d+)"', card.text.split('name="options_mahnwesen_profile"', 1)[-1].split("</select>", 1)[0]))
     expect({firms, dues, shop, default} <= options and club[0][0] not in options,
