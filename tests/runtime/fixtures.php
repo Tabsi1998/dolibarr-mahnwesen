@@ -429,6 +429,20 @@ if ($stage === 'unpay') {
     if ($payment->fetch(isset($argv[2]) ? (int) $argv[2] : 0) <= 0) {
         rt_fail('payment not found');
     }
+    // Dolibarr refuses to remove a payment from a closed invoice, so the
+    // invoice is opened again first, exactly as its page does.
+    $payment->fetchObjectLinked(null, 'facture');
+    $invoices = array();
+    $res = $db->query('SELECT fk_facture FROM '.MAIN_DB_PREFIX.'paiement_facture WHERE fk_paiement = '.((int) $payment->id));
+    while ($res && ($row = $db->fetch_object($res))) {
+        $invoices[] = (int) $row->fk_facture;
+    }
+    foreach ($invoices as $invoiceId) {
+        $invoice = new Facture($db);
+        if ($invoice->fetch($invoiceId) > 0 && (int) $invoice->paye === 1 && $invoice->setUnpaid($admin) <= 0) {
+            rt_fail('reopen invoice: '.$invoice->error);
+        }
+    }
     if ($payment->delete($admin) <= 0) {
         rt_fail('cancel payment: '.$payment->error.' '.implode(' | ', (array) $payment->errors));
     }
