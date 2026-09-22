@@ -1514,6 +1514,8 @@ def membership(stack: Stack) -> str:
     dues = data["invoice"]
     merchandise = stack.fixtures["profile_invoices"]["merchandise"]
 
+    dashboard = page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard")
+    page_ok(browser.submit(form_with_action(dashboard, "sync_cases", "dashboard")), "synchronise")
     presets = page_ok(browser.get(f"{setup}?tab=profiles"), "profiles setup")
     preset = next((form for form in presets.forms() if form.value("action") == "add_profile_preset" and form.value("preset") == "membership"), None)
     expect(preset is not None, "the setup does not offer the membership preset (#58)")

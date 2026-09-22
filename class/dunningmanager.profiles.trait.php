@@ -91,7 +91,7 @@ trait DunningManagerProfiles
      * Every category and customer type that leads to a profile.
      *
      * @param bool $refresh Read again
-     * @return array{product_category:array<int,int>,customer_category:array<int,int>,customer_type:array<string,int>}|false
+     * @return array{product_category:array<int,int>,customer_category:array<int,int>,customer_type:array<string,int>,membership:int}|false
      */
     public function getProfileMatches($refresh = false)
     {
