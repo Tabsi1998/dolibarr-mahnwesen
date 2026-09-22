@@ -22,10 +22,10 @@ trait DunningNoticeServiceTemplates
                 4 => '3. Mahnung zur Rechnung {INVOICE_REF}',
             );
             $bodies = array(
-                1 => '<p>Sehr geehrte Damen und Herren,</p><p>bei unserer Prüfung haben wir festgestellt, dass die Rechnung <strong>{INVOICE_REF}</strong> vom {INVOICE_DATE} mit Fälligkeit {DUE_DATE} noch einen offenen Betrag von <strong>{OPEN_AMOUNT}</strong> aufweist.</p><p>Bitte prüfen Sie den Vorgang und überweisen Sie den offenen Betrag, sofern die Zahlung nicht bereits erfolgt ist. {INTEREST_PARAGRAPH}</p><p>Mit freundlichen Grüßen<br>{COMPANY_NAME}</p>',
-                2 => '<p>Sehr geehrte Damen und Herren,</p><p>für die Rechnung <strong>{INVOICE_REF}</strong> konnten wir bislang keinen vollständigen Zahlungseingang feststellen. Der offene Rechnungsbetrag beträgt <strong>{OPEN_AMOUNT}</strong>; die Rechnung war am {DUE_DATE} fällig.</p><p>{FEE_PARAGRAPH} {INTEREST_PARAGRAPH}</p><p>Bitte begleichen Sie den Gesamtbetrag von <strong>{DUNNING_TOTAL}</strong> zeitnah. Sollte die Zahlung bereits erfolgt sein, betrachten Sie dieses Schreiben bitte als gegenstandslos.</p><p>Mit freundlichen Grüßen<br>{COMPANY_NAME}</p>',
-                3 => '<p>Sehr geehrte Damen und Herren,</p><p>trotz unserer bisherigen Erinnerung weist die Rechnung <strong>{INVOICE_REF}</strong> weiterhin einen offenen Rechnungsbetrag von <strong>{OPEN_AMOUNT}</strong> auf. Die Fälligkeit war am {DUE_DATE}.</p><p>{FEE_PARAGRAPH} {INTEREST_PARAGRAPH}</p><p>Bitte begleichen Sie den Gesamtbetrag von <strong>{DUNNING_TOTAL}</strong> ohne weitere Verzögerung.</p><p>Mit freundlichen Grüßen<br>{COMPANY_NAME}</p>',
-                4 => '<p>Sehr geehrte Damen und Herren,</p><p>dies ist unsere 3. Mahnung zur Rechnung <strong>{INVOICE_REF}</strong>. Der offene Rechnungsbetrag von <strong>{OPEN_AMOUNT}</strong> ist seit dem {DUE_DATE} fällig.</p><p>{FEE_PARAGRAPH} {INTEREST_PARAGRAPH}</p><p>Bitte veranlassen Sie die Zahlung des Gesamtbetrags von <strong>{DUNNING_TOTAL}</strong> umgehend oder setzen Sie sich zur Klärung mit uns in Verbindung.</p><p>Mit freundlichen Grüßen<br>{COMPANY_NAME}</p>',
+                1 => '<p>Sehr geehrte Damen und Herren,</p><p>bei unserer Prüfung haben wir festgestellt, dass die Rechnung <strong>{INVOICE_REF}</strong> vom {INVOICE_DATE} mit Fälligkeit {DUE_DATE} noch einen offenen Betrag von <strong>{OPEN_AMOUNT}</strong> aufweist.</p><p>Bitte prüfen Sie den Vorgang und überweisen Sie den offenen Betrag, sofern die Zahlung nicht bereits erfolgt ist. {INTEREST_PARAGRAPH}</p><p>{PAYMENT_PARAGRAPH}</p><p>Mit freundlichen Grüßen<br>{COMPANY_NAME}</p>',
+                2 => '<p>Sehr geehrte Damen und Herren,</p><p>für die Rechnung <strong>{INVOICE_REF}</strong> konnten wir bislang keinen vollständigen Zahlungseingang feststellen. Der offene Rechnungsbetrag beträgt <strong>{OPEN_AMOUNT}</strong>; die Rechnung war am {DUE_DATE} fällig.</p><p>{FEE_PARAGRAPH} {INTEREST_PARAGRAPH}</p><p>{PAYMENT_PARAGRAPH}</p><p>Bitte begleichen Sie den Gesamtbetrag von <strong>{DUNNING_TOTAL}</strong> zeitnah. Sollte die Zahlung bereits erfolgt sein, betrachten Sie dieses Schreiben bitte als gegenstandslos.</p><p>Mit freundlichen Grüßen<br>{COMPANY_NAME}</p>',
+                3 => '<p>Sehr geehrte Damen und Herren,</p><p>trotz unserer bisherigen Erinnerung weist die Rechnung <strong>{INVOICE_REF}</strong> weiterhin einen offenen Rechnungsbetrag von <strong>{OPEN_AMOUNT}</strong> auf. Die Fälligkeit war am {DUE_DATE}.</p><p>{FEE_PARAGRAPH} {INTEREST_PARAGRAPH}</p><p>{PAYMENT_PARAGRAPH}</p><p>Bitte begleichen Sie den Gesamtbetrag von <strong>{DUNNING_TOTAL}</strong> ohne weitere Verzögerung.</p><p>Mit freundlichen Grüßen<br>{COMPANY_NAME}</p>',
+                4 => '<p>Sehr geehrte Damen und Herren,</p><p>dies ist unsere 3. Mahnung zur Rechnung <strong>{INVOICE_REF}</strong>. Der offene Rechnungsbetrag von <strong>{OPEN_AMOUNT}</strong> ist seit dem {DUE_DATE} fällig.</p><p>{FEE_PARAGRAPH} {INTEREST_PARAGRAPH}</p><p>{PAYMENT_PARAGRAPH}</p><p>Bitte veranlassen Sie die Zahlung des Gesamtbetrags von <strong>{DUNNING_TOTAL}</strong> umgehend oder setzen Sie sich zur Klärung mit uns in Verbindung.</p><p>Mit freundlichen Grüßen<br>{COMPANY_NAME}</p>',
             );
         } else {
             $subjects = array(
@@ -35,10 +35,10 @@ trait DunningNoticeServiceTemplates
                 4 => 'Third reminder for invoice {INVOICE_REF}',
             );
             $bodies = array(
-                1 => '<p>Dear Sir or Madam,</p><p>our records show that invoice <strong>{INVOICE_REF}</strong> dated {INVOICE_DATE}, due on {DUE_DATE}, still has an outstanding balance of <strong>{OPEN_AMOUNT}</strong>.</p><p>Please check the matter and arrange payment if it has not already been made. {INTEREST_PARAGRAPH}</p><p>Kind regards<br>{COMPANY_NAME}</p>',
-                2 => '<p>Dear Sir or Madam,</p><p>we have not yet received full payment for invoice <strong>{INVOICE_REF}</strong>. The outstanding invoice amount is <strong>{OPEN_AMOUNT}</strong>; it was due on {DUE_DATE}.</p><p>{FEE_PARAGRAPH} {INTEREST_PARAGRAPH}</p><p>Please arrange payment of the total amount of <strong>{DUNNING_TOTAL}</strong> promptly. If payment has already been made, please disregard this reminder.</p><p>Kind regards<br>{COMPANY_NAME}</p>',
-                3 => '<p>Dear Sir or Madam,</p><p>despite our previous reminder, invoice <strong>{INVOICE_REF}</strong> still shows an outstanding invoice amount of <strong>{OPEN_AMOUNT}</strong>. It has been overdue since {DUE_DATE}.</p><p>{FEE_PARAGRAPH} {INTEREST_PARAGRAPH}</p><p>Please settle the total amount of <strong>{DUNNING_TOTAL}</strong> without further delay.</p><p>Kind regards<br>{COMPANY_NAME}</p>',
-                4 => '<p>Dear Sir or Madam,</p><p>this is our third reminder regarding invoice <strong>{INVOICE_REF}</strong>. The outstanding invoice amount of <strong>{OPEN_AMOUNT}</strong> has been overdue since {DUE_DATE}.</p><p>{FEE_PARAGRAPH} {INTEREST_PARAGRAPH}</p><p>Please arrange payment of the total amount of <strong>{DUNNING_TOTAL}</strong> immediately or contact us to clarify the matter.</p><p>Kind regards<br>{COMPANY_NAME}</p>',
+                1 => '<p>Dear Sir or Madam,</p><p>our records show that invoice <strong>{INVOICE_REF}</strong> dated {INVOICE_DATE}, due on {DUE_DATE}, still has an outstanding balance of <strong>{OPEN_AMOUNT}</strong>.</p><p>Please check the matter and arrange payment if it has not already been made. {INTEREST_PARAGRAPH}</p><p>{PAYMENT_PARAGRAPH}</p><p>Kind regards<br>{COMPANY_NAME}</p>',
+                2 => '<p>Dear Sir or Madam,</p><p>we have not yet received full payment for invoice <strong>{INVOICE_REF}</strong>. The outstanding invoice amount is <strong>{OPEN_AMOUNT}</strong>; it was due on {DUE_DATE}.</p><p>{FEE_PARAGRAPH} {INTEREST_PARAGRAPH}</p><p>{PAYMENT_PARAGRAPH}</p><p>Please arrange payment of the total amount of <strong>{DUNNING_TOTAL}</strong> promptly. If payment has already been made, please disregard this reminder.</p><p>Kind regards<br>{COMPANY_NAME}</p>',
+                3 => '<p>Dear Sir or Madam,</p><p>despite our previous reminder, invoice <strong>{INVOICE_REF}</strong> still shows an outstanding invoice amount of <strong>{OPEN_AMOUNT}</strong>. It has been overdue since {DUE_DATE}.</p><p>{FEE_PARAGRAPH} {INTEREST_PARAGRAPH}</p><p>{PAYMENT_PARAGRAPH}</p><p>Please settle the total amount of <strong>{DUNNING_TOTAL}</strong> without further delay.</p><p>Kind regards<br>{COMPANY_NAME}</p>',
+                4 => '<p>Dear Sir or Madam,</p><p>this is our third reminder regarding invoice <strong>{INVOICE_REF}</strong>. The outstanding invoice amount of <strong>{OPEN_AMOUNT}</strong> has been overdue since {DUE_DATE}.</p><p>{FEE_PARAGRAPH} {INTEREST_PARAGRAPH}</p><p>{PAYMENT_PARAGRAPH}</p><p>Please arrange payment of the total amount of <strong>{DUNNING_TOTAL}</strong> immediately or contact us to clarify the matter.</p><p>Kind regards<br>{COMPANY_NAME}</p>',
             );
         }
 
@@ -438,6 +438,11 @@ trait DunningNoticeServiceTemplates
             $feeParagraph = $outputlangs->trans('MahnwesenFeeParagraph', $feeAmount);
         }
         $interestParagraph = $interestLine !== '' ? $outputlangs->trans('MahnwesenInterestParagraph', $interestLine) : '';
+        // A way to pay online, only when Dolibarr offers one, and only for what it covers (#35).
+        $paymentUrl = $this->manager->getOnlinePaymentLink($invoice);
+        $paymentParagraph = $paymentUrl !== ''
+            ? $outputlangs->trans('MahnwesenPaymentLinkParagraph', $paymentUrl).' '.$this->manager->describeInvoicePaymentScope($breakdown, $outputlangs)
+            : '';
         $formmail = new FormMail($this->db);
         $formmail->setSubstitFromObject($invoice, $outputlangs);
         $custom = array(
@@ -446,7 +451,9 @@ trait DunningNoticeServiceTemplates
             '__MAHNWESEN_FEE_PARAGRAPH__' => $feeParagraph, '__MAHNWESEN_PAYMENT_DEADLINE__' => $paymentDeadline,
             '__MAHNWESEN_PAYMENT_DAYS__' => $paymentDays, '__MAHNWESEN_INTEREST__' => $interestAmount,
             '__MAHNWESEN_INTEREST_PARAGRAPH__' => $interestParagraph, '__MAHNWESEN_INTEREST_DAYS__' => (string) (int) $breakdown['interest_details']['days'],
-            '{INTEREST}' => $interestAmount, '{INTEREST_PARAGRAPH}' => $interestParagraph, '{INVOICE_REF}' => (string) $invoice->ref,
+            '{INTEREST}' => $interestAmount, '{INTEREST_PARAGRAPH}' => $interestParagraph,
+            '__MAHNWESEN_PAYMENT_URL__' => $paymentUrl, '__MAHNWESEN_PAYMENT_PARAGRAPH__' => $paymentParagraph,
+            '{PAYMENT_URL}' => $paymentUrl, '{PAYMENT_PARAGRAPH}' => $paymentParagraph, '{INVOICE_REF}' => (string) $invoice->ref,
             '{CUSTOMER_NAME}' => !empty($invoice->thirdparty) ? (string) $invoice->thirdparty->name : '',
             '{INVOICE_DATE}' => dol_print_date($invoice->date, 'day', 'tzserver', $outputlangs), '{DUE_DATE}' => dol_print_date($invoice->date_lim_reglement, 'day', 'tzserver', $outputlangs),
             '{OPEN_AMOUNT}' => $openAmount, '{DUNNING_FEE}' => $feeAmount, '{DUNNING_TOTAL}' => $totalAmount, '{CUSTOMER_CLASS}' => $classLabel,

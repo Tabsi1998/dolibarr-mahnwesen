@@ -18,6 +18,8 @@ Mahnwesen templates can use normal Dolibarr email substitutions plus module-spec
 | `__MAHNWESEN_INTEREST__` | late-payment interest as an amount, 0 without an interest rule |
 | `__MAHNWESEN_INTEREST_PARAGRAPH__` | a full sentence about the interest; empty without interest |
 | `__MAHNWESEN_INTEREST_DAYS__` | number of days interest is counted for |
+| `__MAHNWESEN_PAYMENT_URL__` | Dolibarr's online payment link for the invoice; empty when no provider is switched on |
+| `__MAHNWESEN_PAYMENT_PARAGRAPH__` | a full sentence with that link, saying which amount it covers; empty without a link |
 
 The payment period is set per stage under *Setup > Stages & fees* (0 = none, the default). The dunning PDF shows the same deadline below the total, the history of a sent notice records it, and the next stage becomes due no earlier than the day after it. `__MAHNWESEN_NEXT_STAGE_DATE__` takes that into account.
 

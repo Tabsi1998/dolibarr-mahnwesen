@@ -12,6 +12,7 @@
  *            profiles (#32)
  *   member   a member with a subscription whose invoice Dolibarr links to it (#58)
  *   payment  one overdue invoice of 40 for the payment checks (#36)
+ *   bank     a bank account with IBAN and BIC, for the QR code on the letter (#35)
  *
  * Passwords come from the environment only.
  */
@@ -384,6 +385,29 @@ if ($stage === 'member') {
         'subscription' => (int) $subscription->id,
         'invoice' => array('id' => (int) $invoice->id, 'ref' => (string) $invoice->ref),
     ), JSON_PRETTY_PRINT)."\n";
+    exit(0);
+}
+
+if ($stage === 'bank') {
+    // A bank account with IBAN and BIC; Dolibarr builds its EPC QR code from it (#35).
+    require_once DOL_DOCUMENT_ROOT.'/compta/bank/class/account.class.php';
+    $account = new Account($db);
+    $account->ref = 'RT-BANK';
+    $account->label = 'Runtime Vereinskonto';
+    $account->courant = Account::TYPE_CURRENT;
+    $account->type = Account::TYPE_CURRENT;
+    $account->country_id = (int) rt_value($db, "SELECT rowid FROM ".MAIN_DB_PREFIX."c_country WHERE code = 'AT'");
+    $account->iban = 'AT611904300234573201';
+    $account->bic = 'BKAUATWW';
+    $account->owner_name = 'Runtime Verein';
+    $account->currency_code = 'EUR';
+    $account->status = 1;
+    $account->clos = 0;
+    if ($account->create($admin) <= 0) {
+        rt_fail('bank account: '.$account->error.' '.implode(' | ', (array) $account->errors));
+    }
+    rt_const($db, 'FACTURE_RIB_NUMBER', (string) $account->id);
+    print json_encode(array('account' => (int) $account->id))."\n";
     exit(0);
 }
 

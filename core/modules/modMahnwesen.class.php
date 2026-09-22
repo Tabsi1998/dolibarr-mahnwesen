@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '1.4.0';
+        $this->version = '1.4.1';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -92,6 +92,7 @@ class modMahnwesen extends DolibarrModules
             24 => array('MAHNWESEN_MAX_EXTRA_ATTACHMENTS', 'chaine', '5', 'Maximum manually uploaded email attachments', 0, 'current', 0),
             25 => array('MAHNWESEN_MAX_EXTRA_ATTACHMENT_MB', 'chaine', '10', 'Maximum size of one manually uploaded attachment', 0, 'current', 0),
             30 => array('MAHNWESEN_RUN_NOTIFY_EMAIL', 'chaine', '', 'Address told about automatic runs that fail or end with warnings', 0, 'current', 0),
+            31 => array('MAHNWESEN_LETTER_QR', 'chaine', '1', 'Print the EPC QR code of the invoice on the dunning letter', 0, 'current', 0),
         );
 
         // Daily worker. Case synchronization and timed pause release are safe

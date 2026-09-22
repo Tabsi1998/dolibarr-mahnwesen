@@ -496,3 +496,13 @@ MahnwesenProfileMembership=Beitragsrechnungen
 MahnwesenProfileMembershipHelp=Gilt für Rechnungen, die in Dolibarr mit einem Mitgliedsbeitrag verknüpft sind. Nur diese Verknüpfung zählt als Nachweis; ein Verkauf an ein Mitglied bleibt ein gewöhnlicher Verkauf. Nur ein Profil kann das haben.
 MahnwesenProfileReasonMembership=Rechnung gehört zu einem Mitgliedsbeitrag
 MahnwesenMembership=Mitgliedschaft
+
+# Zahlungswege (#35)
+MahnwesenLetterQr=QR-Code fürs Bezahlen im Mahnschreiben
+MahnwesenLetterQrHelp=Druckt Dolibarrs QR-Code (EPC) für eine Überweisung des Rechnungsbetrags auf das Mahnschreiben. Nur bei Euro und hinterlegter Bankverbindung mit IBAN und BIC.
+MahnwesenPaymentQrTitle=Mit dem QR-Code bezahlen
+MahnwesenPaymentCoversAll=Der Code deckt den offenen Gesamtbetrag von %s.
+MahnwesenPaymentCoversInvoiceOnly=Der Code deckt nur den Rechnungsbetrag von %s. Mahnspesen und Zinsen von %s sind nicht enthalten und bleiben offen.
+MahnwesenPaymentLinkParagraph=Sie können auch online bezahlen: %s
+MahnwesenTokenPaymentUrlDesc=Link zur Onlinezahlung, leer wenn Dolibarr keine anbietet
+MahnwesenTokenPaymentParagraphDesc=Ganzer Satz zur Onlinezahlung samt Hinweis, welchen Betrag sie abdeckt

@@ -1597,6 +1597,49 @@ def payment_trigger(stack: Stack) -> str:
     return "payment, full payment and cancellation reach the case at once, without the daily run"
 
 
+def payment_ways(stack: Stack) -> str:
+    """The letter carries the QR code for the invoice amount and says what it covers (#35)."""
+    browser = stack.browser()
+    company = invoice(stack, "company_overdue")
+    stack.php_fixture("bank")
+    contact = str(stack.fixtures["contacts"]["billing"])
+
+    def letter() -> bytes:
+        composer = page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={company['id']}"), "composer")
+        shown = page_ok(browser.submit(composer.form(name="mailform"),
+                                       {"action": "generate_preview", "receiver[]": contact}), "generate preview")
+        section = shown.text.find('class="mahnwesen-document-preview"')
+        match = re.search(r'<iframe[^>]+src="([^"#]+)', shown.text[section:]) if section >= 0 else None
+        expect(match is not None, "the composer shows no preview of the letter (#35)")
+        pdf = browser.get(html.unescape(match.group(1)))
+        expect(pdf.body.startswith(b"%PDF"), "the preview is no PDF (#35)")
+        return pdf.body
+
+    with_qr = letter()
+    text = pdf_text(with_qr)
+    title = translations("MahnwesenPaymentQrTitle")
+    # This case carries a fee, so the code must say that it covers the invoice amount only.
+    only = [line.split("%s")[0].strip() for line in translations("MahnwesenPaymentCoversInvoiceOnly")]
+    expect(any(label in text for label in title) and any(part and part in text for part in only),
+           f"the letter does not name the QR code and what it covers: {text[:300]!r} (#35)")
+    expect(b"/Image" in with_qr or b"/XObject" in with_qr, "the letter carries no QR code image (#35)")
+
+    set_const(stack, "MAHNWESEN_LETTER_QR", "0")
+    try:
+        without = pdf_text(letter())
+        expect(not any(label in without for label in title), "the letter still shows the QR code although it is switched off (#35)")
+    finally:
+        set_const(stack, "MAHNWESEN_LETTER_QR", "1")
+
+    # Without an online payment provider the email says nothing about paying online.
+    composer = page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={company['id']}"), "composer")
+    body = html.unescape(composer.text)
+    link = [line.split("%s")[0].strip() for line in translations("MahnwesenPaymentLinkParagraph")]
+    expect(not any(part and part in body for part in link),
+           "the email offers online payment although no provider is switched on (#35)")
+    return "QR code for the invoice amount with its scope named, switchable, and no invented online payment"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1630,6 +1673,7 @@ SCENARIOS = (
     ("claim-invoice", "Open fees and interest as their own invoice", claim_invoice, ("interest",)),
     ("membership", "A dues invoice is known by its subscription", membership, ("claim-invoice",)),
     ("payment-trigger", "A payment reaches the case at once", payment_trigger, ("synchronise",)),
+    ("payment-ways", "The letter offers a way to pay", payment_ways, ("interest",)),
 )
 
 
