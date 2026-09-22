@@ -340,7 +340,7 @@ if ($tab === 'profiles') {
             print '<tr class="oddeven" data-profile="'.dol_escape_htmltag($profile['code']).'">';
             print '<td><a href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?tab=profiles&profile='.$id.'&edit=1').'">'.dol_escape_htmltag($profile['label']).'</a></td>';
             print '<td>'.mw4_profile_scope($manager, $profile, $langs).'</td>';
-            print '<td>'.yesno($profile['auto_allowed'], 1).'</td>';
+            print '<td>'.yn($profile['auto_allowed']).'</td>';
             print '<td>'.$langs->trans(isset($steps[$profile['final_step']]) ? $steps[$profile['final_step']] : 'MahnwesenFinalStepNone').'</td>';
             print '<td>'.(!empty($profile['active']) ? '<span class="badge badge-status4">'.$langs->trans('Enabled').'</span>' : '<span class="badge badge-status8">'.$langs->trans('Disabled').'</span>').'</td>';
             print '<td class="right nowraponall"><a class="editfielda marginrightonly" href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?tab=profiles&profile='.$id.'&edit=1').'">'.img_edit().'</a>';
