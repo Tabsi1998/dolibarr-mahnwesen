@@ -649,12 +649,14 @@ def manual_send(stack: Stack) -> str:
     stored = int(stack.value(f"SELECT LENGTH(body_html) FROM llx_mahnwesen_attempt WHERE rowid = {attempt_id}") or 0)
     expect(stored > 60000 and "ENDE-DES-HINWEISES" in sent_html,
            f"a reminder of {stored} bytes was not stored and sent in full (#20)")
-    deadline = container_date(stack, 10)
+    sent_day = datetime.date.fromisoformat(stack.value(f"SELECT DATE(reserved_at) FROM llx_mahnwesen_attempt WHERE rowid = {attempt_id}"))
+    deadline_day = sent_day + datetime.timedelta(days=10)
+    deadline = deadline_day.strftime("%d.%m.%Y")
     expect(f"Frist: {deadline} (10 Tage)" in sent_html,
            f"the sent email does not name the payment deadline {deadline} (#64)")
     recorded_text = stack.value("SELECT message FROM llx_mahnwesen_history WHERE action = 'notice_sent' "
                                 f"AND level = 1 AND fk_facture = {company['id']}") or ""
-    expect(f"Payment deadline: {container_date(stack, 10, 'Y-m-d')}" in recorded_text,
+    expect(f"Payment deadline: {deadline_day.isoformat()}" in recorded_text,
            f"the history of the sent reminder does not record its payment deadline: {recorded_text!r} (#64)")
     letter = stack.value(f"SELECT rowid FROM llx_mahnwesen_attempt_file WHERE fk_attempt = {attempt_id} "
                          f"AND display_name = '{company['ref']}_Zahlungserinnerung.pdf'")

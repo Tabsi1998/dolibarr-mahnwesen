@@ -403,6 +403,8 @@ if ($stage === 'bank') {
     $account->currency_code = 'EUR';
     $account->status = 1;
     $account->clos = 0;
+    $account->date_solde = dol_now();
+    $account->solde = 0;
     if ($account->create($admin) <= 0) {
         rt_fail('bank account: '.$account->error.' '.implode(' | ', (array) $account->errors));
     }
