@@ -409,6 +409,8 @@ if ($stage === 'bank') {
         rt_fail('bank account: '.$account->error.' '.implode(' | ', (array) $account->errors));
     }
     rt_const($db, 'FACTURE_RIB_NUMBER', (string) $account->id);
+    // The open invoices name the account, as invoices of a club do.
+    rt_exec($db, "UPDATE ".MAIN_DB_PREFIX."facture SET fk_account = ".((int) $account->id)." WHERE fk_statut = 1");
     print json_encode(array('account' => (int) $account->id))."\n";
     exit(0);
 }

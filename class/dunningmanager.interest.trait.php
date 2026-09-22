@@ -187,10 +187,30 @@ trait DunningManagerInterest
         $payload = (string) $invoice->buildEPCQrCodeString();
         $lines = explode("\n", $payload);
         // Without a BIC or an IBAN the code cannot be paid; Dolibarr leaves them empty then.
-        if (count($lines) < 7 || trim($lines[4]) === '' || trim($lines[6]) === '') {
+        if (count($lines) < 8 || trim($lines[4]) === '' || trim($lines[6]) === '') {
             return '';
         }
         return $payload;
+    }
+
+    /**
+     * The amount an EPC QR code asks for, -1 when it names none (#35).
+     *
+     * Dolibarr builds the code, and older versions put the whole invoice amount
+     * into it instead of what is still open. The letter only shows a code whose
+     * amount is the one it names, so the text never promises something else.
+     *
+     * @param string $payload From getInvoiceQrPayload()
+     * @return float
+     */
+    public function getQrAmount($payload)
+    {
+        $lines = explode("\n", (string) $payload);
+        if (count($lines) < 8 || stripos($lines[7], 'EUR') !== 0) {
+            return -1.0;
+        }
+        $amount = trim(substr($lines[7], 3));
+        return is_numeric($amount) ? (float) $amount : -1.0;
     }
 
     /**

@@ -155,6 +155,10 @@ trait DunningNoticeServicePdf
             // A way to pay: Dolibarr's own EPC QR code for the invoice amount,
             // with a line that says what it covers (#35).
             $qrPayload = $this->manager->getInvoiceQrPayload($invoice);
+            // Only a code that asks for exactly the amount the letter names.
+            if ($qrPayload !== '' && abs($this->manager->getQrAmount($qrPayload) - (float) $breakdown['invoice']) > 0.005) {
+                $qrPayload = '';
+            }
             if ($qrPayload !== '') {
                 $y += $rowH;
                 $pdf->SetFont('', '', $defaultFontSize - 1);
