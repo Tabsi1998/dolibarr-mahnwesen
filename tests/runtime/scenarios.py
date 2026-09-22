@@ -1605,9 +1605,10 @@ def payment_trigger(stack: Stack) -> str:
 def payment_ways(stack: Stack) -> str:
     """The letter carries the QR code for the invoice amount and says what it covers (#35)."""
     browser = stack.browser()
-    stack.php_fixture("bank")
-    # A fresh overdue invoice of the company, so a notice is actually due.
+    # A fresh overdue invoice of the company, so a notice is actually due; the
+    # bank account comes after it, so the invoice names it as Dolibarr 21 needs.
     company = stack.php_fixture("payment")["invoice"]
+    stack.php_fixture("bank")
     dashboard = page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard")
     page_ok(browser.submit(form_with_action(dashboard, "sync_cases", "dashboard")), "synchronise")
     contact = str(stack.fixtures["contacts"]["billing"])
