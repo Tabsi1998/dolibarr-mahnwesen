@@ -361,7 +361,8 @@ def upgrade_from(stack: Stack, package: Path) -> str:
         expect(False, f"the upgrade from {old} did not add the settings {missing}; the settings table holds {rows}")
     page_ok(stack.browser().get("/custom/mahnwesen/index.php"), f"dashboard after the upgrade from {old}")
     stack.php_fixture("reset")
-    expect(stack.const("MAIN_MODULE_MAHNWESEN") is None and not stack.sql("SHOW TABLES LIKE 'llx_mahnwesen_%'"),
+    expect(stack.const("MAIN_MODULE_MAHNWESEN") is None and not stack.sql("SHOW TABLES LIKE 'llx_mahnwesen_%'")
+           and not stack.sql("SELECT name FROM llx_extrafields WHERE name LIKE 'mahnwesen%'"),
            f"the reset after the upgrade from {old} left module state behind")
     return old
 
