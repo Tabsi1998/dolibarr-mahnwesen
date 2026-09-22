@@ -419,7 +419,8 @@ if ($stage === 'payment') {
     if ($customer->fetch(0, 'Runtime GmbH') <= 0) {
         rt_fail('customer Runtime GmbH: '.$customer->error);
     }
-    print json_encode(array('invoice' => rt_invoice($db, $admin, $customer, 40, 18, 0, array(array('Runtime-Zahlungsfall', 40, 0)))), JSON_PRETTY_PRINT)."\n";
+    $contact = (int) rt_value($db, "SELECT rowid FROM ".MAIN_DB_PREFIX."socpeople WHERE email = 'berta.billing@runtime-gmbh.test'");
+    print json_encode(array('invoice' => rt_invoice($db, $admin, $customer, 40, 18, $contact, array(array('Runtime-Zahlungsfall', 40, 0)))), JSON_PRETTY_PRINT)."\n";
     exit(0);
 }
 
