@@ -233,7 +233,7 @@ $sendPending = ($case && $level > 0) ? $manager->hasPendingNoticeAtLevel((int) $
 $manualSendEnabled = $service->isManualSendEnabled();
 $caseForAmounts = $case ?: array('remaining_amount' => (float) ($evaluation ? $evaluation['remain_to_pay'] : 0));
 if ($evaluation) { $caseForAmounts['remaining_amount'] = (float) $evaluation['remain_to_pay']; }
-$breakdown = $level > 0 ? $manager->getAmountBreakdown($invoice, $caseForAmounts, $level) : array('invoice' => 0, 'fee' => 0, 'total' => 0);
+$breakdown = $level > 0 ? $manager->getAmountBreakdown($invoice, $caseForAmounts, $level) : array('invoice' => 0, 'fee' => 0, 'interest' => 0, 'total' => 0);
 $expectedDunningFilename = $level > 0 ? $service->getFinalPdfFilename($invoice, $level) : '';
 $canOperate = $workflow && !empty($workflow['actionable']) && $template !== false && $user->hasRight('mahnwesen', 'notice', 'send');
 

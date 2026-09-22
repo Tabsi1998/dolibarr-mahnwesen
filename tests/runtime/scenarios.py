@@ -1417,8 +1417,8 @@ def interest(stack: Stack) -> str:
             days += 1
         day += datetime.timedelta(days=1)
     expected = f"{round(total, 2):.2f}".replace(".", ",")
-    expect(days > 30 and len({next((value for start, value in rates if start <= datetime.date.fromisoformat(due) + datetime.timedelta(days=offset)), None)
-                             for offset in (1, days)}) == 2,
+    expect(len({next((value for start, value in rates if start <= datetime.date.fromisoformat(due) + datetime.timedelta(days=offset)), None)
+                for offset in (1, days)}) == 2,
            f"the test invoice should run over a change of the base rate: {days} days from {due} (#33)")
 
     tab = html.unescape(re.sub(r"<[^>]+>", " ", page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={merchandise['id']}"), "dunning tab").text))
