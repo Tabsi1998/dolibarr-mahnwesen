@@ -1443,7 +1443,8 @@ def interest(stack: Stack) -> str:
         stack.cron(expect_ok=False)
     finally:
         set_const(stack, "MAHNWESEN_AUTO_SEND_ENABLED", "0")
-    message = next((m for m in mailpit.messages() if merchandise["ref"] in m["Subject"]), None)
+    message = next((m for m in mailpit.messages()
+                    if merchandise["ref"] in m["Subject"] and m["To"][0]["Address"] != OPS_ADDRESS), None)
     expect(message is not None, f"the cron sent no reminder for {merchandise['ref']} (#33)")
     full = mailpit.message(message["ID"])
     body = html.unescape((full.get("HTML") or "") + (full.get("Text") or ""))
