@@ -413,6 +413,11 @@ if ($stage === 'pay') {
     if ($payment->create($admin) <= 0) {
         rt_fail('payment: '.$payment->error.' '.implode(' | ', (array) $payment->errors));
     }
+    // Dolibarr's payment page closes the invoice when nothing is left.
+    $invoice = new Facture($db);
+    if ($invoice->fetch($invoiceId) > 0 && (float) $invoice->getRemainToPay(0) <= 0 && $invoice->setPaid($admin) <= 0) {
+        rt_fail('set invoice paid: '.$invoice->error);
+    }
     print json_encode(array('payment' => (int) $payment->id))."\n";
     exit(0);
 }
