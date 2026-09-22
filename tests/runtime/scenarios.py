@@ -1,4 +1,4 @@
-"""What the runtime checks prove in a running Dolibarr.
+﻿"""What the runtime checks prove in a running Dolibarr.
 
 scripts/local_check.py starts one Dolibarr per supported version with MariaDB
 and Mailpit, runs the base stage of fixtures.php, and then calls the scenarios
@@ -332,6 +332,8 @@ def upgrade_from(stack: Stack, package: Path) -> str:
                          "(SELECT COUNT(*) FROM llx_c_email_templates WHERE module = 'mahnwesen')")[0]
     before = state()
     expect(before[0] == "4", f"{old} did not create the 4 cases: {before}")
+    # A version that already knows profiles keeps its own; older fee settings are split up (#32).
+    had_profiles = stack.const("MAHNWESEN_PROFILES_MIGRATED") == "1"
 
     upload(stack, stack.package)
     switch_module(stack, "reset")
@@ -349,13 +351,19 @@ def upgrade_from(stack: Stack, package: Path) -> str:
             "SELECT r.level, r.days_after_due, ROUND(r.fee_amount, 2), r.payment_days FROM llx_mahnwesen_rule r "
             f"JOIN llx_mahnwesen_profile p ON p.rowid = r.fk_profile WHERE p.code = '{code}' AND r.entity = 1 ORDER BY r.level")}
     default, company, private = rules_of("default"), rules_of("company"), rules_of("private")
-    expect(all(rules.get("1", [None] * 3)[2] == "14" and rules.get("2", [None])[0] == "12" for rules in (default, company, private))
-           and [rules.get("3", [None] * 2)[1] for rules in (default, company, private)] == ["0.00", "55.00", "7.00"],
-           f"the upgrade from {old} did not move the stage and fee settings into profiles: "
-           f"default {default}, company {company}, private {private} (#20, #32)")
     types = {row[0]: row[1] for row in stack.sql("SELECT m.customer_type, p.code FROM llx_mahnwesen_profile_match m "
                                                   "JOIN llx_mahnwesen_profile p ON p.rowid = m.fk_profile WHERE m.kind = 'customer_type'")}
-    expect(types == {"company": "company", "private": "private"}, f"the profiles after the upgrade from {old} apply to {types} (#32)")
+    if had_profiles:
+        expect(default.get("1", [None] * 3)[2] == "14" and default.get("2", [None])[0] == "12" and default.get("3", [None] * 2)[1] == "55.00"
+               and not company and not private and not types,
+               f"the upgrade from {old} changed the profiles it already had: default {default}, company {company}, "
+               f"private {private}, customer types {types} (#32)")
+    else:
+        expect(all(rules.get("1", [None] * 3)[2] == "14" and rules.get("2", [None])[0] == "12" for rules in (default, company, private))
+               and [rules.get("3", [None] * 2)[1] for rules in (default, company, private)] == ["0.00", "55.00", "7.00"],
+               f"the upgrade from {old} did not move the stage and fee settings into profiles: "
+               f"default {default}, company {company}, private {private} (#20, #32)")
+        expect(types == {"company": "company", "private": "private"}, f"the profiles after the upgrade from {old} apply to {types} (#32)")
     leftovers = stack.sql(f"SELECT name FROM llx_const WHERE {STAGE_CONSTANTS} OR name LIKE 'MAHNWESEN\\_%\\_FEES\\_ALLOWED'")
     expect(not leftovers, f"the upgrade from {old} left the old stage constants {leftovers} (#20, #32)")
     assets = stack.sql("SELECT name FROM llx_const WHERE name IN ('MAIN_MODULE_MAHNWESEN_CSS', 'MAIN_MODULE_MAHNWESEN_JS')")
@@ -488,6 +496,7 @@ def pages(stack: Stack) -> str:
         "setup general": "/custom/mahnwesen/admin/setup.php?tab=general",
         "setup profiles": "/custom/mahnwesen/admin/setup.php?tab=profiles",
         "setup stages": "/custom/mahnwesen/admin/setup.php?tab=stages",
+        "setup interest": "/custom/mahnwesen/admin/setup.php?tab=interest",
         "setup templates": "/custom/mahnwesen/admin/setup.php?tab=templates",
         "setup automation": "/custom/mahnwesen/admin/setup.php?tab=automation",
         "invoice tab": f"/custom/mahnwesen/invoice.php?id={overdue}",
@@ -1364,7 +1373,93 @@ def profiles(stack: Stack) -> str:
     chosen = tab("merchandise")
     expect("Runtime Firmen" in chosen and any(text in chosen for text in translations("MahnwesenProfileReasonChoice")) and "40,00" in chosen,
            "the profile chosen on the invoice does not apply (#32)")
+    stack.fixtures["profile_invoices"] = made
+    stack.fixtures["profile_ids"] = {"firms": firms, "dues": dues, "shop": shop}
     return "company, dues, merchandise and mixed invoices get their profiles; presets off; the invoice's choice wins"
+
+
+def interest(stack: Stack) -> str:
+    """Interest per profile: per day over a change of the base rate, in letter, email and ledger (#33)."""
+    browser = stack.browser()
+    setup = "/custom/mahnwesen/admin/setup.php"
+    made = stack.fixtures["profile_invoices"]
+    merchandise, membership = made["merchandise"], made["membership"]
+    firms = stack.fixtures["profile_ids"]["firms"]
+
+    def add_rate(days: int, rate: str) -> str:
+        day = container_date(stack, days, "Y-m-d")
+        page = page_ok(browser.get(f"{setup}?tab=interest"), "interest setup")
+        page_ok(browser.submit(form_with_action(page, "save_interest_rate", "interest setup"),
+                               {"rate_from": day, "rate_value": rate, "rate_note": "Runtime"}), f"add base rate {rate}")
+        return day
+
+    first, second = add_rate(-60, "3,62"), add_rate(-10, "5,5")
+    stored = {row[0]: row[1] for row in stack.sql("SELECT date_from, ROUND(rate, 2) FROM llx_mahnwesen_interest_rate ORDER BY date_from")}
+    expect(stored == {first: "3.62", second: "5.50"}, f"the base rates are stored as {stored} (#33)")
+
+    form = page_ok(browser.get(f"{setup}?tab=profiles&profile={firms}&edit=1"), "profile form")
+    page_ok(browser.submit(form_with_action(form, "save_profile", "profile form"),
+                           {"interest_mode": "base_plus", "interest_rate": "9,2"}), "save the interest rule")
+
+    # What the module must arrive at, counted the same way: per day from the day
+    # after the due date, with the base rate of that day plus 9.2 points.
+    principal = float(stack.value(f"SELECT ROUND(c.remaining_amount, 2) FROM llx_mahnwesen_case c WHERE c.fk_facture = {merchandise['id']}"))
+    due = stack.value(f"SELECT DATE(date_lim_reglement) FROM llx_facture WHERE rowid = {merchandise['id']}")
+    today = container_date(stack, 0, "Y-m-d")
+    day = datetime.date.fromisoformat(due) + datetime.timedelta(days=1)
+    end = datetime.date.fromisoformat(today)
+    rates = sorted(((datetime.date.fromisoformat(start), float(value)) for start, value in stored.items()), reverse=True)
+    total, days = 0.0, 0
+    while day <= end:
+        base = next((value for start, value in rates if start <= day), None)
+        if base is not None:
+            total += principal * ((base + 9.2) / 100) / 365
+            days += 1
+        day += datetime.timedelta(days=1)
+    # The customer of this invoice reads English since the template check, the admin German.
+    expected = f"{round(total, 2):.2f}"
+    expected_de = expected.replace(".", ",")
+    expect(len({next((value for start, value in rates if start <= datetime.date.fromisoformat(due) + datetime.timedelta(days=offset)), None)
+                for offset in (1, days)}) == 2,
+           f"the test invoice should run over a change of the base rate: {days} days from {due} (#33)")
+
+    tab = html.unescape(re.sub(r"<[^>]+>", " ", page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={merchandise['id']}"), "dunning tab").text))
+    expect(expected_de in tab and any(label in tab for label in translations("MahnwesenPartInterest")),
+           f"the dunning tab does not show the interest {expected_de}: {tab[:400]!r} (#33)")
+    without = html.unescape(re.sub(r"<[^>]+>", " ", page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={membership['id']}"), "dunning tab").text))
+    expect(not any(label in without for label in translations("MahnwesenPartInterest")),
+           "an invoice whose profile has no interest rule shows interest anyway (#33)")
+
+    # The cron sends the reminder of that profile; letter, email and ledger carry the interest.
+    before = stack.value(f"SELECT ROUND(total_ttc, 2) FROM llx_facture WHERE rowid = {merchandise['id']}")
+    # The starter template of the reminder names the interest; take exactly that one.
+    starter = stack.value("SELECT rowid FROM llx_c_email_templates WHERE module = 'mahnwesen' AND type_template = 'mahnwesen_reminder' "
+                          "AND lang = 'de_DE' ORDER BY rowid LIMIT 1")
+    expect(starter, "the starter template of the reminder is missing (#33)")
+    stack.sql(f"UPDATE llx_mahnwesen_rule SET send_email = 1, email_template = 'native:{starter}' WHERE fk_profile = {firms} AND level = 1 AND entity = 1")
+    set_const(stack, "MAHNWESEN_AUTO_SEND_ENABLED", "1")
+    mailpit = stack.mailpit()
+    mailpit.clear()
+    try:
+        # Older cases of earlier checks can end this run with warnings; only this notice matters.
+        stack.cron(expect_ok=False)
+    finally:
+        set_const(stack, "MAHNWESEN_AUTO_SEND_ENABLED", "0")
+    message = next((m for m in mailpit.messages()
+                    if merchandise["ref"] in m["Subject"] and m["To"][0]["Address"] != OPS_ADDRESS), None)
+    expect(message is not None, f"the cron sent no reminder for {merchandise['ref']} (#33)")
+    full = mailpit.message(message["ID"])
+    body = html.unescape((full.get("HTML") or "") + (full.get("Text") or ""))
+    expect(expected in body, f"the email does not name the interest {expected} (#33)")
+    evidence = stack.value("SELECT f.rowid FROM llx_mahnwesen_attempt_file f JOIN llx_mahnwesen_attempt a ON a.rowid = f.fk_attempt "
+                           f"WHERE a.fk_facture = {merchandise['id']} AND f.file_role = 'dunning' ORDER BY f.rowid DESC LIMIT 1")
+    check_letter(browser.get(f"/custom/mahnwesen/attempts.php?evidence={evidence}").body, "the reminder with interest", [merchandise["ref"], expected])
+    booked = stack.sql("SELECT ROUND(amount, 2), status FROM llx_mahnwesen_fee WHERE kind = 'interest' AND fk_facture = "
+                       f"{merchandise['id']} ORDER BY rowid DESC")
+    expect(booked and booked[0] == [f"{round(total, 2):.2f}", "open"], f"the ledger holds {booked} as interest (#33)")
+    after = stack.value(f"SELECT ROUND(total_ttc, 2) FROM llx_facture WHERE rowid = {merchandise['id']}")
+    expect(after == before, f"the interest changed the invoice: {before} -> {after} (#33)")
+    return f"interest {expected} over {days} days and a change of the base rate, in tab, email, letter and ledger"
 
 
 SCENARIOS = (
@@ -1396,6 +1491,7 @@ SCENARIOS = (
     ("billing-role", "The customer's default billing contact as recipient", billing_role, ("dry-run",)),
     ("dunning-block", "A dunning block stops notices until its last day", dunning_block, ("billing-role",)),
     ("profiles", "Each kind of claim gets its dunning profile", profiles, ("dunning-block",)),
+    ("interest", "Late-payment interest per profile, to the cent", interest, ("profiles",)),
 )
 
 

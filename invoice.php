@@ -111,7 +111,7 @@ $futureLevel = (int) $workflow['next_future_level'];
 $classification = $manager->classifyThirdparty($invoice->thirdparty);
 $amountLevel = $requiredLevel > 0 ? $requiredLevel : ($case ? (int) $case['current_level'] : $calculatedLevel);
 $caseForAmounts = $case ?: array('remaining_amount' => (float) $evaluation['remain_to_pay']);
-$breakdown = $amountLevel > 0 ? $manager->getAmountBreakdown($invoice, $caseForAmounts, $amountLevel) : array('invoice'=>(float)$evaluation['remain_to_pay'],'fee'=>0.0,'total'=>(float)$evaluation['remain_to_pay'],'classification'=>$classification);
+$breakdown = $amountLevel > 0 ? $manager->getAmountBreakdown($invoice, $caseForAmounts, $amountLevel) : array('invoice'=>(float)$evaluation['remain_to_pay'],'fee'=>0.0,'interest'=>0.0,'total'=>(float)$evaluation['remain_to_pay'],'classification'=>$classification);
 
 llxHeader('', $langs->trans('Mahnwesen').' - '.$invoice->ref, '', '', 0, 0, '', array('/mahnwesen/css/mahnwesen.css'), '', 'mod-mahnwesen page-invoice');
 if ($action === 'ask_skip' && $user->hasRight('mahnwesen', 'case', 'write') && $user->hasRight('mahnwesen', 'notice', 'send')) {

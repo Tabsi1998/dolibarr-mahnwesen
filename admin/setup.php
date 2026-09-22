@@ -42,7 +42,7 @@ if (!isset($profiles[$profileId])) { $profileId = $manager->getDefaultProfileId(
 $manager->ensureRuleRows($user, $profileId);
 
 $tab = GETPOST('tab', 'aZ09');
-if (!in_array($tab, array('general', 'profiles', 'stages', 'templates', 'automation'), true)) { $tab = 'general'; }
+if (!in_array($tab, array('general', 'profiles', 'stages', 'interest', 'templates', 'automation'), true)) { $tab = 'general'; }
 $action = GETPOST('action', 'aZ09');
 $editProfile = GETPOSTINT('edit') > 0;
 
@@ -186,9 +186,28 @@ if ($action === 'create_profile' || $action === 'add_profile_preset') {
     $tab = 'profiles';
 }
 
+if ($action === 'save_interest_rate') {
+    if ($manager->saveInterestRate(GETPOST('rate_from', 'alpha'), GETPOST('rate_value', 'alpha'), GETPOST('rate_note', 'alphanohtml'), $user)) {
+        setEventMessages($langs->trans('SetupSaved'), null, 'mesgs');
+        mw4_redirect('interest');
+    }
+    setEventMessages($manager->error ?: $langs->trans('Error'), null, 'errors');
+    $tab = 'interest';
+}
+
+if ($action === 'delete_interest_rate') {
+    if ($manager->deleteInterestRate(GETPOSTINT('rate_id'))) {
+        setEventMessages($langs->trans('SetupSaved'), null, 'mesgs');
+        mw4_redirect('interest');
+    }
+    setEventMessages($manager->error ?: $langs->trans('Error'), null, 'errors');
+    $tab = 'interest';
+}
+
 if ($action === 'save_profile') {
     if ($manager->saveProfile($profileId, GETPOST('profile_label', 'alphanohtml'), GETPOSTINT('profile_active'), GETPOSTINT('profile_auto_allowed'),
-        GETPOST('profile_final_step', 'aZ09'), GETPOST('product_categories', 'array'), GETPOST('customer_categories', 'array'), GETPOST('customer_type', 'aZ09'), $user)) {
+        GETPOST('profile_final_step', 'aZ09'), GETPOST('product_categories', 'array'), GETPOST('customer_categories', 'array'), GETPOST('customer_type', 'aZ09'), $user,
+        GETPOST('interest_mode', 'aZ09'), GETPOST('interest_rate', 'alpha'))) {
         setEventMessages($langs->trans('SetupSaved'), null, 'mesgs');
         mw4_redirect('profiles');
     }
@@ -278,6 +297,7 @@ $head = array(
     array($_SERVER['PHP_SELF'].'?tab=general', $langs->trans('MahnwesenTabGeneral'), 'general'),
     array($_SERVER['PHP_SELF'].'?tab=profiles', $langs->trans('MahnwesenTabProfiles'), 'profiles'),
     array($_SERVER['PHP_SELF'].'?tab=stages', $langs->trans('MahnwesenTabStagesFees'), 'stages'),
+    array($_SERVER['PHP_SELF'].'?tab=interest', $langs->trans('MahnwesenTabInterest'), 'interest'),
     array($_SERVER['PHP_SELF'].'?tab=templates', $langs->trans('MahnwesenTabTemplates'), 'templates'),
     array($_SERVER['PHP_SELF'].'?tab=automation', $langs->trans('MahnwesenTabAutomation'), 'automation'),
 );
@@ -319,6 +339,13 @@ if ($tab === 'profiles') {
             print '<option value="'.$step.'"'.($profile['final_step'] === $step ? ' selected' : '').'>'.$langs->trans($stepKey).'</option>';
         }
         print '</select></td></tr>';
+        $modes = $manager->getInterestModes();
+        print '<tr><td><label for="interest_mode">'.$langs->trans('MahnwesenInterestMode').'</label></td><td><select name="interest_mode" id="interest_mode">';
+        foreach ($modes as $mode => $modeKey) {
+            print '<option value="'.$mode.'"'.($profile['interest_mode'] === $mode ? ' selected' : '').'>'.$langs->trans($modeKey).'</option>';
+        }
+        print '</select> <input class="width75" type="text" name="interest_rate" value="'.dol_escape_htmltag(price((float) $profile['interest_rate'], 0, $langs, 0, -1, 2)).'"> % '
+            .'<span class="opacitymedium">'.$langs->trans('MahnwesenInterestProfileHelp').'</span></td></tr>';
         if ($isDefault) {
             print '<tr><td>'.$langs->trans('MahnwesenProfileAppliesTo').'</td><td>'.$langs->trans('MahnwesenProfileAppliesDefault').'</td></tr>';
         } else {
@@ -399,6 +426,34 @@ if ($tab === 'stages' && isset($profiles[$profileId])) {
     print '<div class="center"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button></div></form>';
 }
 
+if ($tab === 'interest') {
+    print '<div class="info">'.$langs->trans('MahnwesenInterestIntro').'</div><br>';
+    print load_fiche_titre($langs->trans('MahnwesenInterestBaseRates'), '', 'generic');
+    print '<div class="opacitymedium marginbottomonly">'.$langs->trans('MahnwesenInterestBaseRatesHelp').'</div>';
+    $rates = $manager->getInterestRates(true);
+    print '<div class="div-table-responsive"><table class="noborder centpercent">';
+    print '<tr class="liste_titre"><th>'.$langs->trans('MahnwesenInterestFrom').'</th><th class="right">'.$langs->trans('MahnwesenInterestRate').'</th><th>'.$langs->trans('MahnwesenInterestNote').'</th><th></th></tr>';
+    if (empty($rates)) {
+        print '<tr class="oddeven"><td colspan="4"><span class="opacitymedium">'.$langs->trans('MahnwesenInterestNoRates').'</span></td></tr>';
+    }
+    foreach ($rates as $rate) {
+        print '<tr class="oddeven" data-rate="'.((int) $rate['id']).'"><td>'.dol_print_date($db->jdate($rate['from']), 'day').'</td>';
+        print '<td class="right">'.price($rate['rate'], 0, $langs, 0, -1, 2).' %</td><td>'.dol_escape_htmltag($rate['note']).'</td>';
+        print '<td class="right"><form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=interest"><input type="hidden" name="token" value="'.newToken().'">';
+        print '<input type="hidden" name="action" value="delete_interest_rate"><input type="hidden" name="rate_id" value="'.((int) $rate['id']).'">';
+        print '<button class="button bordertransp" type="submit">'.img_delete().'</button></form></td></tr>';
+    }
+    print '</table></div>';
+    print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=interest" class="margintoponly">';
+    print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="save_interest_rate">';
+    print '<label for="rate_from">'.$langs->trans('MahnwesenInterestFrom').'</label> <input type="date" name="rate_from" id="rate_from" required> ';
+    print '<label for="rate_value">'.$langs->trans('MahnwesenInterestRate').'</label> <input class="width75" type="text" name="rate_value" id="rate_value" required> % ';
+    print '<label for="rate_note">'.$langs->trans('MahnwesenInterestNote').'</label> <input class="minwidth200" maxlength="255" name="rate_note" id="rate_note"> ';
+    print '<button class="button" type="submit">'.$langs->trans('MahnwesenInterestAdd').'</button></form>';
+    print '<div class="opacitymedium margintoponly">'.$langs->trans('MahnwesenInterestSources').'</div>';
+    print '<div class="warning margintoponly">'.$langs->trans('MahnwesenInterestInvoiceUnchanged').'</div>';
+}
+
 if ($tab === 'templates' && isset($profiles[$profileId])) {
     print mw4_profile_selector('templates', $profiles, $profileId, $langs);
     print '<div class="info">'.$langs->trans('MahnwesenNativeTemplateIntroV042').'</div><br>';
@@ -460,6 +515,9 @@ if ($tab === 'templates' && isset($profiles[$profileId])) {
         '__MAHNWESEN_FEE_PARAGRAPH__' => 'MahnwesenTokenFeeParagraphDesc',
         '__MAHNWESEN_PAYMENT_DEADLINE__' => 'MahnwesenTokenPaymentDeadlineDesc',
         '__MAHNWESEN_PAYMENT_DAYS__' => 'MahnwesenTokenPaymentDaysDesc',
+        '__MAHNWESEN_INTEREST__' => 'MahnwesenTokenInterestDesc',
+        '__MAHNWESEN_INTEREST_PARAGRAPH__' => 'MahnwesenTokenInterestParagraphDesc',
+        '__MAHNWESEN_INTEREST_DAYS__' => 'MahnwesenTokenInterestDaysDesc',
         '{INVOICE_REF}' => 'MahnwesenTokenInvoiceRefDesc',
         '{CUSTOMER_NAME}' => 'MahnwesenTokenCustomerNameDesc',
         '{INVOICE_DATE}' => 'MahnwesenTokenInvoiceDateDesc',

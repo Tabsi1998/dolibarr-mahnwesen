@@ -343,10 +343,18 @@ trait DunningManagerWorkflow
     {
         global $langs, $conf;
         $html = '<strong>'.price((float) $breakdown['total'], 0, $langs, 1, -1, -1, $conf->currency).'</strong>';
+        $parts = array();
+        if ((float) $breakdown['fee'] > 0.000001 || (float) ($breakdown['interest'] ?? 0) > 0.000001) {
+            $parts[] = $langs->trans('MahnwesenPartInvoice').' '.price((float) $breakdown['invoice'], 0, $langs, 1, -1, -1, $conf->currency);
+        }
         if ((float) $breakdown['fee'] > 0.000001) {
-            $html .= ' <span class="opacitymedium">'.$langs->trans('MahnwesenAmountParts',
-                price((float) $breakdown['invoice'], 0, $langs, 1, -1, -1, $conf->currency),
-                price((float) $breakdown['fee'], 0, $langs, 1, -1, -1, $conf->currency)).'</span>';
+            $parts[] = $langs->trans('MahnwesenPartFee').' '.price((float) $breakdown['fee'], 0, $langs, 1, -1, -1, $conf->currency);
+        }
+        if ((float) ($breakdown['interest'] ?? 0) > 0.000001) {
+            $parts[] = $langs->trans('MahnwesenPartInterest').' '.price((float) ($breakdown['interest'] ?? 0), 0, $langs, 1, -1, -1, $conf->currency);
+        }
+        if ($parts) {
+            $html .= ' <span class="opacitymedium">('.implode(' + ', $parts).')</span>';
         }
         return $html;
     }

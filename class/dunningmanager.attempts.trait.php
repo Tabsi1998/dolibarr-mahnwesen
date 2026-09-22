@@ -187,8 +187,8 @@ trait DunningManagerAttempts
 
         $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
         $nowSql = $this->db->idate(dol_now());
-        $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_attempt (entity, fk_case, fk_facture, level, mode, status, recipient, fk_socpeople, sender, cc, bcc, subject, body_html, amount_invoice, amount_fee, amount_total, currency_code, fk_email_template, template_lang, reserved_at, fk_user_create) VALUES (';
-        $sql .= $lockedCase['entity'].', '.$lockedCase['id'].', '.$lockedCase['invoice_id'].', '.((int) $level).", '".$this->db->escape((string) $mode)."', 'reserved', '".$this->db->escape((string) $recipient)."', ".(!empty($snapshot['contact_id']) ? (int) $snapshot['contact_id'] : 'NULL').", '".$this->db->escape((string) ($snapshot['sender'] ?? ''))."', '".$this->db->escape((string) ($snapshot['cc'] ?? ''))."', '".$this->db->escape((string) ($snapshot['bcc'] ?? ''))."', '".$this->db->escape((string) ($snapshot['subject'] ?? ''))."', '".$this->db->escape((string) ($snapshot['body_html'] ?? ''))."', ".$currentAmount.', '.((float) ($snapshot['fee'] ?? 0)).', '.((float) ($snapshot['total'] ?? $currentAmount)).", '".$this->db->escape((string) $conf->currency)."', ".(!empty($snapshot['template_id']) ? (int) $snapshot['template_id'] : 'NULL').", '".$this->db->escape((string) ($snapshot['template_lang'] ?? ''))."', '".$this->db->escape($nowSql)."', ".$uid.')';
+        $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_attempt (entity, fk_case, fk_facture, level, mode, status, recipient, fk_socpeople, sender, cc, bcc, subject, body_html, amount_invoice, amount_fee, amount_interest, amount_total, currency_code, fk_email_template, template_lang, reserved_at, fk_user_create) VALUES (';
+        $sql .= $lockedCase['entity'].', '.$lockedCase['id'].', '.$lockedCase['invoice_id'].', '.((int) $level).", '".$this->db->escape((string) $mode)."', 'reserved', '".$this->db->escape((string) $recipient)."', ".(!empty($snapshot['contact_id']) ? (int) $snapshot['contact_id'] : 'NULL').", '".$this->db->escape((string) ($snapshot['sender'] ?? ''))."', '".$this->db->escape((string) ($snapshot['cc'] ?? ''))."', '".$this->db->escape((string) ($snapshot['bcc'] ?? ''))."', '".$this->db->escape((string) ($snapshot['subject'] ?? ''))."', '".$this->db->escape((string) ($snapshot['body_html'] ?? ''))."', ".$currentAmount.', '.((float) ($snapshot['fee'] ?? 0)).', '.((float) ($snapshot['interest'] ?? 0)).', '.((float) ($snapshot['total'] ?? $currentAmount)).", '".$this->db->escape((string) $conf->currency)."', ".(!empty($snapshot['template_id']) ? (int) $snapshot['template_id'] : 'NULL').", '".$this->db->escape((string) ($snapshot['template_lang'] ?? ''))."', '".$this->db->escape($nowSql)."', ".$uid.')';
         if (!$this->db->query($sql)) {
             $this->error = $this->db->lasterror();
             $this->db->rollback();
@@ -307,7 +307,7 @@ trait DunningManagerAttempts
     {
         $this->db->begin();
 
-        $sqlLock = 'SELECT rowid, entity, fk_case, fk_facture, level, mode, recipient, amount_invoice, amount_fee, currency_code FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE rowid = '.((int) $attemptId)." AND status IN ('reserved', 'sending') FOR UPDATE";
+        $sqlLock = 'SELECT rowid, entity, fk_case, fk_facture, level, mode, recipient, amount_invoice, amount_fee, amount_interest, currency_code FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE rowid = '.((int) $attemptId)." AND status IN ('reserved', 'sending') FOR UPDATE";
         $resLock = $this->db->query($sqlLock);
         $attempt = $resLock ? $this->db->fetch_object($resLock) : false;
         if (!$resLock || !$attempt) {
@@ -391,7 +391,7 @@ trait DunningManagerAttempts
         $this->db->begin();
         $allowedStatuses = $resolution === 'confirmed_sent' ? "('ambiguous', 'sending')" : "('ambiguous', 'failed', 'reserved', 'sending')";
         $recoveryCutoff = $this->db->idate(dol_now() - 900);
-        $sql = 'SELECT rowid, entity, fk_case, fk_facture, level, mode, recipient, amount_invoice, amount_fee, currency_code, reserved_at FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE rowid = '.((int) $attemptId).' AND entity = '.((int) $conf->entity).' AND status IN '.$allowedStatuses;
+        $sql = 'SELECT rowid, entity, fk_case, fk_facture, level, mode, recipient, amount_invoice, amount_fee, amount_interest, currency_code, reserved_at FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt WHERE rowid = '.((int) $attemptId).' AND entity = '.((int) $conf->entity).' AND status IN '.$allowedStatuses;
         $sql .= " AND (status IN ('ambiguous', 'failed') OR reserved_at <= '".$this->db->escape($recoveryCutoff)."') FOR UPDATE";
         $res = $this->db->query($sql); $attempt = $res ? $this->db->fetch_object($res) : false;
         if (!$attempt) { if ($res) { $this->db->free($res); } $this->error = 'Recoverable attempt not found or the 15-minute safety delay has not elapsed.'; $this->db->rollback(); return false; }

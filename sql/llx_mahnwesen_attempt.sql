@@ -15,6 +15,7 @@ CREATE TABLE llx_mahnwesen_attempt (
     body_html MEDIUMTEXT,
     amount_invoice DOUBLE(24,8) DEFAULT 0 NOT NULL,
     amount_fee DOUBLE(24,8) DEFAULT 0 NOT NULL,
+    amount_interest DOUBLE(24,8) DEFAULT 0 NOT NULL,
     amount_total DOUBLE(24,8) DEFAULT 0 NOT NULL,
     currency_code VARCHAR(3) NOT NULL,
     fk_email_template INTEGER,

@@ -98,6 +98,7 @@ trait DunningNoticeServiceDelivery
         if ($bcc !== '') { $historyMessage .= "\nBCC: ".$bcc; }
         $historyMessage .= "\nInvoice amount: ".number_format($breakdown['invoice'], 2, '.', '').' '.$GLOBALS['conf']->currency;
         $historyMessage .= "\nDunning fee: ".number_format($breakdown['fee'], 2, '.', '').' '.$GLOBALS['conf']->currency;
+        if ((float) $breakdown['interest'] > 0.000001) { $historyMessage .= "\nLate-payment interest: ".number_format($breakdown['interest'], 2, '.', '').' '.$GLOBALS['conf']->currency; }
         $historyMessage .= "\nTotal: ".number_format($breakdown['total'], 2, '.', '').' '.$GLOBALS['conf']->currency;
         $deadline = $this->manager->getPaymentDeadline((int) $level, null, (int) $breakdown['profile_id']);
         if ($deadline) { $historyMessage .= "\nPayment deadline: ".dol_print_date($deadline, '%Y-%m-%d', 'tzserver'); }
@@ -121,6 +122,7 @@ trait DunningNoticeServiceDelivery
                 'subject' => (string) $subject,
                 'body_html' => $bodyHtml,
                 'fee' => (float) $breakdown['fee'],
+                'interest' => (float) $breakdown['interest'],
                 'total' => (float) $breakdown['total'],
                 'template_id' => (int) $templateId,
                 'template_lang' => (string) $lang,
@@ -217,7 +219,7 @@ trait DunningNoticeServiceDelivery
         $lastRequiredAt = $lastRequiredLevel > 0 ? $this->manager->calculateWorkflowStageDueAt((int) $case['id'], (string) $lastEvaluation['row']['due_ymd'], $lastRequiredLevel, $lastProfileId) : null;
         $lastBreakdown = $this->manager->getAmountBreakdown($freshInvoice, array('remaining_amount' => $lastEvaluation !== false ? (float) $lastEvaluation['remain_to_pay'] : 0.0), $level);
         $lastRecipientOption = $this->getRecipientOptionByEmail($freshInvoice, $recipient);
-        if ($lastEvaluation === false || empty($lastEvaluation['eligible']) || $lastRequiredLevel !== (int) $level || ($lastRequiredAt && (int) $this->db->jdate($lastRequiredAt) > dol_now()) || abs((float) $lastEvaluation['remain_to_pay'] - (float) $breakdown['invoice']) > 0.000001 || abs((float) $lastBreakdown['fee'] - (float) $breakdown['fee']) > 0.000001 || $lastRecipientOption === false || (int) $lastRecipientOption['contact_id'] !== (int) $recipientOption['contact_id']) {
+        if ($lastEvaluation === false || empty($lastEvaluation['eligible']) || $lastRequiredLevel !== (int) $level || ($lastRequiredAt && (int) $this->db->jdate($lastRequiredAt) > dol_now()) || abs((float) $lastEvaluation['remain_to_pay'] - (float) $breakdown['invoice']) > 0.000001 || abs((float) $lastBreakdown['fee'] - (float) $breakdown['fee']) > 0.000001 || abs((float) $lastBreakdown['interest'] - (float) $breakdown['interest']) > 0.01 || $lastRecipientOption === false || (int) $lastRecipientOption['contact_id'] !== (int) $recipientOption['contact_id']) {
             $this->error = 'Invoice state changed while the final document was generated. Delivery was cancelled.';
             $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
             return false;
@@ -310,6 +312,7 @@ trait DunningNoticeServiceDelivery
             'bcc' => $bcc,
             'attempt_id' => $attemptId,
             'fee' => $breakdown['fee'],
+            'interest' => $breakdown['interest'],
             'total' => $breakdown['total'],
         );
     }

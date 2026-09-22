@@ -1,5 +1,5 @@
 <?php
-/* The fee ledger: fees booked by delivered notices, paid or waived. */
+/* The fee ledger: fees and interest booked by delivered notices, paid or waived. */
 trait DunningManagerFees
 {
     /**
@@ -12,9 +12,10 @@ trait DunningManagerFees
      */
     protected function bookNoticeFee($attempt, $attemptId, $uid, $nowSql)
     {
+        if (!$this->bookNoticeInterest($attempt, $attemptId, $uid, $nowSql)) { return false; }
         if ((float) $attempt->amount_fee <= 0.000001) { return true; }
         $where = ' WHERE entity = '.((int) $attempt->entity).' AND fk_case = '.((int) $attempt->fk_case);
-        $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_fee'.$where.' AND level > '.((int) $attempt->level)." AND status <> 'superseded' ORDER BY rowid".$this->db->plimit(1);
+        $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_fee'.$where." AND kind = 'fee' AND level > ".((int) $attempt->level)." AND status <> 'superseded' ORDER BY rowid".$this->db->plimit(1);
         $res = $this->db->query($sql);
         if (!$res) { $this->error = $this->db->lasterror(); return false; }
         $higher = $this->db->fetch_object($res);
@@ -25,11 +26,29 @@ trait DunningManagerFees
             $status = 'superseded';
             $settlement = "'".$this->db->escape($nowSql)."', '".$this->db->escape('Fee #'.((int) $higher->rowid).' of a higher stage already applies')."', ".((int) $uid);
         } else {
-            $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_fee SET status = 'superseded', date_settlement = '".$this->db->escape($nowSql)."', settlement_reason = '".$this->db->escape('Replaced by attempt #'.((int) $attemptId))."', fk_user_settlement = ".((int) $uid).$where." AND status = 'open' AND level <= ".((int) $attempt->level);
+            $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_fee SET status = 'superseded', date_settlement = '".$this->db->escape($nowSql)."', settlement_reason = '".$this->db->escape('Replaced by attempt #'.((int) $attemptId))."', fk_user_settlement = ".((int) $uid).$where." AND kind = 'fee' AND status = 'open' AND level <= ".((int) $attempt->level);
             if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); return false; }
         }
-        $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_fee (entity, fk_case, fk_facture, fk_attempt, level, amount, currency_code, status, date_creation, fk_user_create, date_settlement, settlement_reason, fk_user_settlement) VALUES (';
-        $sql .= ((int) $attempt->entity).', '.((int) $attempt->fk_case).', '.((int) $attempt->fk_facture).', '.((int) $attemptId).', '.((int) $attempt->level).', '.((float) $attempt->amount_fee).", '".$this->db->escape((string) $attempt->currency_code)."', '".$status."', '".$this->db->escape($nowSql)."', ".((int) $uid).', '.$settlement.')';
+        $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_fee (entity, fk_case, fk_facture, fk_attempt, level, kind, amount, currency_code, status, date_creation, fk_user_create, date_settlement, settlement_reason, fk_user_settlement) VALUES (';
+        $sql .= ((int) $attempt->entity).', '.((int) $attempt->fk_case).', '.((int) $attempt->fk_facture).', '.((int) $attemptId).', '.((int) $attempt->level).", 'fee', ".((float) $attempt->amount_fee).", '".$this->db->escape((string) $attempt->currency_code)."', '".$status."', '".$this->db->escape($nowSql)."', ".((int) $uid).', '.$settlement.')';
+        if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); return false; }
+        return true;
+    }
+
+    /**
+     * Book the interest a delivered notice named (#33).
+     *
+     * Interest grows with every day, so a new claim replaces the open interest
+     * claim of the same case; nothing is added twice.
+     */
+    protected function bookNoticeInterest($attempt, $attemptId, $uid, $nowSql)
+    {
+        if (!isset($attempt->amount_interest) || (float) $attempt->amount_interest <= 0.000001) { return true; }
+        $where = ' WHERE entity = '.((int) $attempt->entity).' AND fk_case = '.((int) $attempt->fk_case)." AND kind = 'interest'";
+        $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_fee SET status = 'superseded', date_settlement = '".$this->db->escape($nowSql)."', settlement_reason = '".$this->db->escape('Replaced by the interest of attempt #'.((int) $attemptId))."', fk_user_settlement = ".((int) $uid).$where." AND status = 'open'";
+        if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); return false; }
+        $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_fee (entity, fk_case, fk_facture, fk_attempt, level, kind, amount, currency_code, status, date_creation, fk_user_create) VALUES (';
+        $sql .= ((int) $attempt->entity).', '.((int) $attempt->fk_case).', '.((int) $attempt->fk_facture).', '.((int) $attemptId).', '.((int) $attempt->level).", 'interest', ".((float) $attempt->amount_interest).", '".$this->db->escape((string) $attempt->currency_code)."', 'open', '".$this->db->escape($nowSql)."', ".((int) $uid).')';
         if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); return false; }
         return true;
     }
@@ -39,7 +58,7 @@ trait DunningManagerFees
     {
         global $conf;
         $rows = array();
-        $sql = 'SELECT rowid, fk_case, fk_facture, fk_attempt, level, amount, currency_code, status, date_creation, date_settlement, settlement_reason FROM '.MAIN_DB_PREFIX.'mahnwesen_fee WHERE entity = '.((int) $conf->entity);
+        $sql = 'SELECT rowid, fk_case, fk_facture, fk_attempt, level, kind, amount, currency_code, status, date_creation, date_settlement, settlement_reason FROM '.MAIN_DB_PREFIX.'mahnwesen_fee WHERE entity = '.((int) $conf->entity);
         if (in_array($status, array('open', 'paid', 'waived', 'superseded'), true)) { $sql .= " AND status = '".$this->db->escape($status)."'"; }
         $sql .= ' ORDER BY date_creation DESC, rowid DESC'.$this->db->plimit(max(1, min(1000, (int) $limit)));
         $res = $this->db->query($sql); if (!$res) { $this->error = $this->db->lasterror(); return false; }

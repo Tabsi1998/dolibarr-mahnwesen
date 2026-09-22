@@ -30,7 +30,7 @@ trait DunningManagerProfiles
             return $this->profilesCache;
         }
         $profiles = array();
-        $sql = 'SELECT rowid, code, label, is_default, auto_allowed, final_step, active FROM '.MAIN_DB_PREFIX.'mahnwesen_profile';
+        $sql = 'SELECT rowid, code, label, is_default, auto_allowed, final_step, active, interest_mode, interest_rate FROM '.MAIN_DB_PREFIX.'mahnwesen_profile';
         $sql .= ' WHERE entity = '.((int) $conf->entity).' ORDER BY is_default DESC, label ASC, rowid ASC';
         $res = $this->db->query($sql);
         if (!$res) {
@@ -40,7 +40,7 @@ trait DunningManagerProfiles
         while ($o = $this->db->fetch_object($res)) {
             $profiles[(int) $o->rowid] = array('id' => (int) $o->rowid, 'code' => (string) $o->code, 'label' => (string) $o->label,
                 'is_default' => (int) $o->is_default, 'auto_allowed' => (int) $o->auto_allowed, 'final_step' => (string) $o->final_step,
-                'active' => (int) $o->active);
+                'active' => (int) $o->active, 'interest_mode' => (string) $o->interest_mode, 'interest_rate' => (float) $o->interest_rate);
         }
         $this->db->free($res);
         $this->profilesCache = $profiles;
@@ -328,7 +328,8 @@ trait DunningManagerProfiles
         $resolution = array(
             'profile_id' => $profileId,
             'profile' => isset($profiles[$profileId]) ? $profiles[$profileId]
-                : array('id' => 0, 'code' => '', 'label' => '', 'is_default' => 1, 'auto_allowed' => 0, 'final_step' => 'none', 'active' => 1),
+                : array('id' => 0, 'code' => '', 'label' => '', 'is_default' => 1, 'auto_allowed' => 0, 'final_step' => 'none', 'active' => 1,
+                    'interest_mode' => 'none', 'interest_rate' => 0.0),
             'reason' => $reason,
             'names' => array_values($names),
             'candidates' => array_map('intval', array_keys($found)),
@@ -487,7 +488,7 @@ trait DunningManagerProfiles
      *
      * @return bool
      */
-    public function saveProfile($profileId, $label, $active, $autoAllowed, $finalStep, $productCategories, $customerCategories, $customerType, $user)
+    public function saveProfile($profileId, $label, $active, $autoAllowed, $finalStep, $productCategories, $customerCategories, $customerType, $user, $interestMode = 'none', $interestRate = 0.0)
     {
         global $conf, $langs;
         $profiles = $this->getProfiles(true);
@@ -534,8 +535,12 @@ trait DunningManagerProfiles
         }
         $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
         $this->db->begin();
+        $modes = $this->getInterestModes();
+        $interestMode = isset($modes[$interestMode]) ? (string) $interestMode : 'none';
+        $interestRate = max(0.0, (float) price2num($interestRate));
         $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_profile SET label = '".$this->db->escape($label)."', active = ".($isDefault || $active ? 1 : 0);
-        $sql .= ', auto_allowed = '.($autoAllowed ? 1 : 0).", final_step = '".$this->db->escape($finalStep)."', fk_user_modif = ".$uid;
+        $sql .= ', auto_allowed = '.($autoAllowed ? 1 : 0).", final_step = '".$this->db->escape($finalStep)."'";
+        $sql .= ", interest_mode = '".$this->db->escape($interestMode)."', interest_rate = ".$interestRate.', fk_user_modif = '.$uid;
         $sql .= ' WHERE rowid = '.$profileId.' AND entity = '.((int) $conf->entity);
         $ok = $this->db->query($sql) && $this->db->query('DELETE FROM '.MAIN_DB_PREFIX.'mahnwesen_profile_match WHERE fk_profile = '.$profileId.' AND entity = '.((int) $conf->entity));
         foreach ($wanted as $match) {
@@ -594,6 +599,28 @@ trait DunningManagerProfiles
     }
 
     /**
+     * Remove the fee settings of versions before profiles. Nothing reads them
+     * any more, so they go on every activation, not only on the first (#32).
+     *
+     * @return bool
+     */
+    protected function deleteLegacyFeeSettings()
+    {
+        global $conf;
+        foreach (array('MAHNWESEN_PRIVATE_FEES_ALLOWED', 'MAHNWESEN_UNKNOWN_FEES_ALLOWED', 'MAHNWESEN_PRIVATE_FEE_1',
+            'MAHNWESEN_PRIVATE_FEE_2', 'MAHNWESEN_PRIVATE_FEE_3', 'MAHNWESEN_PRIVATE_FEE_4') as $name) {
+            if (getDolGlobalString($name) === '' && !isset($conf->global->$name)) {
+                continue;
+            }
+            if (dolibarr_del_const($this->db, $name, $conf->entity) < 0) {
+                $this->error = $this->db->lasterror();
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Turn the fee settings of versions before profiles into profiles, once (#32).
      *
      * Before, a stage had a fee for companies and one for private persons. The
@@ -610,7 +637,7 @@ trait DunningManagerProfiles
     {
         global $conf, $langs;
         if (getDolGlobalInt('MAHNWESEN_PROFILES_MIGRATED')) {
-            return true;
+            return $this->deleteLegacyFeeSettings();
         }
         $defaultId = $this->getDefaultProfileId($user);
         if ($defaultId <= 0 || !$this->ensureRuleRows($user, $defaultId)) {
@@ -653,9 +680,7 @@ trait DunningManagerProfiles
                 $ok = $ok && $this->db->query('UPDATE '.MAIN_DB_PREFIX.'mahnwesen_rule SET fee_amount = '.((float) $fee).' WHERE entity = '.((int) $conf->entity).' AND fk_profile = '.$profileId.' AND level = '.((int) $level));
             }
         }
-        foreach (array('MAHNWESEN_PRIVATE_FEES_ALLOWED', 'MAHNWESEN_UNKNOWN_FEES_ALLOWED', 'MAHNWESEN_PRIVATE_FEE_1', 'MAHNWESEN_PRIVATE_FEE_2', 'MAHNWESEN_PRIVATE_FEE_3', 'MAHNWESEN_PRIVATE_FEE_4') as $name) {
-            $ok = $ok && dolibarr_del_const($this->db, $name, $conf->entity) >= 0;
-        }
+        $ok = $ok && $this->deleteLegacyFeeSettings();
         $ok = $ok && dolibarr_set_const($this->db, 'MAHNWESEN_PROFILES_MIGRATED', '1', 'chaine', 0, 'Fee settings moved into dunning profiles', $conf->entity) > 0;
         if (!$ok) {
             $this->error = $this->error ?: $this->db->lasterror();

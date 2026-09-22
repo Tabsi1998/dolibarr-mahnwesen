@@ -10,10 +10,12 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/user/class/user.class.php';
 
 require_once __DIR__.'/mahnwesenworkflowpolicy.class.php';
+require_once __DIR__.'/mahnweseninterestpolicy.class.php';
 require_once __DIR__.'/dunningmanager.access.trait.php';
 require_once __DIR__.'/dunningmanager.scan.trait.php';
 require_once __DIR__.'/dunningmanager.stages.trait.php';
 require_once __DIR__.'/dunningmanager.profiles.trait.php';
+require_once __DIR__.'/dunningmanager.interest.trait.php';
 require_once __DIR__.'/dunningmanager.workflow.trait.php';
 require_once __DIR__.'/dunningmanager.cases.trait.php';
 require_once __DIR__.'/dunningmanager.attempts.trait.php';
@@ -30,7 +32,7 @@ require_once __DIR__.'/dunningmanager.automation.trait.php';
  */
 class DunningManager
 {
-    use DunningManagerAccess, DunningManagerScan, DunningManagerStages, DunningManagerProfiles, DunningManagerWorkflow, DunningManagerCases, DunningManagerAttempts, DunningManagerFees, DunningManagerHistory, DunningManagerAutomation;
+    use DunningManagerAccess, DunningManagerScan, DunningManagerStages, DunningManagerProfiles, DunningManagerInterest, DunningManagerWorkflow, DunningManagerCases, DunningManagerAttempts, DunningManagerFees, DunningManagerHistory, DunningManagerAutomation;
 
     /** @var DoliDB */
     public $db;
@@ -61,6 +63,9 @@ class DunningManager
 
     /** @var array<int,array> Dolibarr's categories by type, for one request */
     protected $categoryTreeCache = array();
+
+    /** @var array<int,array>|null Base rates for the interest, newest first */
+    protected $interestRatesCache = null;
 
     /** @var array<int,array<int,bool>> Completed-stage cache for one request. */
     protected $completedLevelsCache = array();

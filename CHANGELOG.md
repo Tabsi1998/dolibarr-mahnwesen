@@ -7,6 +7,24 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-09-22
+
+Late-payment interest, per dunning profile.
+
+### Added
+
+- An interest rule per profile: none, a fixed rate a year, or the base rate of
+  each day plus a surcharge in percentage points. The base rates with the day
+  they start to apply live under *Setup > Late-payment interest*, because the
+  base rate changes every half year (#33).
+- Interest is counted per day on the open amount, from the day after the due
+  date, also over a change of the base rate. It appears on the dunning tab, in
+  the email (`__MAHNWESEN_INTEREST__`, `__MAHNWESEN_INTEREST_PARAGRAPH__`,
+  `__MAHNWESEN_INTEREST_DAYS__`) and in the dunning letter, and a delivered
+  notice books it in the ledger beside the fees. The Dolibarr invoice stays
+  unchanged. Without a rule, or for days without a base rate, no interest is
+  charged (#33).
+
 ## [1.3.1] - 2026-09-22
 
 Dunning profiles: the right rules for each kind of claim.
@@ -472,9 +490,10 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.2
 [1.3.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.1
-[1.3.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.0
+[1.3.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.1
 [1.2.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.3
 [1.2.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.2
 [1.2.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.1

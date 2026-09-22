@@ -5,6 +5,7 @@ CREATE TABLE llx_mahnwesen_fee (
     fk_facture INTEGER NOT NULL,
     fk_attempt INTEGER NOT NULL,
     level INTEGER NOT NULL,
+    kind VARCHAR(16) DEFAULT 'fee' NOT NULL,
     amount DOUBLE(24,8) DEFAULT 0 NOT NULL,
     currency_code VARCHAR(3) NOT NULL,
     status VARCHAR(32) DEFAULT 'open' NOT NULL,
