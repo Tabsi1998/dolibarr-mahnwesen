@@ -653,7 +653,8 @@ def manual_send(stack: Stack) -> str:
     deadline_day = sent_day + datetime.timedelta(days=10)
     deadline = deadline_day.strftime("%d.%m.%Y")
     expect(f"Frist: {deadline} (10 Tage)" in sent_html,
-           f"the sent email does not name the payment deadline {deadline} (#64)")
+           f"the sent email does not name the payment deadline {deadline}, it says "
+           f"{(re.search(r'Frist:[^<]*', sent_html) or re.search('$^', '')).group(0) if 'Frist:' in sent_html else 'nothing'!r} (#64)")
     recorded_text = stack.value("SELECT message FROM llx_mahnwesen_history WHERE action = 'notice_sent' "
                                 f"AND level = 1 AND fk_facture = {company['id']}") or ""
     expect(f"Payment deadline: {deadline_day.isoformat()}" in recorded_text,
@@ -1602,8 +1603,11 @@ def payment_trigger(stack: Stack) -> str:
 def payment_ways(stack: Stack) -> str:
     """The letter carries the QR code for the invoice amount and says what it covers (#35)."""
     browser = stack.browser()
-    company = invoice(stack, "company_overdue")
     stack.php_fixture("bank")
+    # A fresh overdue invoice of the company, so a notice is actually due.
+    company = stack.php_fixture("payment")["invoice"]
+    dashboard = page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard")
+    page_ok(browser.submit(form_with_action(dashboard, "sync_cases", "dashboard")), "synchronise")
     contact = str(stack.fixtures["contacts"]["billing"])
 
     def letter() -> bytes:
