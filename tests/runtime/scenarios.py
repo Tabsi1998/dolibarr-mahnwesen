@@ -106,13 +106,13 @@ class Stack:
     def const(self, name: str) -> str | None:
         return self.value(f"SELECT value FROM llx_const WHERE name = '{name}' AND entity IN (0, 1) ORDER BY entity DESC LIMIT 1")
 
-    def php_fixture(self, stage: str) -> dict:
+    def php_fixture(self, stage: str, *arguments: str) -> dict:
         """Run one stage of fixtures.php as the web server user and return what it printed."""
         completed = self.run(self.docker, "exec", "-u", "www-data",
                              "--env", f"RT_SALES_PASSWORD={self.sales_password}",
                              "--env", f"RT_OTHER_PASSWORD={self.other_password}",
                              "--env", f"RT_CRON_KEY={self.cron_key}", self.web, "php",
-                             f"{TESTS_DIR}/fixtures.php", stage, check=False, timeout=600)
+                             f"{TESTS_DIR}/fixtures.php", stage, *arguments, check=False, timeout=600)
         self.notes.setdefault("fixtures", []).append((stage, completed.stdout + completed.stderr))
         if completed.returncode != 0:
             raise CheckFailed(f"fixtures.php {stage} failed:\n{(completed.stdout + completed.stderr)[-1500:]}")
@@ -1559,6 +1559,41 @@ def membership(stack: Stack) -> str:
     return "dues invoice by its subscription link, sale to the member untouched, mixed invoice most careful"
 
 
+def payment_trigger(stack: Stack) -> str:
+    """A payment and a correction re-evaluate the case at once, without the daily run (#36)."""
+    browser = stack.browser()
+    invoice_row = stack.php_fixture("payment")["invoice"]
+    dashboard = page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard")
+    page_ok(browser.submit(form_with_action(dashboard, "sync_cases", "dashboard")), "synchronise")
+    case = stack.value(f"SELECT rowid FROM llx_mahnwesen_case WHERE fk_facture = {invoice_row['id']}")
+    expect(stack.value(f"SELECT ROUND(remaining_amount, 2) FROM llx_mahnwesen_case WHERE rowid = {case}") == "48.00",
+           "the case of the new invoice does not hold its open amount (#36)")
+
+    # 10 of 48 paid: the case follows at once, nothing else runs.
+    stack.php_fixture("pay", str(invoice_row["id"]), "10")
+    after_part = stack.sql(f"SELECT ROUND(remaining_amount, 2), status FROM llx_mahnwesen_case WHERE rowid = {case}")[0]
+    expect(after_part == ["38.00", "open"], f"after a partial payment the case holds {after_part} (#36)")
+
+    # The rest: the case is done, without the daily run.
+    stack.php_fixture("pay", str(invoice_row["id"]), "38")
+    after_full = stack.sql(f"SELECT ROUND(remaining_amount, 2), status FROM llx_mahnwesen_case WHERE rowid = {case}")[0]
+    paid = stack.value(f"SELECT paye FROM llx_facture WHERE rowid = {invoice_row['id']}")
+    expect(after_full[1] in ("closed", "fee_open") and paid == "1",
+           f"after full payment the case is {after_full} while the invoice is paid={paid} (#36)")
+    history = stack.sql(f"SELECT action FROM llx_mahnwesen_history WHERE fk_case = {case} ORDER BY rowid")
+    expect(any(row[0] == "case_closed" for row in history), f"the history of the paid case is {history} (#36)")
+
+    # A cancelled payment reopens the case, without repeating notices.
+    payment = stack.value(f"SELECT fk_paiement FROM llx_paiement_facture WHERE fk_facture = {invoice_row['id']} ORDER BY rowid DESC LIMIT 1")
+    before_notices = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE fk_case = {case} AND action = 'notice_sent'")
+    stack.php_fixture("unpay", str(payment))
+    reopened = stack.sql(f"SELECT ROUND(remaining_amount, 2), status FROM llx_mahnwesen_case WHERE rowid = {case}")[0]
+    after_notices = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE fk_case = {case} AND action = 'notice_sent'")
+    expect(reopened[1] == "open" and float(reopened[0]) > 0 and after_notices == before_notices,
+           f"after the payment was cancelled the case is {reopened} with {after_notices} notices instead of {before_notices} (#36)")
+    return "payment, full payment and cancellation reach the case at once, without the daily run"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1591,6 +1626,7 @@ SCENARIOS = (
     ("interest", "Late-payment interest per profile, to the cent", interest, ("profiles",)),
     ("claim-invoice", "Open fees and interest as their own invoice", claim_invoice, ("interest",)),
     ("membership", "A dues invoice is known by its subscription", membership, ("claim-invoice",)),
+    ("payment-trigger", "A payment reaches the case at once", payment_trigger, ("synchronise",)),
 )
 
 

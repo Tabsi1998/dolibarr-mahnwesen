@@ -78,6 +78,10 @@ Mahnspesen stehen in **Mahnprofilen**: Ein Profil legt je Stufe Tage, Spesen und
 
 Beim Update auf 1.3.1 werden die bisherigen Spesen für Unternehmen und Privatpersonen zu Profilen, sodass jeder Kunde dieselben Spesen zahlt wie vorher.
 
+## Zahlungen
+
+Eine Zahlung, ein Zahlungsstorno oder eine Korrektur an der Rechnung wirkt sofort auf den Mahnfall, über Dolibarrs eigene Auslöser. Eine Teilzahlung senkt den offenen Betrag, die vollständige Zahlung beendet den Fall, ein Storno öffnet ihn wieder, ohne bereits versandte Mahnungen zu wiederholen. Der tägliche Lauf bleibt als Netz bestehen. Mahnspesen und Zinsen im Nebenbuch sind davon getrennt: Die Zahlung der Rechnung bezahlt sie nicht automatisch.
+
 ## Mitgliedsbeiträge
 
 Eine Beitragsrechnung erkennt das Modul an Dolibarrs eigener Verknüpfung zwischen Rechnung und Mitgliedsbeitrag, egal ob sie über die Mitgliedskarte oder einen Beitragslauf entstanden ist. Nur diese Verknüpfung gilt als Nachweis: Ein Verkauf an ein Mitglied bleibt ein gewöhnlicher Verkauf, auch bei gleicher Kundenkategorie oder E-Mail. Die Vorlage *Mitgliedsbeitrag* legt dafür ein Profil an, ausgeschaltet, ohne Gebühren und ohne Automatik, mit dem letzten Schritt „Mitgliedschaft prüfen“. Ist eine Rechnung zugleich Beitrag und Verkauf, gilt das vorsichtigste Profil. Der Reiter *Mahnwesen* verlinkt zur Mitgliedschaft, wenn der Benutzer Mitglieder sehen darf.

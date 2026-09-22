@@ -36,12 +36,13 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '1.3.5';
+        $this->version = '1.4.0';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
         $this->module_parts = array(
-            'triggers' => 0,
+            // A payment or a correction of an invoice re-evaluates its case at once (#36).
+            'triggers' => 1,
             'login' => 0,
             'substitutions' => 0,
             'menus' => 0,

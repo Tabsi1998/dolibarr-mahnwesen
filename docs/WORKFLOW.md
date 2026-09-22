@@ -83,6 +83,10 @@ Every stage setting comes from the invoice's dunning profile (#32). The first ru
 
 The profile holds the interest rule: none, a fixed rate, or the base rate of each day plus a surcharge in percentage points. Interest is counted per day on the open amount, from the day after the due date up to today, and shown in the tab, the email and the letter. A delivered notice books it in the ledger, where a new interest claim replaces the open one of the same case, so nothing is counted twice. The Dolibarr invoice stays as it is (#33).
 
+## Payments and corrections
+
+Dolibarr's own triggers for customer payments and invoice changes re-evaluate the case of every invoice they touch, with the same evaluation the daily run uses. A part payment lowers the open amount, full payment closes the case (or leaves it with open fees), and a cancelled payment opens it again; stages that were already sent stay sent and are not repeated. A failure of the re-evaluation never rolls back the payment: the daily run repairs the case (#36).
+
 ## Membership fees
 
 An invoice counts as a membership fee only through Dolibarr's own link between the invoice and the subscription (`llx_element_element`, sourcetype `subscription`). A customer category, a note or the same email is not proof, so a sale to a member keeps its ordinary profile. A profile marked for membership fee invoices then applies; on an invoice that is both a fee and a sale, the most careful of the profiles that apply is used. Whether a membership is reviewed afterwards is the profile's final step; acting on it is #59 (#58).
