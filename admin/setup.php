@@ -300,7 +300,7 @@ if ($tab === 'profiles') {
     if (!isModEnabled('categorie')) { print '<div class="warning">'.$langs->trans('MahnwesenProfilesNoCategories').'</div><br>'; }
     if ($action === 'delete_profile' && isset($profiles[$profileId]) && empty($profiles[$profileId]['is_default'])) {
         print $form->formconfirm($_SERVER['PHP_SELF'].'?tab=profiles&profile='.$profileId, $langs->trans('MahnwesenProfileDelete'),
-            $langs->trans('MahnwesenProfileDeleteConfirm', dol_escape_htmltag($profiles[$profileId]['label'])), 'confirm_delete_profile', '', 0, 1);
+            '<strong>'.dol_escape_htmltag($profiles[$profileId]['label']).'</strong><br>'.$langs->trans('MahnwesenProfileDeleteConfirm'), 'confirm_delete_profile', '', 0, 1);
     }
     $steps = $manager->getFinalSteps();
     if ($editProfile && isset($profiles[$profileId])) {
@@ -369,7 +369,8 @@ if ($tab === 'profiles') {
 
 if ($tab === 'stages' && isset($profiles[$profileId])) {
     print mw4_profile_selector('stages', $profiles, $profileId, $langs);
-    print '<div class="info">'.$langs->trans('MahnwesenStagesProfileIntro', dol_escape_htmltag($profiles[$profileId]['label']), mw4_profile_scope($manager, $profiles[$profileId], $langs)).'</div><br>';
+    print '<div class="info">'.$langs->trans('MahnwesenStagesOfProfile').' <strong>'.dol_escape_htmltag($profiles[$profileId]['label']).'</strong>. '
+        .$langs->trans('MahnwesenProfileAppliesTo').': '.mw4_profile_scope($manager, $profiles[$profileId], $langs).'. '.$langs->trans('MahnwesenStageFeeTotalHelp').'</div><br>';
     print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=stages">';
     print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="save_stages"><input type="hidden" name="profile" value="'.((int) $profileId).'">';
     print '<div class="div-table-responsive"><table class="noborder centpercent">';

@@ -309,7 +309,7 @@ trait DunningManagerProfiles
                 $class = $this->classifyThirdparty((object) array('id' => $socid));
                 $type = $class['class'] === 'consumer' ? 'private' : ($class['class'] === 'business' ? 'company' : '');
                 if ($type !== '' && isset($matches['customer_type'][$type]) && isset($active[$matches['customer_type'][$type]])) {
-                    $found[$matches['customer_type'][$type]] = array($langs->trans($type === 'private' ? 'MahnwesenCustomerTypePrivate' : 'MahnwesenCustomerTypeCompany'));
+                    $found[$matches['customer_type'][$type]] = array($langs->transnoentitiesnoconv($type === 'private' ? 'MahnwesenCustomerTypePrivate' : 'MahnwesenCustomerTypeCompany'));
                     $reason = 'customer_type';
                 }
             }
@@ -372,7 +372,8 @@ trait DunningManagerProfiles
     }
 
     /**
-     * The profile of an invoice and why, in one phrase. HTML, names escaped.
+     * The profile of an invoice and why, in one phrase. HTML, names escaped;
+     * they stay out of trans(), which would encode them a second time.
      *
      * @param array $resolution From resolveProfile()
      * @return string
@@ -388,20 +389,22 @@ trait DunningManagerProfiles
             'unreadable' => 'MahnwesenProfileReasonUnreadable',
             'default' => 'MahnwesenProfileReasonDefault',
         );
-        $html = '<strong>'.dol_escape_htmltag($resolution['profile']['label']).'</strong> - '
-            .$langs->trans($reasons[$resolution['reason']], dol_escape_htmltag(implode(', ', $resolution['names'])));
+        $html = '<strong>'.dol_escape_htmltag($resolution['profile']['label']).'</strong> - '.$langs->trans($reasons[$resolution['reason']]);
+        if ($resolution['names']) {
+            $html .= ' '.dol_escape_htmltag(implode(', ', $resolution['names']));
+        }
         if (count($resolution['candidates']) > 1) {
             $profiles = $this->getProfiles();
             $labels = array();
             foreach ($resolution['candidates'] as $id) {
                 $labels[] = isset($profiles[$id]) ? $profiles[$id]['label'] : '#'.$id;
             }
-            $html .= '. '.$langs->trans('MahnwesenProfileSeveral', dol_escape_htmltag(implode(', ', $labels)));
+            $html .= '. '.$langs->trans('MahnwesenProfileSeveral').' '.dol_escape_htmltag(implode(', ', $labels)).'. '.$langs->trans('MahnwesenProfileMostCareful');
         }
         $steps = $this->getFinalSteps();
         $step = (string) $resolution['profile']['final_step'];
         if ($step !== 'none' && isset($steps[$step])) {
-            $html .= '<br><span class="opacitymedium">'.$langs->trans('MahnwesenFinalStepAfter', $langs->trans($steps[$step])).'</span>';
+            $html .= '<br><span class="opacitymedium">'.$langs->trans('MahnwesenFinalStepAfter', $langs->transnoentitiesnoconv($steps[$step])).'</span>';
         }
         return $html;
     }
@@ -441,7 +444,7 @@ trait DunningManagerProfiles
         }
         foreach ($this->getProfiles(true) as $profile) {
             if ($profile['code'] === $code) {
-                $this->error = $langs->trans('MahnwesenProfilePresetExists', $profile['label']);
+                $this->error = $langs->trans('MahnwesenProfilePresetExists').' '.dol_escape_htmltag($profile['label']);
                 return 0;
             }
         }
@@ -526,7 +529,7 @@ trait DunningManagerProfiles
             }
         }
         if ($taken) {
-            $this->error = $langs->trans('MahnwesenProfileMatchTaken', implode(', ', $taken));
+            $this->error = $langs->trans('MahnwesenProfileMatchTaken').' '.dol_escape_htmltag(implode(', ', $taken));
             return false;
         }
         $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;

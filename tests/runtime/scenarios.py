@@ -1338,7 +1338,7 @@ def profiles(stack: Stack) -> str:
         return html.unescape(re.sub(r"<[^>]+>", " ", page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={made[key]['id']}"), f"tab {key}").text))
     mixed = tab("mixed")
     expect("Runtime Mitgliedsbeitrag" in mixed and "Mitgliedsbeitrag, Merchandise" in mixed and "Runtime Merchandise" in mixed
-           and any(text.split("(")[0] in mixed for text in translations("MahnwesenProfileSeveral")),
+           and any(text in mixed for text in translations("MahnwesenProfileMostCareful")),
            "the tab of a mixed invoice does not say that several profiles apply and the most careful one holds (#32)")
     expect(any(text in tab("membership") for text in translations("MahnwesenFinalStepMembership")),
            "the tab of a dues invoice does not name the final step of its profile (#32)")
