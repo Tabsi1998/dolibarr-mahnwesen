@@ -1,4 +1,4 @@
-﻿"""What the runtime checks prove in a running Dolibarr.
+"""What the runtime checks prove in a running Dolibarr.
 
 scripts/local_check.py starts one Dolibarr per supported version with MariaDB
 and Mailpit, runs the base stage of fixtures.php, and then calls the scenarios
