@@ -131,7 +131,7 @@ elseif ($calculatedLevel > 0 && $level <= 0) { setEventMessages($langs->trans('M
 $customerLang = (!empty($invoice->thirdparty) && !empty($invoice->thirdparty->default_lang)) ? (string) $invoice->thirdparty->default_lang : $langs->defaultlang;
 $templateId = GETPOSTINT('modelmailselected');
 $template = ($templateId > 0 && $level > 0) ? $service->getTemplateById($templateId, $level, $customerLang, $user) : false;
-if ($template === false && $level > 0) { $template = $service->getTemplate($level, $customerLang, $user); }
+if ($template === false && $level > 0) { $template = $service->getTemplate($level, $customerLang, $user, $workflow ? (int) $workflow['profile_id'] : 0); }
 if ($template === false && $level > 0) { setEventMessages($service->error, $service->errors, 'errors'); }
 if ($template !== false) { $templateId = (int) $template['source_id']; }
 $templateLang = ($template !== false && !empty($template['lang'])) ? (string) $template['lang'] : $customerLang;

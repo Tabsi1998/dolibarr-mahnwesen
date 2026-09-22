@@ -7,6 +7,33 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-22
+
+Dunning profiles: the right rules for each kind of claim.
+
+### Added
+
+- Dunning profiles under *Setup > Dunning profiles*. A profile sets the
+  stages with their days, fees and payment periods, whether notices may go
+  out automatically, the email templates and the step after the last stage
+  (consider debt collection, review the membership, nothing). Which profile
+  applies is decided in this order: the choice on the invoice (new field
+  *Dunning profile*), the categories of the products and services on the
+  invoice, the customer's categories, the customer's type, then the standard
+  profile. When several profiles apply, as on an invoice with a membership fee
+  and merchandise, the most careful one applies. The dunning tab says which
+  profile applies and why, and the dry run names it for every invoice (#32).
+- The presets *Company (AT)* and *Club* add a profile with its name,
+  automatic sending and final step, switched off and without amounts (#32).
+
+### Changed
+
+- The fees for companies and for private persons, and the switches that
+  allowed fees for private persons and customers of unclear type, become
+  profiles when the module is activated after the update: every customer pays
+  the fees they paid before. A new installation has one standard profile
+  without fees (#32).
+
 ## [1.3.0] - 2026-09-22
 
 A dunning block for customers and invoices.
@@ -445,7 +472,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.1
 [1.3.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.0
 [1.2.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.3
 [1.2.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.2.2

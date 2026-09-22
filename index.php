@@ -242,11 +242,11 @@ if ($action === 'dry_run' && !empty($dryRunCounts)) {
     print '<div class="info" id="mahnwesen-dry-run-summary">'.$langs->trans('MahnwesenDryRunSummary', $dryRunCounts['send'], $dryRunCounts['skip'], $dryRunCounts['fail'], $dryRunCounts['off']).' '.$langs->trans('MahnwesenDryRunShown', $dryRunCounts['shown']).'</div>';
 }
 if (!empty($dryRunRows)) {
-    print '<div class="div-table-responsive"><table class="tagtable liste centpercent"><tr class="liste_titre"><th>'.$langs->trans('Invoice').'</th><th>'.$langs->trans('ThirdParty').'</th><th>'.$langs->trans('DunningStage').'</th><th>'.$langs->trans('Decision').'</th><th>'.$langs->trans('Reason').'</th></tr>';
+    print '<div class="div-table-responsive"><table class="tagtable liste centpercent"><tr class="liste_titre"><th>'.$langs->trans('Invoice').'</th><th>'.$langs->trans('ThirdParty').'</th><th>'.$langs->trans('MahnwesenProfile').'</th><th>'.$langs->trans('DunningStage').'</th><th>'.$langs->trans('Decision').'</th><th>'.$langs->trans('Reason').'</th></tr>';
     foreach ($dryRunRows as $dry) {
         $r = $dry['row'];
         $url = dol_buildpath('/mahnwesen/invoice.php?id='.(int) $r['invoice_id'], 1);
-        print '<tr class="oddeven"><td><a href="'.dol_escape_htmltag($url).'">'.dol_escape_htmltag($r['invoice_ref']).'</a></td><td>'.dol_escape_htmltag($r['socname']).'</td><td>'.($dry['level'] > 0 ? $langs->trans($manager->getStageLabelKey($dry['level'])) : '-').'</td><td data-decision="'.dol_escape_htmltag($dry['decision']).'">'.$langs->trans('MahnwesenDryRunDecision_'.$dry['decision']).'</td><td data-detail="'.dol_escape_htmltag($dry['detail']).'">'.($dry['decision'] === 'send' ? '' : $langs->trans('MahnwesenDryRunDetail_'.$dry['detail'])).'</td></tr>';
+        print '<tr class="oddeven"><td><a href="'.dol_escape_htmltag($url).'">'.dol_escape_htmltag($r['invoice_ref']).'</a></td><td>'.dol_escape_htmltag($r['socname']).'</td><td data-profile="'.((int) $r['profile_id']).'">'.dol_escape_htmltag($r['profile_label']).'</td><td>'.($dry['level'] > 0 ? $langs->trans($manager->getStageLabelKey($dry['level'])) : '-').'</td><td data-decision="'.dol_escape_htmltag($dry['decision']).'">'.$langs->trans('MahnwesenDryRunDecision_'.$dry['decision']).'</td><td data-detail="'.dol_escape_htmltag($dry['detail']).'">'.($dry['decision'] === 'send' ? '' : $langs->trans('MahnwesenDryRunDetail_'.$dry['detail'])).'</td></tr>';
     }
     print '</table></div><br>';
 }

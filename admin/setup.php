@@ -35,20 +35,56 @@ if (!isModEnabled('mahnwesen')) { accessforbidden(); }
 $manager = new DunningManager($db);
 $notice = new DunningNoticeService($db, $manager);
 $manager->ensureRuleRows($user);
+// Stages and templates are set per dunning profile (#32).
+$profiles = $manager->getProfiles();
+$profileId = GETPOSTINT('profile');
+if (!isset($profiles[$profileId])) { $profileId = $manager->getDefaultProfileId($user); }
+$manager->ensureRuleRows($user, $profileId);
 
 $tab = GETPOST('tab', 'aZ09');
-if (!in_array($tab, array('general', 'stages', 'templates', 'automation'), true)) { $tab = 'general'; }
+if (!in_array($tab, array('general', 'profiles', 'stages', 'templates', 'automation'), true)) { $tab = 'general'; }
 $action = GETPOST('action', 'aZ09');
+$editProfile = GETPOSTINT('edit') > 0;
 
 function mw4_set_const($db, $name, $value, $entity)
 {
     return dolibarr_set_const($db, $name, (string) $value, 'chaine', 0, '', $entity) > 0;
 }
 
-function mw4_redirect($tab)
+function mw4_redirect($tab, $profileId = 0)
 {
-    header('Location: '.$_SERVER['PHP_SELF'].'?tab='.urlencode($tab));
+    header('Location: '.$_SERVER['PHP_SELF'].'?tab='.urlencode($tab).($profileId > 0 ? '&profile='.((int) $profileId) : ''));
     exit;
+}
+
+/** Choice of the profile whose stages or templates the tab shows. */
+function mw4_profile_selector($tab, $profiles, $profileId, $langs)
+{
+    $html = '<form method="GET" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'" class="marginbottomonly"><input type="hidden" name="tab" value="'.dol_escape_htmltag($tab).'">';
+    $html .= '<label for="profile">'.$langs->trans('MahnwesenProfile').'</label> <select name="profile" id="profile" class="minwidth200">';
+    foreach ($profiles as $id => $profile) {
+        $html .= '<option value="'.((int) $id).'"'.((int) $id === (int) $profileId ? ' selected' : '').'>'.dol_escape_htmltag($profile['label'].(empty($profile['active']) ? ' ('.$langs->transnoentitiesnoconv('Disabled').')' : '')).'</option>';
+    }
+    return $html.'</select> <button class="button smallpaddingimp" type="submit">'.$langs->trans('Refresh').'</button></form>';
+}
+
+/** What leads an invoice to a profile, in words. HTML. */
+function mw4_profile_scope($manager, $profile, $langs)
+{
+    if (!empty($profile['is_default'])) { return $langs->trans('MahnwesenProfileAppliesDefault'); }
+    $matches = $manager->getMatchesOfProfile((int) $profile['id']);
+    $parts = array();
+    foreach (array('product_category' => array(0, 'MahnwesenProfileProductCategories'), 'customer_category' => array(2, 'MahnwesenProfileCustomerCategories')) as $kind => $info) {
+        if (empty($matches[$kind])) { continue; }
+        $choices = $manager->getCategoryChoices($info[0]);
+        $names = array();
+        foreach ($matches[$kind] as $id) { $names[] = isset($choices[$id]) ? $choices[$id] : '#'.$id; }
+        $parts[] = $langs->trans($info[1]).': '.dol_escape_htmltag(implode(', ', $names));
+    }
+    if ($matches['customer_type'] !== '') {
+        $parts[] = $langs->trans('MahnwesenProfileCustomerType').': '.$langs->trans($matches['customer_type'] === 'private' ? 'MahnwesenCustomerTypePrivate' : 'MahnwesenCustomerTypeCompany');
+    }
+    return $parts ? implode('; ', $parts) : $langs->trans('MahnwesenProfileAppliesChoiceOnly');
 }
 
 if ($action === 'create_starter_templates') {
@@ -75,11 +111,11 @@ if ($action === 'save_templates') {
         $db->begin();
         $ok = true;
         foreach ($choices as $level => $ref) {
-            if (!$manager->saveRuleTemplate($level, $ref, $user)) { $ok = false; break; }
+            if (!$manager->saveRuleTemplate($level, $ref, $user, $profileId)) { $ok = false; break; }
         }
         if ($ok) { $db->commit(); setEventMessages($langs->trans('SetupSaved'), null, 'mesgs'); }
         else { $db->rollback(); setEventMessages($manager->error ?: $langs->trans('Error'), null, 'errors'); }
-        mw4_redirect('templates');
+        mw4_redirect('templates', $profileId);
     }
     setEventMessages('', $errors, 'errors');
     $tab = 'templates';
@@ -106,15 +142,14 @@ if ($action === 'save_general') {
 }
 
 if ($action === 'save_stages') {
-    $days = array(); $paymentDays = array(); $businessFees = array(); $privateStageFees = array(); $send = array(); $enabledStages = array(); $errors = array();
+    $days = array(); $paymentDays = array(); $fees = array(); $send = array(); $enabledStages = array(); $errors = array();
     for ($level = 1; $level <= 4; $level++) {
         $days[$level] = GETPOSTINT('stage_days_'.$level);
         $paymentDays[$level] = GETPOSTINT('stage_payment_days_'.$level);
-        $businessFees[$level] = (float) price2num(GETPOST('stage_business_fee_'.$level, 'alpha'));
-        $privateStageFees[$level] = (float) price2num(GETPOST('stage_private_fee_'.$level, 'alpha'));
+        $fees[$level] = (float) price2num(GETPOST('stage_fee_'.$level, 'alpha'));
         $send[$level] = GETPOSTINT('stage_auto_send_'.$level) > 0 ? 1 : 0;
         $enabledStages[$level] = GETPOSTINT('stage_enabled_'.$level) > 0 ? 1 : 0;
-        if ($days[$level] < 0 || $paymentDays[$level] < 0 || $paymentDays[$level] > 365 || $businessFees[$level] < 0 || $privateStageFees[$level] < 0) {
+        if ($days[$level] < 0 || $paymentDays[$level] < 0 || $paymentDays[$level] > 365 || $fees[$level] < 0) {
             $errors[] = $langs->trans('MahnwesenStageValuesInvalid', $level);
         }
     }
@@ -122,24 +157,53 @@ if ($action === 'save_stages') {
         $errors[] = $langs->trans('StageDaysMustBeAscending');
     }
     if (array_sum($enabledStages) < 1) { $errors[] = $langs->trans('MahnwesenAtLeastOneStage'); }
-    $privateFeesAllowed = GETPOSTINT('private_fees_allowed') > 0 ? 1 : 0;
-    $unknownFees = GETPOSTINT('unknown_fees_allowed') > 0 ? 1 : 0;
     if (empty($errors)) {
         $db->begin();
         $ok = true;
         for ($level = 1; $level <= 4; $level++) {
             // Keep the template chosen on the templates tab.
-            $currentTemplate = (string) $manager->getRuleByLevel($level)['email_template'];
-            if (!$manager->saveRule($level, $days[$level], $businessFees[$level], $send[$level], $currentTemplate, $user, $enabledStages[$level], $privateStageFees[$level], $paymentDays[$level])) { $ok = false; break; }
+            $currentTemplate = (string) $manager->getRuleByLevel($level, $profileId)['email_template'];
+            if (!$manager->saveRule($level, $days[$level], $fees[$level], $send[$level], $currentTemplate, $user, $enabledStages[$level], $paymentDays[$level], $profileId)) { $ok = false; break; }
         }
-        if ($ok) { $ok = mw4_set_const($db, 'MAHNWESEN_PRIVATE_FEES_ALLOWED', $privateFeesAllowed, $conf->entity); }
-        if ($ok) { $ok = mw4_set_const($db, 'MAHNWESEN_UNKNOWN_FEES_ALLOWED', $unknownFees, $conf->entity); }
         if ($ok) { $db->commit(); setEventMessages($langs->trans('SetupSaved'), null, 'mesgs'); }
         else { $db->rollback(); setEventMessages($manager->error ?: $langs->trans('Error'), null, 'errors'); }
-        mw4_redirect('stages');
+        mw4_redirect('stages', $profileId);
     }
     setEventMessages('', $errors, 'errors');
     $tab = 'stages';
+}
+
+if ($action === 'create_profile' || $action === 'add_profile_preset') {
+    $newProfile = $action === 'create_profile'
+        ? $manager->createProfile(GETPOST('profile_label', 'alphanohtml'), $user)
+        : $manager->createProfile('', $user, GETPOST('preset', 'aZ09'));
+    if ($newProfile > 0) {
+        setEventMessages($langs->trans('SetupSaved'), null, 'mesgs');
+        header('Location: '.$_SERVER['PHP_SELF'].'?tab=profiles&profile='.$newProfile.'&edit=1');
+        exit;
+    }
+    setEventMessages($manager->error ?: $langs->trans('Error'), null, 'errors');
+    $tab = 'profiles';
+}
+
+if ($action === 'save_profile') {
+    if ($manager->saveProfile($profileId, GETPOST('profile_label', 'alphanohtml'), GETPOSTINT('profile_active'), GETPOSTINT('profile_auto_allowed'),
+        GETPOST('profile_final_step', 'aZ09'), GETPOST('product_categories', 'array'), GETPOST('customer_categories', 'array'), GETPOST('customer_type', 'aZ09'), $user)) {
+        setEventMessages($langs->trans('SetupSaved'), null, 'mesgs');
+        mw4_redirect('profiles');
+    }
+    setEventMessages($manager->error ?: $langs->trans('Error'), null, 'errors');
+    $tab = 'profiles';
+    $editProfile = true;
+}
+
+if ($action === 'confirm_delete_profile' && GETPOST('confirm', 'alpha') === 'yes') {
+    if ($manager->deleteProfile($profileId)) {
+        setEventMessages($langs->trans('SetupSaved'), null, 'mesgs');
+        mw4_redirect('profiles');
+    }
+    setEventMessages($manager->error ?: $langs->trans('Error'), null, 'errors');
+    $tab = 'profiles';
 }
 
 if ($action === 'save_automation') {
@@ -187,13 +251,13 @@ if ($action === 'save_automation') {
     $tab = 'automation';
 }
 
-$rules = $manager->getRules(true);
+$profiles = $manager->getProfiles(true);
+if (!isset($profiles[$profileId])) { $profileId = $manager->getDefaultProfileId($user); }
+$rules = $manager->getRules(true, $profileId);
 $nativeTemplates = $notice->getNativeTemplates();
 $minAmount = getDolGlobalString('MAHNWESEN_MIN_AMOUNT', '1.00');
 $maxScan = getDolGlobalInt('MAHNWESEN_MAX_SCAN', 500);
 $includeDeposits = getDolGlobalInt('MAHNWESEN_INCLUDE_DEPOSITS', 0);
-$unknownFees = getDolGlobalInt('MAHNWESEN_UNKNOWN_FEES_ALLOWED', 0);
-$privateFeesAllowed = getDolGlobalInt('MAHNWESEN_PRIVATE_FEES_ALLOWED', 0);
 $fromEmail = getDolGlobalString('MAHNWESEN_FROM_EMAIL');
 $manual = getDolGlobalInt('MAHNWESEN_MANUAL_SEND_ENABLED', 0);
 $auto = getDolGlobalInt('MAHNWESEN_AUTO_SEND_ENABLED', 0);
@@ -212,6 +276,7 @@ print load_fiche_titre($langs->trans('MahnwesenSetup'), $linkback, 'title_setup'
 
 $head = array(
     array($_SERVER['PHP_SELF'].'?tab=general', $langs->trans('MahnwesenTabGeneral'), 'general'),
+    array($_SERVER['PHP_SELF'].'?tab=profiles', $langs->trans('MahnwesenTabProfiles'), 'profiles'),
     array($_SERVER['PHP_SELF'].'?tab=stages', $langs->trans('MahnwesenTabStagesFees'), 'stages'),
     array($_SERVER['PHP_SELF'].'?tab=templates', $langs->trans('MahnwesenTabTemplates'), 'templates'),
     array($_SERVER['PHP_SELF'].'?tab=automation', $langs->trans('MahnwesenTabAutomation'), 'automation'),
@@ -229,44 +294,112 @@ if ($tab === 'general') {
     print '</table><div class="center"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button></div></form>';
 }
 
-if ($tab === 'stages') {
-    print '<div class="info">'.$langs->trans('MahnwesenFeesSimpleIntro').'</div><br>';
+if ($tab === 'profiles') {
+    $form = new Form($db);
+    print '<div class="info">'.$langs->trans('MahnwesenProfilesIntro').'</div><br>';
+    if (!isModEnabled('categorie')) { print '<div class="warning">'.$langs->trans('MahnwesenProfilesNoCategories').'</div><br>'; }
+    if ($action === 'delete_profile' && isset($profiles[$profileId]) && empty($profiles[$profileId]['is_default'])) {
+        print $form->formconfirm($_SERVER['PHP_SELF'].'?tab=profiles&profile='.$profileId, $langs->trans('MahnwesenProfileDelete'),
+            $langs->trans('MahnwesenProfileDeleteConfirm', dol_escape_htmltag($profiles[$profileId]['label'])), 'confirm_delete_profile', '', 0, 1);
+    }
+    $steps = $manager->getFinalSteps();
+    if ($editProfile && isset($profiles[$profileId])) {
+        $profile = $profiles[$profileId];
+        $matches = $manager->getMatchesOfProfile($profileId);
+        $isDefault = !empty($profile['is_default']);
+        print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=profiles">';
+        print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="save_profile"><input type="hidden" name="profile" value="'.((int) $profileId).'">';
+        print '<table class="border centpercent tableforfield">';
+        print '<tr><td class="titlefield"><label for="profile_label">'.$langs->trans('Label').'</label></td><td><input class="minwidth300" maxlength="255" name="profile_label" id="profile_label" value="'.dol_escape_htmltag($profile['label']).'"></td></tr>';
+        print '<tr><td><label for="profile_active">'.$langs->trans('MahnwesenProfileActive').'</label></td><td>'.($isDefault ? $langs->trans('MahnwesenProfileAlwaysActive')
+            : '<input type="checkbox" name="profile_active" id="profile_active" value="1"'.(!empty($profile['active']) ? ' checked' : '').'>').'</td></tr>';
+        print '<tr><td><label for="profile_auto_allowed">'.$langs->trans('MahnwesenProfileAutoAllowed').'</label></td><td><input type="checkbox" name="profile_auto_allowed" id="profile_auto_allowed" value="1"'.(!empty($profile['auto_allowed']) ? ' checked' : '').'> <span class="opacitymedium">'.$langs->trans('MahnwesenProfileAutoAllowedHelp').'</span></td></tr>';
+        print '<tr><td><label for="profile_final_step">'.$langs->trans('MahnwesenFinalStep').'</label></td><td><select name="profile_final_step" id="profile_final_step">';
+        foreach ($steps as $step => $stepKey) {
+            print '<option value="'.$step.'"'.($profile['final_step'] === $step ? ' selected' : '').'>'.$langs->trans($stepKey).'</option>';
+        }
+        print '</select></td></tr>';
+        if ($isDefault) {
+            print '<tr><td>'.$langs->trans('MahnwesenProfileAppliesTo').'</td><td>'.$langs->trans('MahnwesenProfileAppliesDefault').'</td></tr>';
+        } else {
+            print '<tr><td>'.$langs->trans('MahnwesenProfileProductCategories').'</td><td>'.$form->multiselectarray('product_categories', $manager->getCategoryChoices(0), $matches['product_category'], 0, 0, 'minwidth300').'</td></tr>';
+            print '<tr><td>'.$langs->trans('MahnwesenProfileCustomerCategories').'</td><td>'.$form->multiselectarray('customer_categories', $manager->getCategoryChoices(2), $matches['customer_category'], 0, 0, 'minwidth300').'</td></tr>';
+            print '<tr><td><label for="customer_type">'.$langs->trans('MahnwesenProfileCustomerType').'</label></td><td><select name="customer_type" id="customer_type"><option value=""></option>';
+            foreach (array('private' => 'MahnwesenCustomerTypePrivate', 'company' => 'MahnwesenCustomerTypeCompany') as $type => $typeKey) {
+                print '<option value="'.$type.'"'.($matches['customer_type'] === $type ? ' selected' : '').'>'.$langs->trans($typeKey).'</option>';
+            }
+            print '</select></td></tr>';
+        }
+        print '</table><div class="center margintoponly"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button> ';
+        print '<a class="button button-cancel" href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?tab=profiles').'">'.$langs->trans('Cancel').'</a> ';
+        print '<a class="button" href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?tab=stages&profile='.$profileId).'">'.$langs->trans('MahnwesenTabStagesFees').'</a></div></form>';
+    } else {
+        print '<div class="div-table-responsive"><table class="noborder centpercent">';
+        print '<tr class="liste_titre"><th>'.$langs->trans('MahnwesenProfile').'</th><th>'.$langs->trans('MahnwesenProfileAppliesTo').'</th><th>'.$langs->trans('MahnwesenProfileAutoAllowed').'</th><th>'.$langs->trans('MahnwesenFinalStep').'</th><th>'.$langs->trans('Status').'</th><th></th></tr>';
+        foreach ($profiles as $id => $profile) {
+            print '<tr class="oddeven" data-profile="'.dol_escape_htmltag($profile['code']).'">';
+            print '<td><a href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?tab=profiles&profile='.$id.'&edit=1').'">'.dol_escape_htmltag($profile['label']).'</a></td>';
+            print '<td>'.mw4_profile_scope($manager, $profile, $langs).'</td>';
+            print '<td>'.yesno($profile['auto_allowed'], 1).'</td>';
+            print '<td>'.$langs->trans(isset($steps[$profile['final_step']]) ? $steps[$profile['final_step']] : 'MahnwesenFinalStepNone').'</td>';
+            print '<td>'.(!empty($profile['active']) ? '<span class="badge badge-status4">'.$langs->trans('Enabled').'</span>' : '<span class="badge badge-status8">'.$langs->trans('Disabled').'</span>').'</td>';
+            print '<td class="right nowraponall"><a class="editfielda marginrightonly" href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?tab=profiles&profile='.$id.'&edit=1').'">'.img_edit().'</a>';
+            print '<a class="marginrightonly" href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?tab=stages&profile='.$id).'">'.$langs->trans('MahnwesenTabStagesFees').'</a>';
+            if (empty($profile['is_default'])) {
+                print '<a href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?tab=profiles&profile='.$id.'&action=delete_profile&token='.newToken()).'">'.img_delete().'</a>';
+            }
+            print '</td></tr>';
+        }
+        print '</table></div><br>';
+        print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=profiles" class="marginbottomonly">';
+        print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="create_profile">';
+        print '<label for="profile_label">'.$langs->trans('MahnwesenProfileNewLabel').'</label> <input class="minwidth200" maxlength="255" name="profile_label" id="profile_label"> ';
+        print '<button class="button" type="submit">'.$langs->trans('MahnwesenProfileCreate').'</button></form>';
+        $codes = array();
+        foreach ($profiles as $profile) { $codes[$profile['code']] = true; }
+        foreach ($manager->getProfilePresets() as $preset => $settings) {
+            if (isset($codes[$preset])) { continue; }
+            print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=profiles" class="inline-block marginrightonly">';
+            print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="add_profile_preset"><input type="hidden" name="preset" value="'.$preset.'">';
+            print '<button class="button" type="submit">'.$langs->trans('MahnwesenAddPreset', $langs->transnoentitiesnoconv($settings['label'])).'</button></form>';
+        }
+        print '<div class="opacitymedium margintoponly">'.$langs->trans('MahnwesenPresetHelp').'</div>';
+    }
+}
+
+if ($tab === 'stages' && isset($profiles[$profileId])) {
+    print mw4_profile_selector('stages', $profiles, $profileId, $langs);
+    print '<div class="info">'.$langs->trans('MahnwesenStagesProfileIntro', dol_escape_htmltag($profiles[$profileId]['label']), mw4_profile_scope($manager, $profiles[$profileId], $langs)).'</div><br>';
     print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=stages">';
-    print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="save_stages">';
+    print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="save_stages"><input type="hidden" name="profile" value="'.((int) $profileId).'">';
     print '<div class="div-table-responsive"><table class="noborder centpercent">';
     print '<tr class="liste_titre">';
     print '<th>'.$langs->trans('DunningStage').'</th>';
     print '<th>'.$langs->trans('MahnwesenDaysAfterDue').'</th>';
     print '<th>'.$langs->trans('MahnwesenPaymentDays').'</th>';
-    print '<th>'.$langs->trans('MahnwesenPrivatePersonFee').'</th>';
-    print '<th>'.$langs->trans('MahnwesenBusinessFee').'</th>';
+    print '<th>'.$langs->trans('MahnwesenStageFee').'</th>';
     print '<th>'.$langs->trans('MahnwesenAutoSendAtStage').'</th>';
     print '<th>'.$langs->trans('Enabled').'</th>';
     print '</tr>';
     for ($level = 1; $level <= 4; $level++) {
         $rule = $rules[$level];
-        $privateFee = $manager->getPrivateFeeForLevel($level);
         print '<tr class="oddeven"><td><strong>'.$langs->trans($manager->getStageLabelKey($level)).'</strong></td>';
         print '<td><input class="width75" type="number" min="0" name="stage_days_'.$level.'" value="'.((int) $rule['days_after_due']).'"> '.$langs->trans('Days').'</td>';
-        print '<td><input class="width75" type="number" min="0" max="365" name="stage_payment_days_'.$level.'" value="'.((int) $manager->getPaymentDaysForLevel($level)).'"> '.$langs->trans('Days').'</td>';
-        print '<td><input class="width100" type="text" name="stage_private_fee_'.$level.'" value="'.dol_escape_htmltag(price($privateFee, 0, $langs, 0, -1, -1, $conf->currency)).'"> '.$conf->currency.'</td>';
-        print '<td><input class="width100" type="text" name="stage_business_fee_'.$level.'" value="'.dol_escape_htmltag(price($rule['fee_amount'], 0, $langs, 0, -1, -1, $conf->currency)).'"> '.$conf->currency.'</td>';
+        print '<td><input class="width75" type="number" min="0" max="365" name="stage_payment_days_'.$level.'" value="'.((int) $rule['payment_days']).'"> '.$langs->trans('Days').'</td>';
+        print '<td><input class="width100" type="text" name="stage_fee_'.$level.'" value="'.dol_escape_htmltag(price($rule['fee_amount'], 0, $langs, 0, -1, -1, $conf->currency)).'"> '.$conf->currency.'</td>';
         print '<td><input type="checkbox" name="stage_auto_send_'.$level.'" value="1"'.(!empty($rule['send_email']) ? ' checked' : '').'> '.$langs->trans('MahnwesenAutoSendAtStageHelp').'</td>';
         print '<td><input type="checkbox" name="stage_enabled_'.$level.'" value="1"'.(!empty($rule['enabled']) ? ' checked' : '').'></td></tr>';
     }
     print '</table></div>';
-    print '<div class="opacitymedium margintoponly">'.$langs->trans('MahnwesenPaymentDaysHelp').'</div><br>';
-    print '<div class="info">'.$langs->trans('MahnwesenFeePresetExplanation').'</div>';
-    print '<table class="border centpercent tableforfield margintoponly">';
-    print '<tr><td class="titlefield">'.$langs->trans('MahnwesenPrivateFees').'</td><td><input type="checkbox" name="private_fees_allowed" value="1"'.($privateFeesAllowed ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenPrivateFeesHelp').'</td></tr>';
-    print '<tr><td class="titlefield">'.$langs->trans('MahnwesenUnknownFees').'</td><td><input type="checkbox" name="unknown_fees_allowed" value="1"'.($unknownFees ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenUnknownFeesHelpV041').'</td></tr>';
-    print '</table>';
+    print '<div class="opacitymedium margintoponly">'.$langs->trans('MahnwesenPaymentDaysHelp').'</div>';
+    if (empty($profiles[$profileId]['auto_allowed'])) { print '<div class="warning margintoponly">'.$langs->trans('MahnwesenProfileAutoOffHint').'</div>'; }
     print '<div class="warning margintoponly">'.$langs->trans('MahnwesenPrivateFeeLegalHelp').'</div>';
     print '<div class="warning margintoponly">'.$langs->trans('MahnwesenFeeNoInvoiceMutation').'</div>';
     print '<div class="center"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button></div></form>';
 }
 
-if ($tab === 'templates') {
+if ($tab === 'templates' && isset($profiles[$profileId])) {
+    print mw4_profile_selector('templates', $profiles, $profileId, $langs);
     print '<div class="info">'.$langs->trans('MahnwesenNativeTemplateIntroV042').'</div><br>';
     print '<div class="info">'.$langs->trans('MahnwesenNativeTemplateOnlyInfo').'</div><br>';
     print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=templates"><input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="create_starter_templates"><button class="button" type="submit">'.$langs->trans('MahnwesenCreateStarterTemplates').'</button></form><br>';
@@ -288,13 +421,13 @@ if ($tab === 'templates') {
         4 => 'EmailTemplateTypeDunning3',
     );
     print '<form method="POST" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'?tab=templates">';
-    print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="save_templates">';
+    print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="save_templates"><input type="hidden" name="profile" value="'.((int) $profileId).'">';
     print '<div class="div-table-responsive"><table class="noborder centpercent">';
     print '<tr class="liste_titre"><th>'.$langs->trans('DunningStage').'</th><th>'.$langs->trans('MahnwesenDolibarrTemplateType').'</th><th>'.$langs->trans('MahnwesenTemplateChoice').'</th><th>'.$langs->trans('MahnwesenTemplateUsed').'</th><th>'.$langs->trans('MahnwesenTemplateState').'</th></tr>';
     for ($level = 1; $level <= 4; $level++) {
         $type = $notice->getTemplateTypeForLevel($level);
         $stageTemplates = $notice->getNativeTemplates($level, $user);
-        $selectedTemplate = $notice->getTemplate($level, $langs->defaultlang, $user);
+        $selectedTemplate = $notice->getTemplate($level, $langs->defaultlang, $user, $profileId);
         $selectedName = ($selectedTemplate !== false && !empty($selectedTemplate['label'])) ? (string) $selectedTemplate['label'] : '-';
         $currentRef = (string) $rules[$level]['email_template'];
         print '<tr class="oddeven">';

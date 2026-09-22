@@ -120,8 +120,9 @@ trait DunningManagerAttempts
             return false;
         }
         $currentAmount = (float) $evaluation['remain_to_pay'];
-        $requiredLevel = $this->getNextRequiredLevel($lockedCase['id'], (int) $evaluation['row']['stage']);
-        $requiredAt = $requiredLevel > 0 ? $this->calculateWorkflowStageDueAt($lockedCase['id'], (string) $evaluation['row']['due_ymd'], $requiredLevel) : null;
+        $profileId = (int) $evaluation['row']['profile_id'];
+        $requiredLevel = $this->getNextRequiredLevel($lockedCase['id'], (int) $evaluation['row']['stage'], $profileId);
+        $requiredAt = $requiredLevel > 0 ? $this->calculateWorkflowStageDueAt($lockedCase['id'], (string) $evaluation['row']['due_ymd'], $requiredLevel, $profileId) : null;
         if ($requiredLevel !== (int) $level || ($requiredAt && (int) $this->db->jdate($requiredAt) > dol_now())) {
             $this->error = 'Dunning stage is no longer due or the sequential cooldown is active.';
             $this->db->rollback();

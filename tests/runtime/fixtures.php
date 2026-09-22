@@ -8,6 +8,8 @@
  *            users with module rights, the cron job
  *   reset    after the upgrade test: back to a Dolibarr that never had the
  *            module, apart from its files
+ *   profiles products in categories and invoices for them, for the dunning
+ *            profiles (#32)
  *
  * Passwords come from the environment only.
  */
@@ -70,8 +72,8 @@ function rt_customer($db, $admin, $name, $email, $typentCode, $countryId)
     return $customer;
 }
 
-/** Create, validate and print one invoice that fell due $daysOverdue days ago. */
-function rt_invoice($db, $admin, $customer, $amount, $daysOverdue, $billingContactId = 0)
+/** Create, validate and print one invoice that fell due $daysOverdue days ago; $lines as (text, amount, product). */
+function rt_invoice($db, $admin, $customer, $amount, $daysOverdue, $billingContactId = 0, $lines = array())
 {
     global $langs;
     $invoice = new Facture($db);
@@ -83,8 +85,10 @@ function rt_invoice($db, $admin, $customer, $amount, $daysOverdue, $billingConta
     if ($invoice->create($admin) <= 0) {
         rt_fail('invoice for '.$customer->name.': '.$invoice->error.' '.implode(' | ', (array) $invoice->errors));
     }
-    if ($invoice->addline('Runtime-Leistung', $amount, 1, 20) <= 0) {
-        rt_fail('invoice line: '.$invoice->error);
+    foreach ($lines ?: array(array('Runtime-Leistung', $amount, 0)) as $line) {
+        if ($invoice->addline($line[0], $line[1], 1, 20, 0, 0, (int) $line[2]) <= 0) {
+            rt_fail('invoice line: '.$invoice->error);
+        }
     }
     if ($billingContactId > 0 && $invoice->add_contact($billingContactId, 'BILLING', 'external') <= 0) {
         rt_fail('billing contact: '.$invoice->error);
@@ -254,4 +258,56 @@ if ($stage === 'reset') {
     exit(0);
 }
 
-rt_fail('unknown stage "'.$stage.'", use base, enabled, legacy or reset');
+if ($stage === 'profiles') {
+    // Membership fees and merchandise as products in their categories, and a
+    // dues invoice, a merchandise invoice and one with both (#32).
+    require_once DOL_DOCUMENT_ROOT.'/categories/class/categorie.class.php';
+    require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
+    foreach (array('modCategorie', 'modProduct') as $module) {
+        $result = activateModule($module);
+        if (!empty($result['errors'])) {
+            rt_fail('activating '.$module.' failed: '.implode(' | ', (array) $result['errors']));
+        }
+    }
+    $conf->setValues($db);
+    $admin->loadRights('', 1);
+    $categories = array();
+    $products = array();
+    foreach (array('membership' => array('Mitgliedsbeitrag', 'RT-BEITRAG', 60), 'merchandise' => array('Merchandise', 'RT-SHIRT', 25)) as $key => $info) {
+        $category = new Categorie($db);
+        $category->label = $info[0];
+        $category->type = Categorie::TYPE_PRODUCT;
+        if ($category->create($admin) <= 0) {
+            rt_fail('category '.$info[0].': '.$category->error);
+        }
+        $product = new Product($db);
+        $product->ref = $info[1];
+        $product->label = $info[0];
+        $product->type = Product::TYPE_PRODUCT;
+        $product->price = $info[2];
+        $product->price_base_type = 'HT';
+        $product->tva_tx = 20;
+        $product->status = 1;
+        $product->status_buy = 0;
+        if ($product->create($admin) <= 0 || $category->add_type($product, Categorie::TYPE_PRODUCT) < 0) {
+            rt_fail('product '.$info[1].': '.$product->error.' '.$category->error);
+        }
+        $categories[$key] = (int) $category->id;
+        $products[$key] = array($info[0], $info[2], (int) $product->id);
+    }
+    $member = new Societe($db);
+    if ($member->fetch(0, 'Rita Privat') <= 0) {
+        rt_fail('customer Rita Privat: '.$member->error);
+    }
+    print json_encode(array(
+        'categories' => $categories,
+        'invoices' => array(
+            'membership' => rt_invoice($db, $admin, $member, 0, 25, 0, array($products['membership'])),
+            'merchandise' => rt_invoice($db, $admin, $member, 0, 25, 0, array($products['merchandise'])),
+            'mixed' => rt_invoice($db, $admin, $member, 0, 25, 0, array($products['membership'], $products['merchandise'])),
+        ),
+    ), JSON_PRETTY_PRINT)."\n";
+    exit(0);
+}
+
+rt_fail('unknown stage "'.$stage.'", use base, enabled, legacy, reset or profiles');

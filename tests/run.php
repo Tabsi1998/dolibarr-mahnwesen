@@ -23,6 +23,7 @@ if (!class_exists('Facture')) {
 require_once __DIR__.'/../class/mahnwesenworkflowpolicy.class.php';
 require_once __DIR__.'/../class/dunningmanager.scan.trait.php';
 require_once __DIR__.'/../class/dunningmanager.stages.trait.php';
+require_once __DIR__.'/../class/dunningmanager.profiles.trait.php';
 require_once __DIR__.'/../class/dunningmanager.workflow.trait.php';
 require_once __DIR__.'/../class/dunningmanager.automation.trait.php';
 require_once __DIR__.'/../class/dunningnoticeservice.templates.trait.php';
@@ -63,11 +64,11 @@ class StageSpacingFixture
     public $db;
     public $completedAt;
     public $paymentDays = 0;
-    public function getStageThresholds() { return array(1 => 3, 2 => 10, 3 => 20, 4 => 30); }
-    public function getPreviousEnabledLevel($level) { return (int) $level - 1; }
+    public function getStageThresholds($profileId = 0) { return array(1 => 3, 2 => 10, 3 => 20, 4 => 30); }
+    public function getPreviousEnabledLevel($level, $profileId = 0) { return (int) $level - 1; }
     public function getStageCompletionTimestamp($caseId, $level) { return $this->completedAt; }
     public function getStageNoticeTimestamp($caseId, $level) { return $this->completedAt; }
-    public function getPaymentDaysForLevel($level) { return $this->paymentDays; }
+    public function getPaymentDaysForLevel($level, $profileId = 0) { return $this->paymentDays; }
 }
 $spacing = new StageSpacingFixture();
 $spacing->db = new DateOnlyDb();
@@ -81,6 +82,20 @@ $spacing->completedAt = strtotime('2026-01-14 14:00:00');
 $spacing->paymentDays = 10;
 mwAssert($spacing->calculateWorkflowStageDueAt(7, '2026-01-01', 2) === '2026-01-25 00:00:00',
     'a payment deadline holds the next stage back until the day after it (#64)');
+
+class CarefulProfileFixture
+{
+    use DunningManagerProfiles;
+    public function getProfiles($refresh = false)
+    {
+        return array(1 => array('auto_allowed' => 1), 2 => array('auto_allowed' => 0), 3 => array('auto_allowed' => 0), 4 => array('auto_allowed' => 1));
+    }
+    public function getProfileFeeTotal($profileId) { return array(1 => 0.0, 2 => 50.0, 3 => 5.0, 4 => 0.0)[$profileId]; }
+}
+$careful = new CarefulProfileFixture();
+mwAssert($careful->mostCarefulProfile(array(1, 2, 3)) === 3, 'of several profiles one without automatic sending and with the lowest fees applies (#32)');
+mwAssert($careful->mostCarefulProfile(array(1, 2)) === 2, 'no automatic sending weighs more than lower fees (#32)');
+mwAssert($careful->mostCarefulProfile(array(4, 1)) === 1, 'between equal profiles the oldest applies (#32)');
 
 class RuleDefaultsFixture
 {

@@ -286,7 +286,12 @@ trait DunningManagerAutomation
         if (empty($workflow['actionable']) || $level <= 0) {
             return array_merge($result, array('decision' => 'skip', 'detail' => 'not_due'));
         }
-        $rule = $this->getRuleByLevel($level);
+        // The profile allows automatic sending, then the stage (#32).
+        $profileId = (int) $workflow['profile_id'];
+        if (empty($workflow['profile']['profile']['auto_allowed'])) {
+            return array_merge($result, array('decision' => 'off', 'detail' => 'profile_auto_disabled'));
+        }
+        $rule = $this->getRuleByLevel($level, $profileId);
         if (empty($rule['send_email'])) {
             return array_merge($result, array('decision' => 'off', 'detail' => 'stage_auto_disabled'));
         }
@@ -316,7 +321,7 @@ trait DunningManagerAutomation
         }
         $lang = (!empty($invoice->thirdparty) && !empty($invoice->thirdparty->default_lang)) ? (string) $invoice->thirdparty->default_lang : (is_object($langs) ? $langs->defaultlang : 'de_DE');
         // Public templates only: the result must not depend on who runs the cron or the dry run.
-        $template = $service->getTemplate($level, $lang, null);
+        $template = $service->getTemplate($level, $lang, null, $profileId);
         if ($template === false) {
             return array_merge($result, array('decision' => 'fail', 'detail' => 'template_missing', 'message' => $service->error));
         }

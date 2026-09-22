@@ -362,12 +362,13 @@ trait DunningNoticeServiceTemplates
      * @param int $level Level 1..4
      * @param string $lang Customer language
      * @param User|null $user User (kept for API compatibility)
+     * @param int $profileId Profile whose choice of template counts, 0 for the default profile (#32)
      * @return array|false
      */
-    public function getTemplate($level, $lang = 'de_DE', $user = null)
+    public function getTemplate($level, $lang = 'de_DE', $user = null, $profileId = 0)
     {
         $level = max(1, min(4, (int) $level));
-        $rule = $this->manager->getRuleByLevel($level);
+        $rule = $this->manager->getRuleByLevel($level, $profileId);
         $source = isset($rule['email_template']) ? trim((string) $rule['email_template']) : 'native:auto';
 
         $native = false;
@@ -415,15 +416,16 @@ trait DunningNoticeServiceTemplates
         $stageLabel = $outputlangs->trans($this->manager->getStageLabelKey((int) $level));
         $next = '';
         $nextTs = 0;
-        $nextLevel = $this->manager->getNextFutureLevel((int) $level);
+        $profileId = (int) $breakdown['profile_id'];
+        $nextLevel = $this->manager->getNextFutureLevel((int) $level, $profileId);
         $dueYmd = !empty($invoice->date_lim_reglement) ? dol_print_date($invoice->date_lim_reglement, '%Y-%m-%d', 'tzserver') : '';
         if ($nextLevel > 0 && $dueYmd !== '') {
-            $nextAt = $this->manager->calculateWorkflowStageDueAt(!empty($case['id']) ? (int) $case['id'] : 0, $dueYmd, $nextLevel);
+            $nextAt = $this->manager->calculateWorkflowStageDueAt(!empty($case['id']) ? (int) $case['id'] : 0, $dueYmd, $nextLevel, $profileId);
             if ($nextAt) { $nextTs = (int) $this->db->jdate($nextAt); }
         }
-        $deadline = $this->manager->getPaymentDeadline((int) $level);
+        $deadline = $this->manager->getPaymentDeadline((int) $level, null, $profileId);
         $paymentDeadline = $deadline ? dol_print_date($deadline, 'day', 'tzserver', $outputlangs) : '';
-        $paymentDays = $deadline ? (string) $this->manager->getPaymentDaysForLevel((int) $level) : '';
+        $paymentDays = $deadline ? (string) $this->manager->getPaymentDaysForLevel((int) $level, $profileId) : '';
         if (!empty($nextTs)) {
             // The next stage waits until the day after this notice's deadline (#64).
             if ($deadline && dol_print_date($nextTs, '%Y-%m-%d', 'tzserver') <= dol_print_date($deadline, '%Y-%m-%d', 'tzserver')) { $nextTs = (int) strtotime('+1 day', $deadline); }

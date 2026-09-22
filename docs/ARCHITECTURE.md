@@ -34,7 +34,11 @@ Append-oriented audit/event history for lifecycle and send actions.
 
 ### `llx_mahnwesen_rule`
 
-The four stage rules per entity: days after the due date, enabled, automatic sending and the business fee. The private-person fees and the other settings are Dolibarr constants for now (#20).
+The four stages of each dunning profile: days after the due date, fee, payment period, automatic sending, email template, enabled (#20, #32).
+
+### `llx_mahnwesen_profile` and `llx_mahnwesen_profile_match`
+
+Dunning profiles per kind of claim, with whether automatic sending is allowed and the step after the last stage, and the product categories, customer categories and customer type that lead to each profile. An invoice's own choice lives in Dolibarr's field `mahnwesen_profile` on the invoice (#32).
 
 ### `llx_mahnwesen_attempt`
 
