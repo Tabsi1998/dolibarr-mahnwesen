@@ -53,7 +53,35 @@ def version_parts(version: str) -> tuple[int, int, int, bool]:
     return int(match.group(1)), int(match.group(2)), int(match.group(3)), bool(match.group(4))
 
 
-def changelog_section(version: str, text: str | None = None) -> tuple[str, str]:
+def changelog_since(version: str, released: list, text: str | None = None) -> str:
+    """The sections of every version that has no release yet, newest first.
+
+    Pull requests are merged faster than a release is published, so a release
+    also carries the versions that were skipped in between. Their sections are
+    named, so the notes say what the package holds.
+    """
+    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8") if text is None else text
+    bodies = []
+    for skipped in [name for name in versions_between(version, released, text)]:
+        _, body = changelog_section(skipped, text, newest_must_be=False)
+        bodies.append(f"## {skipped}\n\n{body}")
+    return "\n\n".join(bodies)
+
+
+def versions_between(version: str, released: list, text: str) -> list:
+    """Versions of the changelog from $version down to the newest release, that one excluded."""
+    names = [match.group(1) for match in re.finditer(r"^## \[([^\]]+)\]", text, re.MULTILINE) if match.group(1) != "Unreleased"]
+    newest_release = released[0] if released else ""
+    out = []
+    for name in names:
+        if name == newest_release:
+            break
+        if version_key(name) <= version_key(version):
+            out.append(name)
+    return out
+
+
+def changelog_section(version: str, text: str | None = None, newest_must_be: bool = True) -> tuple[str, str]:
     """The dated section of a version: (date, body)."""
     text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8") if text is None else text
     headings = list(re.finditer(r"^## \[([^\]]+)\](?: - (\d{4}-\d{2}-\d{2}))?[ \t]*$", text, re.MULTILINE))
@@ -63,8 +91,14 @@ def changelog_section(version: str, text: str | None = None) -> tuple[str, str]:
     if not released:
         raise ReleaseRefused(f"CHANGELOG.md has no section ## [{version}] - YYYY-MM-DD")
     newest = released[0]
-    if newest.group(1) != version:
+    if newest_must_be and newest.group(1) != version:
         raise ReleaseRefused(f"the newest CHANGELOG.md section is {newest.group(1)}, the module version is {version}")
+    if not newest_must_be:
+        wanted = [heading for heading in released if heading.group(1) == version]
+        if not wanted:
+            raise ReleaseRefused(f"CHANGELOG.md has no section ## [{version}]")
+        newest = wanted[0]
+        released = released[released.index(newest):]
     if not newest.group(2):
         raise ReleaseRefused(f"the CHANGELOG.md section of {version} has no date (## [{version}] - YYYY-MM-DD)")
     end = released[1].start() if len(released) > 1 else len(text)
@@ -78,7 +112,8 @@ def changelog_section(version: str, text: str | None = None) -> tuple[str, str]:
         raise ReleaseRefused(f"the CHANGELOG.md date {newest.group(2)} is not a date") from error
     if released_on > date.today():
         raise ReleaseRefused(f"the CHANGELOG.md section of {version} is dated in the future ({released_on})")
-    if f"[{version}]: https://github.com/{REPOSITORY}/releases/tag/v{version}" not in text:
+    # A version that never got a release of its own links to the one that holds it.
+    if newest_must_be and f"[{version}]: https://github.com/{REPOSITORY}/releases/tag/v{version}" not in text:
         raise ReleaseRefused(f"CHANGELOG.md lacks the link [{version}]: https://github.com/{REPOSITORY}/releases/tag/v{version}")
     return newest.group(2), body
 
@@ -168,6 +203,7 @@ def metadata(tag: str | None = None) -> dict:
         problems.append(f"version {version} is below 1.0.0 and must be a beta ({version}-beta)")
     try:
         released_on, notes = changelog_section(version)
+        notes = changelog_since(version, released_versions(), None) or notes
     except ReleaseRefused as error:
         problems.append(str(error))
         released_on, notes = "", ""

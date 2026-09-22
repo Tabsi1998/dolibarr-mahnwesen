@@ -7,6 +7,16 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-09-22
+
+### Fixed
+
+- The changelog links of 1.3.0 and 1.3.3 pointed at releases that do not
+  exist: both versions are part of the next release, and the links now say so.
+  A release also names every version since the previous release, so a version
+  that is merged while the release of the one before it is being checked no
+  longer loses its notes.
+
 ## [1.3.4] - 2026-09-22
 
 Membership fees get their own rules.
@@ -525,9 +535,10 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.3.4...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.3.5...HEAD
+[1.3.5]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.5
 [1.3.4]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.4
-[1.3.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.3
+[1.3.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.4
 [1.3.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.2
 [1.3.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.1
 [1.3.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.1
