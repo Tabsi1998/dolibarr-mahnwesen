@@ -7,6 +7,23 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-09-22
+
+Open fees and interest as their own invoice.
+
+### Added
+
+- The dunning tab offers *Put fees and interest on an invoice*: Mahnwesen
+  creates a Dolibarr draft invoice for the customer with one line per open
+  claim, without VAT, naming the original invoice. The original invoice stays
+  unchanged (#34).
+- The claims point at that invoice and count as paid once it is paid; the
+  daily job records that and closes a case whose claims are all settled. What
+  already went on such an invoice is not asked for again in later notices
+  (#34).
+- The ledger names the state of every claim in words and links to the invoice
+  it went on (#34).
+
 ## [1.3.2] - 2026-09-22
 
 Late-payment interest, per dunning profile.
@@ -490,7 +507,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.3.2...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.3.3...HEAD
+[1.3.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.3
 [1.3.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.2
 [1.3.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.1
 [1.3.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.1

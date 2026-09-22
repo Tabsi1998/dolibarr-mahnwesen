@@ -476,3 +476,16 @@ MahnwesenPartInterest=Verzugszinsen
 MahnwesenTokenInterestDesc=Verzugszinsen als Betrag
 MahnwesenTokenInterestParagraphDesc=Ganzer Satz zu den Verzugszinsen, leer ohne Zinsen
 MahnwesenTokenInterestDaysDesc=Zahl der Tage, für die Zinsen berechnet werden
+
+# Spesen und Zinsen als eigene Rechnung (#34)
+MahnwesenClaimInvoiceButton=Spesen und Zinsen in Rechnung stellen
+MahnwesenClaimInvoiceHelp=Erzeugt einen Rechnungsentwurf in Dolibarr über die offenen Forderungen dieses Falls. Die ursprüngliche Rechnung bleibt unverändert. Offen:
+MahnwesenClaimInvoiceCreated=Der Rechnungsentwurf über die offenen Spesen und Zinsen wurde angelegt.
+MahnwesenClaimInvoiceNothingOpen=Für diesen Fall sind keine Spesen oder Zinsen offen.
+MahnwesenClaimInvoiceNote=Mahnspesen und Verzugszinsen zur Rechnung
+MahnwesenClaimInvoice=Rechnung dazu
+MahnwesenFeeStatus_open=offen
+MahnwesenFeeStatus_invoiced=in Rechnung gestellt
+MahnwesenFeeStatus_paid=bezahlt
+MahnwesenFeeStatus_waived=erlassen
+MahnwesenFeeStatus_superseded=ersetzt

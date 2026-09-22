@@ -36,6 +36,10 @@ Append-oriented audit/event history for lifecycle and send actions.
 
 The four stages of each dunning profile: days after the due date, fee, payment period, automatic sending, email template, enabled (#20, #32).
 
+### `llx_mahnwesen_fee` claim invoice
+
+An open fee or interest claim can go on its own Dolibarr invoice. The claim then points at that invoice (`fk_claim_invoice`, status `invoiced`) and counts as paid once the invoice is paid; the daily job checks that (#34).
+
 ### `llx_mahnwesen_interest_rate`
 
 The base rates with the day each starts to apply. A profile with the rule "base rate plus surcharge" counts every day with the rate of that day; days without a rate carry no interest (#33).

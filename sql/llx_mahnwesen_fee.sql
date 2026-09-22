@@ -9,6 +9,7 @@ CREATE TABLE llx_mahnwesen_fee (
     amount DOUBLE(24,8) DEFAULT 0 NOT NULL,
     currency_code VARCHAR(3) NOT NULL,
     status VARCHAR(32) DEFAULT 'open' NOT NULL,
+    fk_claim_invoice INTEGER DEFAULT 0 NOT NULL,
     date_creation DATETIME NOT NULL,
     date_settlement DATETIME,
     settlement_reason TEXT,
