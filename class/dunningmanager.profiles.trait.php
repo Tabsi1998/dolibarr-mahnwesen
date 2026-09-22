@@ -599,6 +599,28 @@ trait DunningManagerProfiles
     }
 
     /**
+     * Remove the fee settings of versions before profiles. Nothing reads them
+     * any more, so they go on every activation, not only on the first (#32).
+     *
+     * @return bool
+     */
+    protected function deleteLegacyFeeSettings()
+    {
+        global $conf;
+        foreach (array('MAHNWESEN_PRIVATE_FEES_ALLOWED', 'MAHNWESEN_UNKNOWN_FEES_ALLOWED', 'MAHNWESEN_PRIVATE_FEE_1',
+            'MAHNWESEN_PRIVATE_FEE_2', 'MAHNWESEN_PRIVATE_FEE_3', 'MAHNWESEN_PRIVATE_FEE_4') as $name) {
+            if (getDolGlobalString($name) === '' && !isset($conf->global->$name)) {
+                continue;
+            }
+            if (dolibarr_del_const($this->db, $name, $conf->entity) < 0) {
+                $this->error = $this->db->lasterror();
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Turn the fee settings of versions before profiles into profiles, once (#32).
      *
      * Before, a stage had a fee for companies and one for private persons. The
@@ -615,7 +637,7 @@ trait DunningManagerProfiles
     {
         global $conf, $langs;
         if (getDolGlobalInt('MAHNWESEN_PROFILES_MIGRATED')) {
-            return true;
+            return $this->deleteLegacyFeeSettings();
         }
         $defaultId = $this->getDefaultProfileId($user);
         if ($defaultId <= 0 || !$this->ensureRuleRows($user, $defaultId)) {
@@ -658,9 +680,7 @@ trait DunningManagerProfiles
                 $ok = $ok && $this->db->query('UPDATE '.MAIN_DB_PREFIX.'mahnwesen_rule SET fee_amount = '.((float) $fee).' WHERE entity = '.((int) $conf->entity).' AND fk_profile = '.$profileId.' AND level = '.((int) $level));
             }
         }
-        foreach (array('MAHNWESEN_PRIVATE_FEES_ALLOWED', 'MAHNWESEN_UNKNOWN_FEES_ALLOWED', 'MAHNWESEN_PRIVATE_FEE_1', 'MAHNWESEN_PRIVATE_FEE_2', 'MAHNWESEN_PRIVATE_FEE_3', 'MAHNWESEN_PRIVATE_FEE_4') as $name) {
-            $ok = $ok && dolibarr_del_const($this->db, $name, $conf->entity) >= 0;
-        }
+        $ok = $ok && $this->deleteLegacyFeeSettings();
         $ok = $ok && dolibarr_set_const($this->db, 'MAHNWESEN_PROFILES_MIGRATED', '1', 'chaine', 0, 'Fee settings moved into dunning profiles', $conf->entity) > 0;
         if (!$ok) {
             $this->error = $this->error ?: $this->db->lasterror();
