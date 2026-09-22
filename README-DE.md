@@ -78,6 +78,10 @@ Mahnspesen stehen in **Mahnprofilen**: Ein Profil legt je Stufe Tage, Spesen und
 
 Beim Update auf 1.3.1 werden die bisherigen Spesen für Unternehmen und Privatpersonen zu Profilen, sodass jeder Kunde dieselben Spesen zahlt wie vorher.
 
+## Mitgliedsbeiträge
+
+Eine Beitragsrechnung erkennt das Modul an Dolibarrs eigener Verknüpfung zwischen Rechnung und Mitgliedsbeitrag, egal ob sie über die Mitgliedskarte oder einen Beitragslauf entstanden ist. Nur diese Verknüpfung gilt als Nachweis: Ein Verkauf an ein Mitglied bleibt ein gewöhnlicher Verkauf, auch bei gleicher Kundenkategorie oder E-Mail. Die Vorlage *Mitgliedsbeitrag* legt dafür ein Profil an, ausgeschaltet, ohne Gebühren und ohne Automatik, mit dem letzten Schritt „Mitgliedschaft prüfen“. Ist eine Rechnung zugleich Beitrag und Verkauf, gilt das vorsichtigste Profil. Der Reiter *Mahnwesen* verlinkt zur Mitgliedschaft, wenn der Benutzer Mitglieder sehen darf.
+
 ## Spesen und Zinsen in Rechnung stellen
 
 Offene Mahnspesen und Verzugszinsen eines Falls lassen sich mit einem Knopf am Reiter *Mahnwesen* als eigener Rechnungsentwurf in Dolibarr anlegen: je Forderung eine Zeile, ohne Umsatzsteuer, mit Hinweis auf die ursprüngliche Rechnung. Die ursprüngliche Rechnung bleibt unverändert. Die Forderungen verweisen dann auf die neue Rechnung und gelten als bezahlt, sobald diese bezahlt ist; das trägt der tägliche Lauf ein. Was so in Rechnung gestellt wurde, wird in späteren Mahnungen nicht noch einmal verlangt.

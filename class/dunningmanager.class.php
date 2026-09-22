@@ -67,6 +67,9 @@ class DunningManager
     /** @var array<int,array>|null Base rates for the interest, newest first */
     protected $interestRatesCache = null;
 
+    /** @var array<int,array|null> Membership of each invoice, for one request */
+    protected $membershipCache = array();
+
     /** @var array<int,array<int,bool>> Completed-stage cache for one request. */
     protected $completedLevelsCache = array();
 

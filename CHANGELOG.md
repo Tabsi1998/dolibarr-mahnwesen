@@ -7,6 +7,24 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-09-22
+
+Membership fees get their own rules.
+
+### Added
+
+- A dues invoice is recognised by Dolibarr's own link between the invoice and
+  the membership fee, whether it was made from the member card or by a
+  subscription run. Only that link counts as proof, so a sale to a member
+  stays an ordinary sale (#58).
+- The preset *Mitgliedsbeitrag* adds a profile for these invoices: switched
+  off, without fees, without automatic sending, with *review the membership*
+  after the last stage. Switch it on to use it (#58).
+- An invoice that is both a membership fee and a sale takes the most careful
+  of the profiles that apply (#58).
+- The dunning tab links to the membership an invoice belongs to, for users who
+  may read members (#58).
+
 ## [1.3.3] - 2026-09-22
 
 Open fees and interest as their own invoice.
@@ -507,7 +525,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.3.3...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.3.4...HEAD
+[1.3.4]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.4
 [1.3.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.3
 [1.3.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.2
 [1.3.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.1

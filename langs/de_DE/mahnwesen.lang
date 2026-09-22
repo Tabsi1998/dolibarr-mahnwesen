@@ -489,3 +489,10 @@ MahnwesenFeeStatus_invoiced=in Rechnung gestellt
 MahnwesenFeeStatus_paid=bezahlt
 MahnwesenFeeStatus_waived=erlassen
 MahnwesenFeeStatus_superseded=ersetzt
+
+# Mitgliedsbeiträge (#58)
+MahnwesenPresetMembership=Mitgliedsbeitrag
+MahnwesenProfileMembership=Beitragsrechnungen
+MahnwesenProfileMembershipHelp=Gilt für Rechnungen, die in Dolibarr mit einem Mitgliedsbeitrag verknüpft sind. Nur diese Verknüpfung zählt als Nachweis; ein Verkauf an ein Mitglied bleibt ein gewöhnlicher Verkauf. Nur ein Profil kann das haben.
+MahnwesenProfileReasonMembership=Rechnung gehört zu einem Mitgliedsbeitrag
+MahnwesenMembership=Mitgliedschaft

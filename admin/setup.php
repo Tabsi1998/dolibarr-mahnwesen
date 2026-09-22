@@ -84,6 +84,9 @@ function mw4_profile_scope($manager, $profile, $langs)
     if ($matches['customer_type'] !== '') {
         $parts[] = $langs->trans('MahnwesenProfileCustomerType').': '.$langs->trans($matches['customer_type'] === 'private' ? 'MahnwesenCustomerTypePrivate' : 'MahnwesenCustomerTypeCompany');
     }
+    if (!empty($matches['membership'])) {
+        $parts[] = $langs->trans('MahnwesenProfileMembership');
+    }
     return $parts ? implode('; ', $parts) : $langs->trans('MahnwesenProfileAppliesChoiceOnly');
 }
 
@@ -207,7 +210,7 @@ if ($action === 'delete_interest_rate') {
 if ($action === 'save_profile') {
     if ($manager->saveProfile($profileId, GETPOST('profile_label', 'alphanohtml'), GETPOSTINT('profile_active'), GETPOSTINT('profile_auto_allowed'),
         GETPOST('profile_final_step', 'aZ09'), GETPOST('product_categories', 'array'), GETPOST('customer_categories', 'array'), GETPOST('customer_type', 'aZ09'), $user,
-        GETPOST('interest_mode', 'aZ09'), GETPOST('interest_rate', 'alpha'))) {
+        GETPOST('interest_mode', 'aZ09'), GETPOST('interest_rate', 'alpha'), GETPOSTINT('profile_membership'))) {
         setEventMessages($langs->trans('SetupSaved'), null, 'mesgs');
         mw4_redirect('profiles');
     }
@@ -356,6 +359,9 @@ if ($tab === 'profiles') {
                 print '<option value="'.$type.'"'.($matches['customer_type'] === $type ? ' selected' : '').'>'.$langs->trans($typeKey).'</option>';
             }
             print '</select></td></tr>';
+            print '<tr><td><label for="profile_membership">'.$langs->trans('MahnwesenProfileMembership').'</label></td><td>';
+            print '<input type="checkbox" name="profile_membership" id="profile_membership" value="1"'.(!empty($matches['membership']) ? ' checked' : '').'> ';
+            print '<span class="opacitymedium">'.$langs->trans('MahnwesenProfileMembershipHelp').'</span></td></tr>';
         }
         print '</table><div class="center margintoponly"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button> ';
         print '<a class="button button-cancel" href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?tab=profiles').'">'.$langs->trans('Cancel').'</a> ';
