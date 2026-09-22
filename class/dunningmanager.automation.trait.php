@@ -136,6 +136,11 @@ trait DunningManagerAutomation
             return 1;
         }
         $counters['synchronized'] = (int) $sync['created'] + (int) $sync['updated'] + (int) $sync['level_changed'] + (int) $sync['reopened'] + (int) $sync['closed'] + (int) $sync['unchanged'];
+        // Cases a removed payment left behind (#36).
+        $rechecked = $this->processRecheckQueue($actor, 200);
+        if ($rechecked === false) {
+            $warnings[] = 'Unable to re-evaluate noted cases: '.$this->error;
+        }
         // Claims on a paid claim invoice are settled (#34).
         $settledClaims = $this->settlePaidClaimInvoices($actor);
         if ($settledClaims === false) {

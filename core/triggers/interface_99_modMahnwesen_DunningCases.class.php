@@ -64,6 +64,16 @@ class InterfaceDunningCases extends DolibarrTriggers
         }
         require_once dol_buildpath('/mahnwesen/class/dunningmanager.class.php', 0);
         $manager = new DunningManager($this->db);
+        // Dolibarr announces a payment that is being removed before it is gone,
+        // so what is open is only final afterwards: the case is noted and the
+        // next Mahnwesen page or the daily run re-evaluates it (#36).
+        if ($action === 'PAYMENT_CUSTOMER_DELETE') {
+            if (!$manager->markCasesForRecheck($invoices)) {
+                $this->errors[] = 'Mahnwesen could not note the invoices of the removed payment: '.$manager->error;
+                dol_syslog(__METHOD__.' '.end($this->errors), LOG_ERR);
+            }
+            return 1;
+        }
         foreach ($invoices as $invoiceId) {
             // Deleting an invoice leaves no case to follow; the daily run cleans up.
             if ($action === 'BILL_DELETE') {

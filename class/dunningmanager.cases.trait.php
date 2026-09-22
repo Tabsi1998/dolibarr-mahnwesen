@@ -129,6 +129,76 @@ trait DunningManagerCases
      * @param User $user Acting user
      * @return string|false Result code
      */
+    /**
+     * Note that a case has to be re-evaluated (#36).
+     *
+     * Dolibarr announces a payment that is being removed before it is gone, so
+     * the open amount is only final afterwards. The note is worked off by the
+     * next Mahnwesen page and by the daily run, with the same evaluation as
+     * everything else.
+     *
+     * @param int[] $invoiceIds Invoices
+     * @return bool
+     */
+    public function markCasesForRecheck($invoiceIds)
+    {
+        global $conf;
+        $ids = array();
+        foreach ((array) $invoiceIds as $invoiceId) {
+            if ((int) $invoiceId > 0) {
+                $ids[] = (int) $invoiceId;
+            }
+        }
+        if (empty($ids)) {
+            return true;
+        }
+        $sql = 'UPDATE '.MAIN_DB_PREFIX.'mahnwesen_case SET recheck = 1 WHERE entity = '.((int) $conf->entity);
+        $sql .= ' AND fk_facture IN ('.implode(',', $ids).')';
+        if (!$this->db->query($sql)) {
+            $this->error = $this->db->lasterror();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Re-evaluate the cases that carry a note, newest first (#36).
+     *
+     * @param User $user Acting user
+     * @param int $limit How many at most
+     * @return int|false Number of cases re-evaluated
+     */
+    public function processRecheckQueue($user, $limit = 50)
+    {
+        global $conf;
+        if (!$this->checkStorageSchema()) {
+            return false;
+        }
+        $sql = 'SELECT rowid, fk_facture FROM '.MAIN_DB_PREFIX.'mahnwesen_case WHERE entity = '.((int) $conf->entity);
+        $sql .= ' AND recheck = 1 ORDER BY tms DESC'.$this->db->plimit(max(1, min(500, (int) $limit)));
+        $res = $this->db->query($sql);
+        if (!$res) {
+            $this->error = $this->db->lasterror();
+            return false;
+        }
+        $cases = array();
+        while ($o = $this->db->fetch_object($res)) {
+            $cases[(int) $o->rowid] = (int) $o->fk_facture;
+        }
+        $this->db->free($res);
+        $done = 0;
+        foreach ($cases as $caseId => $invoiceId) {
+            // The note goes first: a case that cannot be evaluated must not be retried forever.
+            $this->db->query('UPDATE '.MAIN_DB_PREFIX.'mahnwesen_case SET recheck = 0 WHERE rowid = '.((int) $caseId));
+            if ($this->syncInvoiceCase($invoiceId, $user) === false) {
+                $this->errors[] = 'Unable to re-evaluate invoice '.$invoiceId.': '.$this->error;
+                continue;
+            }
+            $done++;
+        }
+        return $done;
+    }
+
     public function syncInvoiceCase($invoiceId, $user)
     {
         if (!$this->checkStorageSchema()) { return false; }

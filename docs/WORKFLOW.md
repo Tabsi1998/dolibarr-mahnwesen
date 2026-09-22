@@ -85,7 +85,7 @@ The profile holds the interest rule: none, a fixed rate, or the base rate of eac
 
 ## Payments and corrections
 
-Dolibarr's own triggers for customer payments and invoice changes re-evaluate the case of every invoice they touch, with the same evaluation the daily run uses. A part payment lowers the open amount, full payment closes the case (or leaves it with open fees), and a cancelled payment opens it again; stages that were already sent stay sent and are not repeated. A failure of the re-evaluation never rolls back the payment: the daily run repairs the case (#36).
+Dolibarr's own triggers for customer payments and invoice changes re-evaluate the case of every invoice they touch, with the same evaluation the daily run uses. A part payment lowers the open amount, full payment closes the case (or leaves it with open fees), and a cancelled payment opens it again; stages that were already sent stay sent and are not repeated. A failure of the re-evaluation never rolls back the payment: the daily run repairs the case. Dolibarr announces a payment that is being removed before it is gone, so what is open is only final afterwards; that case is noted (`recheck`) and the next Mahnwesen page or the daily run evaluates it, with the same evaluation as everything else (#36).
 
 ## Membership fees
 

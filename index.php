@@ -143,6 +143,9 @@ if ($action === 'dry_run') {
     }
 }
 
+// Cases a removed payment left behind are re-evaluated before anything is shown (#36).
+if ($user->hasRight('mahnwesen', 'case', 'write')) { $manager->processRecheckQueue($user); }
+
 // The list and the figures come from the stored cases (#26): no invoice is
 // loaded to show them. Sales representatives see their customers only.
 $scopeJoin = $user->hasRight('societe', 'client', 'voir') ? ''

@@ -109,6 +109,7 @@ if ($action === 'sync_case') {
     mahnwesenInvoiceRedirect($id);
 }
 
+if ($user->hasRight('mahnwesen', 'case', 'write')) { $manager->processRecheckQueue($user, 10); }
 $workflow = $manager->getWorkflowState($id);
 if ($workflow === false) {
     setEventMessages($manager->error, $manager->errors, 'errors');

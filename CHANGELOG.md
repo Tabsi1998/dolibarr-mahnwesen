@@ -19,7 +19,9 @@ Payments reach the dunning case at once.
   `BILL_UNPAYED`, `BILL_CANCEL`, `BILL_VALIDATE`, `BILL_UNVALIDATE`,
   `BILL_MODIFY`). A part payment lowers the open amount, full payment ends the
   case, and a cancelled payment opens it again without repeating notices that
-  went out. The daily run stays the safety net (#36).
+  went out. Dolibarr announces a payment that is being removed before it is
+  gone, so that case is noted and re-evaluated by the next Mahnwesen page or
+  the daily run, which stays the safety net (#36).
 - The same evaluation as the daily run and the manual synchronisation is used,
   so there is no second way of counting. Fees and interest in the ledger stay
   separate: paying the invoice does not pay them (#36).

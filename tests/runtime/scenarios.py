@@ -1587,6 +1587,9 @@ def payment_trigger(stack: Stack) -> str:
     payment = stack.value(f"SELECT fk_paiement FROM llx_paiement_facture WHERE fk_facture = {invoice_row['id']} ORDER BY rowid DESC LIMIT 1")
     before_notices = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE fk_case = {case} AND action = 'notice_sent'")
     stack.php_fixture("unpay", str(payment))
+    noted = stack.value(f"SELECT recheck FROM llx_mahnwesen_case WHERE rowid = {case}")
+    expect(noted == "1", "the case of a removed payment was not noted for re-evaluation (#36)")
+    page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard")
     reopened = stack.sql(f"SELECT ROUND(remaining_amount, 2), status FROM llx_mahnwesen_case WHERE rowid = {case}")[0]
     after_notices = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE fk_case = {case} AND action = 'notice_sent'")
     expect(reopened[1] == "open" and float(reopened[0]) > 0 and after_notices == before_notices,
