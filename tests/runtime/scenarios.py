@@ -1416,14 +1416,16 @@ def interest(stack: Stack) -> str:
             total += principal * ((base + 9.2) / 100) / 365
             days += 1
         day += datetime.timedelta(days=1)
-    expected = f"{round(total, 2):.2f}".replace(".", ",")
+    # The customer of this invoice reads English since the template check, the admin German.
+    expected = f"{round(total, 2):.2f}"
+    expected_de = expected.replace(".", ",")
     expect(len({next((value for start, value in rates if start <= datetime.date.fromisoformat(due) + datetime.timedelta(days=offset)), None)
                 for offset in (1, days)}) == 2,
            f"the test invoice should run over a change of the base rate: {days} days from {due} (#33)")
 
     tab = html.unescape(re.sub(r"<[^>]+>", " ", page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={merchandise['id']}"), "dunning tab").text))
-    expect(expected in tab and any(label in tab for label in translations("MahnwesenPartInterest")),
-           f"the dunning tab does not show the interest {expected}: {tab[:400]!r} (#33)")
+    expect(expected_de in tab and any(label in tab for label in translations("MahnwesenPartInterest")),
+           f"the dunning tab does not show the interest {expected_de}: {tab[:400]!r} (#33)")
     without = html.unescape(re.sub(r"<[^>]+>", " ", page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={membership['id']}"), "dunning tab").text))
     expect(not any(label in without for label in translations("MahnwesenPartInterest")),
            "an invoice whose profile has no interest rule shows interest anyway (#33)")

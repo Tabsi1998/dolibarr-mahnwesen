@@ -15,7 +15,7 @@ trait DunningManagerFees
         if (!$this->bookNoticeInterest($attempt, $attemptId, $uid, $nowSql)) { return false; }
         if ((float) $attempt->amount_fee <= 0.000001) { return true; }
         $where = ' WHERE entity = '.((int) $attempt->entity).' AND fk_case = '.((int) $attempt->fk_case);
-        $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_fee'.$where.' AND level > '.((int) $attempt->level)." AND status <> 'superseded' ORDER BY rowid".$this->db->plimit(1);
+        $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_fee'.$where." AND kind = 'fee' AND level > ".((int) $attempt->level)." AND status <> 'superseded' ORDER BY rowid".$this->db->plimit(1);
         $res = $this->db->query($sql);
         if (!$res) { $this->error = $this->db->lasterror(); return false; }
         $higher = $this->db->fetch_object($res);
@@ -26,7 +26,7 @@ trait DunningManagerFees
             $status = 'superseded';
             $settlement = "'".$this->db->escape($nowSql)."', '".$this->db->escape('Fee #'.((int) $higher->rowid).' of a higher stage already applies')."', ".((int) $uid);
         } else {
-            $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_fee SET status = 'superseded', date_settlement = '".$this->db->escape($nowSql)."', settlement_reason = '".$this->db->escape('Replaced by attempt #'.((int) $attemptId))."', fk_user_settlement = ".((int) $uid).$where." AND status = 'open' AND level <= ".((int) $attempt->level);
+            $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_fee SET status = 'superseded', date_settlement = '".$this->db->escape($nowSql)."', settlement_reason = '".$this->db->escape('Replaced by attempt #'.((int) $attemptId))."', fk_user_settlement = ".((int) $uid).$where." AND kind = 'fee' AND status = 'open' AND level <= ".((int) $attempt->level);
             if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); return false; }
         }
         $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_fee (entity, fk_case, fk_facture, fk_attempt, level, kind, amount, currency_code, status, date_creation, fk_user_create, date_settlement, settlement_reason, fk_user_settlement) VALUES (';
