@@ -136,6 +136,11 @@ trait DunningManagerAutomation
             return 1;
         }
         $counters['synchronized'] = (int) $sync['created'] + (int) $sync['updated'] + (int) $sync['level_changed'] + (int) $sync['reopened'] + (int) $sync['closed'] + (int) $sync['unchanged'];
+        // Claims on a paid claim invoice are settled (#34).
+        $settledClaims = $this->settlePaidClaimInvoices($actor);
+        if ($settledClaims === false) {
+            $warnings[] = 'Unable to settle paid claim invoices: '.$this->error;
+        }
         $brokenInvoices = !empty($sync['failed_invoices']) ? $sync['failed_invoices'] : array();
         $warnings = array_merge($warnings, $this->errors);
         $this->errors = array();

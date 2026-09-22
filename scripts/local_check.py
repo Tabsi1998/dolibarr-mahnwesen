@@ -913,7 +913,7 @@ def snapshot_step() -> Step:
 # ---------------------------------------------------------------- repository
 
 # Language keys whose names are put together at runtime from a prefix and a code.
-DYNAMIC_LANG_PREFIXES = ("DunningStage", "MahnwesenDryRunDecision_", "MahnwesenDryRunDetail_", "HistoryAction", "CustomerClass",
+DYNAMIC_LANG_PREFIXES = ("MahnwesenFeeStatus_", "DunningStage", "MahnwesenDryRunDecision_", "MahnwesenDryRunDetail_", "HistoryAction", "CustomerClass",
                          "SyncResult", "MahnwesenFileStage", "MahnwesenHistoryResult")
 # Keys Dolibarr looks up for the module, and methods Dolibarr calls.
 DOLIBARR_LANG_KEYS = {"Mahnwesen", "ModuleMahnwesenName", "ModuleMahnwesenDesc", "ModuleMahnwesenDescLong"}

@@ -68,6 +68,17 @@ if ($action === 'sync_case') {
     if ($manager->skipCurrentStage($id, $skipReason, $user)) { setEventMessages($langs->trans('MahnwesenStageSkipped'), null, 'mesgs'); }
     else { setEventMessages($langs->trans('MahnwesenStageSkipFailed'), array($manager->error), 'errors'); }
     mahnwesenInvoiceRedirect($id);
+} elseif ($action === 'invoice_claims') {
+    if (!$user->hasRight('mahnwesen', 'case', 'write')) { accessforbidden(); }
+    $claimCase = $manager->getCaseByInvoice($id);
+    $claimInvoiceId = $claimCase ? $manager->createClaimInvoice((int) $claimCase['id'], $user) : 0;
+    if ($claimInvoiceId > 0) {
+        setEventMessages($langs->trans('MahnwesenClaimInvoiceCreated'), null, 'mesgs');
+        header('Location: '.DOL_URL_ROOT.'/compta/facture/card.php?facid='.((int) $claimInvoiceId));
+        exit;
+    }
+    setEventMessages($manager->error ?: $langs->trans('Error'), null, 'errors');
+    mahnwesenInvoiceRedirect($id);
 } elseif ($action === 'generate_notice_pdf') {
     if (!$user->hasRight('mahnwesen', 'notice', 'send')) { accessforbidden(); }
     $pdfWorkflow = $manager->getWorkflowState($id);
@@ -252,6 +263,16 @@ if (!$case) {
         print '<span class="butActionRefused classfortooltip" title="'.dol_escape_htmltag($langs->trans('MahnwesenWaitingForFutureStage', dol_print_date($db->jdate($workflow['future_at']), 'day'))).'">'.$langs->trans('MahnwesenPrepareNotice').'</span>';
     }
     print '</div>';
+    // Open fees and interest can go on their own invoice (#34).
+    $openClaims = !empty($case['id']) ? $manager->getOpenClaims((int) $case['id']) : array();
+    if ($openClaims && $user->hasRight('mahnwesen', 'case', 'write') && $user->hasRight('facture', 'creer')) {
+        $claimTotal = 0.0;
+        foreach ($openClaims as $claim) { $claimTotal += (float) $claim['amount']; }
+        print '<div class="margintoponly"><form method="POST" class="inline-block" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'">';
+        print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="id" value="'.$id.'"><input type="hidden" name="action" value="invoice_claims">';
+        print '<button class="button" type="submit" id="mahnwesen-claim-invoice">'.img_picto('', 'bill').' '.$langs->trans('MahnwesenClaimInvoiceButton').'</button>';
+        print ' <span class="opacitymedium">'.$langs->trans('MahnwesenClaimInvoiceHelp').' '.price($claimTotal, 0, $langs, 1, -1, -1, $conf->currency).'</span></form></div>';
+    }
     if ($user->hasRight('mahnwesen', 'case', 'write')) {
         print '<div class="right opacitymedium small"><form method="POST" class="inline-block" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'">';
         print '<input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="id" value="'.$id.'"><input type="hidden" name="action" value="sync_case">';

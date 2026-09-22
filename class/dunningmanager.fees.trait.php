@@ -53,13 +53,215 @@ trait DunningManagerFees
         return true;
     }
 
+    /**
+     * The open fee and interest claims of one case (#34).
+     *
+     * @param int $caseId Case
+     * @return array<int,array>
+     */
+    public function getOpenClaims($caseId)
+    {
+        global $conf;
+        $claims = array();
+        $sql = 'SELECT rowid, fk_case, fk_facture, level, kind, amount, currency_code FROM '.MAIN_DB_PREFIX.'mahnwesen_fee';
+        $sql .= ' WHERE entity = '.((int) $conf->entity).' AND fk_case = '.((int) $caseId)." AND status = 'open' ORDER BY kind DESC, level ASC, rowid ASC";
+        $res = $this->db->query($sql);
+        if (!$res) {
+            $this->error = $this->db->lasterror();
+            return $claims;
+        }
+        while ($o = $this->db->fetch_object($res)) {
+            $claims[] = (array) $o;
+        }
+        $this->db->free($res);
+        return $claims;
+    }
+
+    /**
+     * What a case already put on a claim invoice or was paid, per kind (#34).
+     * A later notice asks for the rest only, so nothing is counted twice.
+     *
+     * @param int $caseId Case
+     * @param string $kind fee or interest
+     * @return float
+     */
+    public function getSettledClaimAmount($caseId, $kind)
+    {
+        global $conf;
+        $sql = 'SELECT SUM(amount) as total FROM '.MAIN_DB_PREFIX.'mahnwesen_fee WHERE entity = '.((int) $conf->entity);
+        $sql .= ' AND fk_case = '.((int) $caseId)." AND kind = '".$this->db->escape($kind)."' AND status IN ('invoiced', 'paid')";
+        $res = $this->db->query($sql);
+        if (!$res) {
+            $this->error = $this->db->lasterror();
+            return 0.0;
+        }
+        $o = $this->db->fetch_object($res);
+        $this->db->free($res);
+        return $o ? (float) $o->total : 0.0;
+    }
+
+    /**
+     * Put the open fees and interest of a case on their own Dolibarr invoice,
+     * as a draft (#34).
+     *
+     * The original invoice is never touched. Every claim points to the new
+     * invoice and counts as settled once that invoice is paid.
+     *
+     * @param int $caseId Case
+     * @param User $user Acting user
+     * @return int Id of the new invoice, 0 on error
+     */
+    public function createClaimInvoice($caseId, $user)
+    {
+        global $conf, $langs;
+        require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
+        if (!is_object($user) || !method_exists($user, 'hasRight') || !$user->hasRight('facture', 'creer') || !$user->hasRight('mahnwesen', 'case', 'write')) {
+            $this->error = 'User is not allowed to create the claim invoice.';
+            return 0;
+        }
+        $res = $this->db->query('SELECT fk_facture FROM '.MAIN_DB_PREFIX.'mahnwesen_case WHERE rowid = '.((int) $caseId).' AND entity = '.((int) $conf->entity));
+        $caseRow = $res ? $this->db->fetch_object($res) : false;
+        if ($res) { $this->db->free($res); }
+        if (!$caseRow) {
+            $this->error = 'Dunning case not found.';
+            return 0;
+        }
+        $invoiceId = (int) $caseRow->fk_facture;
+        $source = new Facture($this->db);
+        if ($source->fetch($invoiceId) <= 0) {
+            $this->error = 'The invoice of the dunning case could not be loaded.';
+            return 0;
+        }
+        if (!$this->canSeeCustomer($user, (int) $source->socid)) {
+            $this->error = 'Invoice is outside the user customer scope.';
+            return 0;
+        }
+        $claims = $this->getOpenClaims((int) $caseId);
+        if (empty($claims)) {
+            $this->error = $langs->trans('MahnwesenClaimInvoiceNothingOpen');
+            return 0;
+        }
+        $langs->load('mahnwesen@mahnwesen');
+        $this->db->begin();
+        $invoice = new Facture($this->db);
+        $invoice->socid = (int) $source->socid;
+        $invoice->type = Facture::TYPE_STANDARD;
+        $invoice->date = dol_now();
+        $invoice->cond_reglement_id = (int) $source->cond_reglement_id;
+        $invoice->mode_reglement_id = (int) $source->mode_reglement_id;
+        $invoice->note_public = $langs->transnoentitiesnoconv('MahnwesenClaimInvoiceNote').' '.$source->ref;
+        if ($invoice->create($user) <= 0) {
+            $this->error = 'The claim invoice could not be created: '.$invoice->error;
+            $this->db->rollback();
+            return 0;
+        }
+        foreach ($claims as $claim) {
+            $label = $langs->transnoentitiesnoconv($claim['kind'] === 'interest' ? 'MahnwesenInterest' : 'MahnwesenDunningFee');
+            if ($claim['kind'] !== 'interest') {
+                $label .= ' - '.$langs->transnoentitiesnoconv($this->getStageLabelKey((int) $claim['level']));
+            }
+            // Fees and interest are damages, not a service: no VAT is added here.
+            if ($invoice->addline($label.' ('.$source->ref.')', (float) $claim['amount'], 1, 0) <= 0) {
+                $this->error = 'A line of the claim invoice could not be added: '.$invoice->error;
+                $this->db->rollback();
+                return 0;
+            }
+        }
+        $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
+        $nowSql = $this->db->idate(dol_now());
+        $ids = array();
+        foreach ($claims as $claim) {
+            $ids[] = (int) $claim['rowid'];
+        }
+        $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_fee SET status = 'invoiced', fk_claim_invoice = ".((int) $invoice->id);
+        $sql .= ', date_settlement = NULL, fk_user_settlement = '.$uid.' WHERE entity = '.((int) $conf->entity);
+        $sql .= ' AND rowid IN ('.implode(',', $ids).") AND status = 'open'";
+        // Every claim must now point at the new invoice; otherwise nothing is written.
+        if (!$this->db->query($sql)) {
+            $this->error = $this->db->lasterror();
+            $this->db->rollback();
+            return 0;
+        }
+        if ($this->getOpenClaims((int) $caseId)) {
+            $this->error = 'The claims could not be linked to the new invoice.';
+            $this->db->rollback();
+            return 0;
+        }
+        $total = 0.0;
+        foreach ($claims as $claim) {
+            $total += (float) $claim['amount'];
+        }
+        $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_history (entity, fk_case, fk_facture, action, level, amount_snapshot, mode, result, message, date_creation, fk_user_create) VALUES (';
+        $sql .= ((int) $conf->entity).', '.((int) $caseId).', '.$invoiceId.", 'fee_invoiced', 0, ".((float) $total).", 'manual', 'success', '";
+        $sql .= $this->db->escape('Claim invoice '.$invoice->ref.' (id '.((int) $invoice->id).') for '.count($claims).' claim(s)')."', '".$this->db->escape($nowSql)."', ".$uid.')';
+        if (!$this->db->query($sql)) {
+            $this->error = $this->db->lasterror();
+            $this->db->rollback();
+            return 0;
+        }
+        $this->db->commit();
+        $this->syncHistoryToAgenda($invoiceId, $user);
+        return (int) $invoice->id;
+    }
+
+    /**
+     * Claims on a paid claim invoice count as paid (#34).
+     *
+     * The daily job calls this; a claim is settled once, and its case closes
+     * when nothing is open any more.
+     *
+     * @param User $user Acting user
+     * @return int|false Number of claims settled
+     */
+    public function settlePaidClaimInvoices($user)
+    {
+        global $conf;
+        $sql = 'SELECT f.rowid, f.fk_case, f.fk_facture, f.level, f.amount, f.fk_claim_invoice FROM '.MAIN_DB_PREFIX.'mahnwesen_fee as f';
+        $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'facture as i ON i.rowid = f.fk_claim_invoice';
+        $sql .= ' WHERE f.entity = '.((int) $conf->entity)." AND f.status = 'invoiced' AND i.paye = 1 AND i.fk_statut = ".((int) Facture::STATUS_CLOSED);
+        $res = $this->db->query($sql);
+        if (!$res) {
+            $this->error = $this->db->lasterror();
+            return false;
+        }
+        $claims = array();
+        while ($o = $this->db->fetch_object($res)) {
+            $claims[] = (array) $o;
+        }
+        $this->db->free($res);
+        $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
+        $nowSql = $this->db->idate(dol_now());
+        $settled = 0;
+        foreach ($claims as $claim) {
+            $this->db->begin();
+            $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_fee SET status = 'paid', date_settlement = '".$this->db->escape($nowSql)."'";
+            $sql .= ", settlement_reason = '".$this->db->escape('Claim invoice id '.((int) $claim['fk_claim_invoice']).' is paid')."', fk_user_settlement = ".$uid;
+            $sql .= ' WHERE rowid = '.((int) $claim['rowid'])." AND status = 'invoiced'";
+            $sqlHistory = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_history (entity, fk_case, fk_facture, action, level, amount_snapshot, mode, result, message, date_creation, fk_user_create) VALUES (';
+            $sqlHistory .= ((int) $conf->entity).', '.((int) $claim['fk_case']).', '.((int) $claim['fk_facture']).", 'fee_paid', ".((int) $claim['level']).', '.((float) $claim['amount']);
+            $sqlHistory .= ", 'automatic', 'success', '".$this->db->escape('Claim invoice id '.((int) $claim['fk_claim_invoice']).' is paid')."', '".$this->db->escape($nowSql)."', ".$uid.')';
+            if (!$this->db->query($sql) || !$this->db->query($sqlHistory)) {
+                $this->errors[] = 'Unable to settle claim '.((int) $claim['rowid']).': '.$this->db->lasterror();
+                $this->db->rollback();
+                continue;
+            }
+            $this->db->commit();
+            $settled++;
+            if (!$this->getOpenClaims((int) $claim['fk_case'])) {
+                $this->db->query('UPDATE '.MAIN_DB_PREFIX."mahnwesen_case SET status = 'closed', next_action_at = NULL, fk_user_modif = ".$uid
+                    .' WHERE rowid = '.((int) $claim['fk_case'])." AND status = 'fee_open'");
+            }
+        }
+        return $settled;
+    }
+
     /** Return fee claims tracked by the module for the active entity. */
     public function getFeeClaims($status = '', $limit = 300)
     {
         global $conf;
         $rows = array();
-        $sql = 'SELECT rowid, fk_case, fk_facture, fk_attempt, level, kind, amount, currency_code, status, date_creation, date_settlement, settlement_reason FROM '.MAIN_DB_PREFIX.'mahnwesen_fee WHERE entity = '.((int) $conf->entity);
-        if (in_array($status, array('open', 'paid', 'waived', 'superseded'), true)) { $sql .= " AND status = '".$this->db->escape($status)."'"; }
+        $sql = 'SELECT rowid, fk_case, fk_facture, fk_attempt, level, kind, amount, currency_code, status, fk_claim_invoice, date_creation, date_settlement, settlement_reason FROM '.MAIN_DB_PREFIX.'mahnwesen_fee WHERE entity = '.((int) $conf->entity);
+        if (in_array($status, array('open', 'invoiced', 'paid', 'waived', 'superseded'), true)) { $sql .= " AND status = '".$this->db->escape($status)."'"; }
         $sql .= ' ORDER BY date_creation DESC, rowid DESC'.$this->db->plimit(max(1, min(1000, (int) $limit)));
         $res = $this->db->query($sql); if (!$res) { $this->error = $this->db->lasterror(); return false; }
         while ($o = $this->db->fetch_object($res)) { $rows[] = (array) $o; }

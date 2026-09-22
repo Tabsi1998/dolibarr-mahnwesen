@@ -29,7 +29,7 @@ module disable/enable step and inspect the Dolibarr database/module logs.
   or SMTP server.
 - `reserved`/`sending` attempts can only be recovered after a 15-minute safety
   delay; `ambiguous` and failed attempts are available immediately.
-- Resolve open fee claims as paid or waived with a reason.
+- Resolve open fee claims as paid or waived with a reason, or put them on their own invoice from the dunning tab; the daily job marks them paid once that invoice is paid.
 - Use dated pauses for payment promises and indefinite pauses for disputes.
 - A dispute or an agreement that covers all invoices of a customer belongs in the customer's *Do not dun* field, with a reason and, if it ends, a last day. On one invoice the same fields block just that invoice. Blocked cases show under *With dunning block* on the dashboard.
 - Run the dry-run report after template, sender, stage, profile, entity or fee changes. It names the profile of every invoice.

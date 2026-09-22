@@ -475,3 +475,16 @@ MahnwesenPartInterest=Late-payment interest
 MahnwesenTokenInterestDesc=Late-payment interest as an amount
 MahnwesenTokenInterestParagraphDesc=A full sentence about the interest, empty without interest
 MahnwesenTokenInterestDaysDesc=Number of days interest is counted for
+
+# Fees and interest as their own invoice (#34)
+MahnwesenClaimInvoiceButton=Put fees and interest on an invoice
+MahnwesenClaimInvoiceHelp=Creates a draft invoice in Dolibarr for the open claims of this case. The original invoice stays unchanged. Open:
+MahnwesenClaimInvoiceCreated=The draft invoice for the open fees and interest was created.
+MahnwesenClaimInvoiceNothingOpen=This case has no open fees or interest.
+MahnwesenClaimInvoiceNote=Dunning fees and late-payment interest for invoice
+MahnwesenClaimInvoice=Its invoice
+MahnwesenFeeStatus_open=open
+MahnwesenFeeStatus_invoiced=on an invoice
+MahnwesenFeeStatus_paid=paid
+MahnwesenFeeStatus_waived=waived
+MahnwesenFeeStatus_superseded=replaced

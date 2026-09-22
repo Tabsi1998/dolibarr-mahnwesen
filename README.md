@@ -11,6 +11,7 @@ A custom Dolibarr module for controlled dunning workflows on overdue customer in
 - configurable dunning stages and fees
 - dunning profiles per kind of claim: stages, fees, payment periods, automatic sending and the final step, chosen by the invoice, the categories of its products, the customer's categories or type
 - late-payment interest per profile: a fixed rate or the base rate of each day plus a surcharge
+- open fees and interest as their own Dolibarr draft invoice, settled when that invoice is paid
 - native Dolibarr HTML email templates
 - Sponge-aligned dunning PDF
 - manual and controlled automatic sending

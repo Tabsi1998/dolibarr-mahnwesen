@@ -1462,6 +1462,50 @@ def interest(stack: Stack) -> str:
     return f"interest {expected} over {days} days and a change of the base rate, in tab, email, letter and ledger"
 
 
+def claim_invoice(stack: Stack) -> str:
+    """Open fees and interest become their own draft invoice, settled when it is paid (#34)."""
+    browser = stack.browser()
+    merchandise = stack.fixtures["profile_invoices"]["merchandise"]
+    case = stack.value(f"SELECT rowid FROM llx_mahnwesen_case WHERE fk_facture = {merchandise['id']}")
+    open_claims = {row[0]: row[1] for row in stack.sql(f"SELECT kind, ROUND(amount, 2) FROM llx_mahnwesen_fee WHERE fk_case = {case} AND status = 'open'")}
+    expect(set(open_claims) == {"fee", "interest"}, f"the case should have an open fee and open interest, it has {open_claims} (#34)")
+    total = round(sum(float(value) for value in open_claims.values()), 2)
+    before = stack.value(f"SELECT ROUND(total_ttc, 2) FROM llx_facture WHERE rowid = {merchandise['id']}")
+
+    tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={merchandise['id']}"), "dunning tab")
+    created = page_ok(browser.submit(form_with_action(tab, "invoice_claims", "dunning tab")), "the new claim invoice")
+    claim_id = stack.value(f"SELECT fk_claim_invoice FROM llx_mahnwesen_fee WHERE fk_case = {case} AND status = 'invoiced' LIMIT 1")
+    expect(claim_id and f"facid={claim_id}" in created.url, f"the claim invoice {claim_id} did not open: {created.url} (#34)")
+    invoiced = stack.sql(f"SELECT kind, ROUND(amount, 2), fk_claim_invoice FROM llx_mahnwesen_fee WHERE fk_case = {case} AND status = 'invoiced' ORDER BY kind")
+    expect([row[:2] for row in invoiced] == sorted([[kind, value] for kind, value in open_claims.items()])
+           and {row[2] for row in invoiced} == {claim_id},
+           f"the claims did not move onto the invoice: {invoiced} (#34)")
+    draft = stack.sql(f"SELECT fk_statut, paye, ROUND(total_ttc, 2), fk_soc FROM llx_facture WHERE rowid = {claim_id}")[0]
+    lines = stack.sql(f"SELECT ROUND(total_ttc, 2), description FROM llx_facturedet WHERE fk_facture = {claim_id} ORDER BY rowid")
+    customer = stack.value(f"SELECT fk_soc FROM llx_facture WHERE rowid = {merchandise['id']}")
+    expect(draft[:3] == ["0", "0", f"{total:.2f}"] and draft[3] == customer and len(lines) == len(open_claims)
+           and all(merchandise["ref"] in line[1] for line in lines),
+           f"the claim invoice should be a draft over {total} for the same customer, it is {draft} with lines {lines} (#34)")
+    after = stack.value(f"SELECT ROUND(total_ttc, 2) FROM llx_facture WHERE rowid = {merchandise['id']}")
+    expect(after == before, f"the claim invoice changed the original invoice: {before} -> {after} (#34)")
+    again = html.unescape(re.sub(r"<[^>]+>", " ", page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={merchandise['id']}"), "dunning tab").text))
+    expect('id="mahnwesen-claim-invoice"' not in page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={merchandise['id']}"), "dunning tab").text
+           and not any(label in again for label in translations("MahnwesenPartFee")),
+           "the tab still asks for fees that are on the claim invoice (#34)")
+
+    # Paying the claim invoice settles the claims, once.
+    stack.sql(f"UPDATE llx_facture SET fk_statut = 2, paye = 1 WHERE rowid = {claim_id}")
+    stack.cron(expect_ok=False)
+    settled = stack.sql(f"SELECT kind, status FROM llx_mahnwesen_fee WHERE fk_case = {case} AND fk_claim_invoice = {claim_id} ORDER BY kind")
+    history = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE fk_case = {case} AND action = 'fee_paid'")
+    expect(settled == [["fee", "paid"], ["interest", "paid"]] and history == str(len(open_claims)),
+           f"after paying the claim invoice the claims are {settled} with {history} entries (#34)")
+    stack.cron(expect_ok=False)
+    twice = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE fk_case = {case} AND action = 'fee_paid'")
+    expect(twice == history, f"a second run counted the claims again: {history} -> {twice} (#34)")
+    return f"fees and interest of {total:.2f} on their own draft invoice, settled once it is paid"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1492,6 +1536,7 @@ SCENARIOS = (
     ("dunning-block", "A dunning block stops notices until its last day", dunning_block, ("billing-role",)),
     ("profiles", "Each kind of claim gets its dunning profile", profiles, ("dunning-block",)),
     ("interest", "Late-payment interest per profile, to the cent", interest, ("profiles",)),
+    ("claim-invoice", "Open fees and interest as their own invoice", claim_invoice, ("interest",)),
 )
 
 

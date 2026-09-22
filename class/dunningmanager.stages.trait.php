@@ -404,6 +404,11 @@ trait DunningManagerStages
         $fee = $this->getFeeForLevel($level, $profileId);
         // Interest follows the same profile and is counted up to today (#33).
         $interest = $this->calculateInterest($invoice, $base, $profileId);
+        // What already went on a claim invoice is not asked for again (#34).
+        if (!empty($case['id'])) {
+            $fee = max(0.0, $fee - $this->getSettledClaimAmount((int) $case['id'], 'fee'));
+            $interest['amount'] = max(0.0, (float) $interest['amount'] - $this->getSettledClaimAmount((int) $case['id'], 'interest'));
+        }
         return array(
             'invoice' => $base,
             'fee' => $fee,

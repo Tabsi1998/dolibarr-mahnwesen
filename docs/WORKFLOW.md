@@ -83,6 +83,10 @@ Every stage setting comes from the invoice's dunning profile (#32). The first ru
 
 The profile holds the interest rule: none, a fixed rate, or the base rate of each day plus a surcharge in percentage points. Interest is counted per day on the open amount, from the day after the due date up to today, and shown in the tab, the email and the letter. A delivered notice books it in the ledger, where a new interest claim replaces the open one of the same case, so nothing is counted twice. The Dolibarr invoice stays as it is (#33).
 
+## Fees and interest on their own invoice
+
+The dunning tab offers to put the open fees and interest of a case on a new Dolibarr draft invoice, one line per claim, without VAT, naming the original invoice. The original invoice is never touched. The claims then point at that invoice and count as paid once it is paid, which the daily job records. What already went on such an invoice is not asked for again in later notices (#34).
+
 ## Dunning block
 
 A pause belongs to one case. A dunning block lives in Dolibarr's own fields of the customer (all their invoices) or of one invoice: *Do not dun*, *Dunning block until* (last day, empty = without end) and a reason. While a block applies, no notice is sent by hand or automatically and no dunning PDF is made; the dry run names the block. The day after its last day it no longer applies. A block that cannot be read counts as a block.
