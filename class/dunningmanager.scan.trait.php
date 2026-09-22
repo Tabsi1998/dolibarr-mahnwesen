@@ -129,14 +129,17 @@ trait DunningManagerScan
                 continue;
             }
 
+            // The invoice's profile holds its stages (#32).
+            $profile = $this->resolveProfile((int) $invoice->id);
+            $profileId = (int) $profile['profile_id'];
             $daysLate = $this->daysBetween($dueYmd, $todayYmd);
-            $stage = $this->determineStage($daysLate);
+            $stage = $this->determineStage($daysLate, $profileId);
             $caseId = isset($obj->case_id) ? (int) $obj->case_id : 0;
-            $nextRequiredLevel = $this->getNextRequiredLevel($caseId, $stage);
+            $nextRequiredLevel = $this->getNextRequiredLevel($caseId, $stage, $profileId);
             $highestCompletedLevel = $this->getHighestCompletedLevel($caseId);
-            $nextRequiredAt = $nextRequiredLevel > 0 ? $this->calculateWorkflowStageDueAt($caseId, $dueYmd, $nextRequiredLevel) : null;
-            $nextFutureLevel = $this->getNextFutureLevel($stage);
-            $nextFutureAt = $nextFutureLevel > 0 ? $this->calculateWorkflowStageDueAt($caseId, $dueYmd, $nextFutureLevel) : null;
+            $nextRequiredAt = $nextRequiredLevel > 0 ? $this->calculateWorkflowStageDueAt($caseId, $dueYmd, $nextRequiredLevel, $profileId) : null;
+            $nextFutureLevel = $this->getNextFutureLevel($stage, $profileId);
+            $nextFutureAt = $nextFutureLevel > 0 ? $this->calculateWorkflowStageDueAt($caseId, $dueYmd, $nextFutureLevel, $profileId) : null;
 
             $rows[] = array(
                 'invoice_id' => (int) $invoice->id,
@@ -163,6 +166,8 @@ trait DunningManagerScan
                 'case_status' => isset($obj->case_status) ? (string) $obj->case_status : '',
                 'case_id' => isset($obj->case_id) ? (int) $obj->case_id : 0,
                 'invoice_entity' => isset($obj->invoice_entity) ? (int) $obj->invoice_entity : 1,
+                'profile_id' => $profileId,
+                'profile_label' => (string) $profile['profile']['label'],
             );
             $this->diagnostics['included']++;
             if (count($rows) >= $limit) { break; }
@@ -361,13 +366,15 @@ trait DunningManagerScan
         }
 
         $daysLate = ($eligible && $dueYmd) ? $this->daysBetween($dueYmd, $todayYmd) : 0;
-        $stage = $this->determineStage($daysLate);
+        $profile = $this->resolveProfile((int) $invoice->id);
+        $stage = $this->determineStage($daysLate, (int) $profile['profile_id']);
         $entity = $invoiceEntity;
 
         return array(
             'eligible' => $eligible ? 1 : 0,
             'reason' => $reason,
             'remain_to_pay' => $remain,
+            'profile' => $profile,
             'row' => array(
                 'invoice_id' => (int) $invoice->id,
                 'invoice_ref' => $invoice->ref,
@@ -387,6 +394,8 @@ trait DunningManagerScan
                 'case_status' => '',
                 'case_id' => 0,
                 'invoice_entity' => $entity,
+                'profile_id' => (int) $profile['profile_id'],
+                'profile_label' => (string) $profile['profile']['label'],
             ),
         );
     }

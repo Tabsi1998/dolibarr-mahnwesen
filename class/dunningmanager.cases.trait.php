@@ -185,12 +185,13 @@ trait DunningManagerCases
         $entity = !empty($row['invoice_entity']) ? (int) $row['invoice_entity'] : 1;
         $calculatedLevel = (int) $row['stage'];
         $remain = (float) $row['remain_to_pay'];
-        $requiredLevel = $this->getNextRequiredLevel($case ? (int) $case['id'] : 0, $calculatedLevel);
+        $profileId = (int) ($row['profile_id'] ?? 0);
+        $requiredLevel = $this->getNextRequiredLevel($case ? (int) $case['id'] : 0, $calculatedLevel, $profileId);
         // Persist the calendar stage only. The next allowed workflow stage is
         // intentionally derived from immutable history via getNextRequiredLevel().
         $level = $calculatedLevel;
-        $futureLevel = $this->getNextFutureLevel($calculatedLevel);
-        $nextAction = $requiredLevel > 0 ? $this->calculateWorkflowStageDueAt($case ? (int) $case['id'] : 0, $row['due_ymd'], $requiredLevel) : ($futureLevel > 0 ? $this->calculateWorkflowStageDueAt($case ? (int) $case['id'] : 0, $row['due_ymd'], $futureLevel) : null);
+        $futureLevel = $this->getNextFutureLevel($calculatedLevel, $profileId);
+        $nextAction = $requiredLevel > 0 ? $this->calculateWorkflowStageDueAt($case ? (int) $case['id'] : 0, $row['due_ymd'], $requiredLevel, $profileId) : ($futureLevel > 0 ? $this->calculateWorkflowStageDueAt($case ? (int) $case['id'] : 0, $row['due_ymd'], $futureLevel, $profileId) : null);
         $nowSql = $this->db->idate(dol_now());
 
         $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
@@ -415,13 +416,14 @@ trait DunningManagerCases
             }
         } elseif (!empty($evaluation['eligible'])) {
             $calculatedLevel = (int) $evaluation['row']['stage'];
-            $requiredLevel = $this->getNextRequiredLevel((int) $case['id'], $calculatedLevel);
+            $profileId = (int) $evaluation['row']['profile_id'];
+            $requiredLevel = $this->getNextRequiredLevel((int) $case['id'], $calculatedLevel, $profileId);
             // current_level tracks the calendar stage; completion/sequence is derived from history.
             // This avoids visually downgrading a case merely because an earlier due notice was not sent.
             $level = $calculatedLevel;
             $remaining = (float) $evaluation['row']['remain_to_pay'];
-            $futureLevel = $this->getNextFutureLevel($calculatedLevel);
-            $nextAction = $requiredLevel > 0 ? $this->calculateWorkflowStageDueAt((int) $case['id'], $evaluation['row']['due_ymd'], $requiredLevel) : ($futureLevel > 0 ? $this->calculateWorkflowStageDueAt((int) $case['id'], $evaluation['row']['due_ymd'], $futureLevel) : null);
+            $futureLevel = $this->getNextFutureLevel($calculatedLevel, $profileId);
+            $nextAction = $requiredLevel > 0 ? $this->calculateWorkflowStageDueAt((int) $case['id'], $evaluation['row']['due_ymd'], $requiredLevel, $profileId) : ($futureLevel > 0 ? $this->calculateWorkflowStageDueAt((int) $case['id'], $evaluation['row']['due_ymd'], $futureLevel, $profileId) : null);
         }
 
         if ((int) $case['paused'] === $newPaused && $note === '' && (($newPaused && (string) ($case['pause_until'] ?? '') === (string) $pauseUntilSql) || !$newPaused)) {

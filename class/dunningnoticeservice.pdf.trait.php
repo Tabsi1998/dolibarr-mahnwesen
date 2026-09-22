@@ -132,7 +132,7 @@ trait DunningNoticeServicePdf
             $pdf->SetXY($marginLeft + $descW + 1.5, $y + 1.4);
             $pdf->Cell($amountW - 3, 4, $this->formatMoney($breakdown['total'], $outputlangs), 0, 0, 'R');
             // The same deadline as __MAHNWESEN_PAYMENT_DEADLINE__ in the email (#64).
-            $deadline = $this->manager->getPaymentDeadline((int) $level);
+            $deadline = $this->manager->getPaymentDeadline((int) $level, null, (int) $breakdown['profile_id']);
             if ($deadline) {
                 $y += $rowH;
                 $pdf->SetFont('', '', $defaultFontSize);

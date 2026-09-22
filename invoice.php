@@ -77,7 +77,7 @@ if ($action === 'sync_case') {
         setEventMessages($langs->trans('NoticeNotReady'), null, 'errors');
     } else {
         $customerLang = !empty($invoice->thirdparty->default_lang) ? (string) $invoice->thirdparty->default_lang : $langs->defaultlang;
-        $pdfTemplate = $noticeService->getTemplate($pdfLevel, $customerLang, $user);
+        $pdfTemplate = $noticeService->getTemplate($pdfLevel, $customerLang, $user, (int) $pdfWorkflow['profile_id']);
         if ($pdfTemplate === false) {
             setEventMessages($noticeService->error, $noticeService->errors, 'errors');
         } else {
@@ -167,6 +167,8 @@ if (!$case) {
     $blockHtml = !empty($workflow['block']) ? $manager->describeBlock($workflow['block']) : '<span class="opacitymedium">'.$langs->trans('None').'</span>';
     $blockHtml .= ' <span class="opacitymedium small">'.$langs->trans('MahnwesenBlockWhere', DOL_URL_ROOT.'/compta/facture/card.php?facid='.$id, DOL_URL_ROOT.'/societe/card.php?socid='.((int) $invoice->socid)).'</span>';
     print '<tr><td>'.$langs->trans('MahnwesenBlocked').'</td><td colspan="3" id="mahnwesen-block">'.$blockHtml.'</td></tr>';
+    // Which profile holds the stages and fees of this invoice, and why (#32).
+    print '<tr><td>'.$langs->trans('MahnwesenProfile').'</td><td colspan="3" id="mahnwesen-profile">'.(!empty($workflow['profile']) ? $manager->describeProfile($workflow['profile']) : '-').'</td></tr>';
     print '</table>';
 
 

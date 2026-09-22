@@ -1,17 +1,24 @@
 <?php
-/* The stage table: days, fees, payment period, automatic sending, template per stage, and the amounts a notice asks for. */
+/* The stage table: days, fees, payment period, automatic sending, template per stage and profile, and the amounts a notice asks for. */
 trait DunningManagerStages
 {
-    /** @return array<int,array> */
-    public function getRules($refresh = false)
+    /**
+     * The four stages of a profile, stored or default (#32).
+     *
+     * @param bool $refresh Read again
+     * @param int $profileId Profile, 0 for the default profile
+     * @return array<int,array>
+     */
+    public function getRules($refresh = false, $profileId = 0)
     {
         global $conf;
-        if (!$refresh && is_array($this->rulesCache)) {
-            return $this->rulesCache;
+        $profileId = (int) $profileId > 0 ? (int) $profileId : $this->getDefaultProfileId();
+        if (!$refresh && isset($this->rulesCache[$profileId])) {
+            return $this->rulesCache[$profileId];
         }
         $rules = array();
-        $sql = 'SELECT rowid, entity, code, label, level, days_after_due, fee_amount, fee_private, payment_days, interest_rate, send_email, email_template, enabled';
-        $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_rule WHERE entity = '.((int) $conf->entity).' AND level BETWEEN 1 AND 4 ORDER BY level ASC';
+        $sql = 'SELECT rowid, entity, code, label, level, days_after_due, fee_amount, payment_days, interest_rate, send_email, email_template, enabled';
+        $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_rule WHERE entity = '.((int) $conf->entity).' AND fk_profile = '.$profileId.' AND level BETWEEN 1 AND 4 ORDER BY level ASC';
         $res = $this->db->query($sql);
         if ($res) {
             while ($o = $this->db->fetch_object($res)) {
@@ -23,7 +30,6 @@ trait DunningManagerStages
                     'level' => (int) $o->level,
                     'days_after_due' => (int) $o->days_after_due,
                     'fee_amount' => (float) $o->fee_amount,
-                    'fee_private' => (float) $o->fee_private,
                     'payment_days' => (int) $o->payment_days,
                     'interest_rate' => (float) $o->interest_rate,
                     'send_email' => (int) $o->send_email,
@@ -39,20 +45,23 @@ trait DunningManagerStages
             }
         }
         ksort($rules);
-        $this->rulesCache = $rules;
+        if (!is_array($this->rulesCache)) {
+            $this->rulesCache = array();
+        }
+        $this->rulesCache[$profileId] = $rules;
         return $rules;
     }
 
     /** @return array */
-    public function getRuleByLevel($level)
+    public function getRuleByLevel($level, $profileId = 0)
     {
-        $rules = $this->getRules();
+        $rules = $this->getRules(false, $profileId);
         $level = max(1, min(4, (int) $level));
         return $rules[$level];
     }
 
-    /** Save all settings of a stage; the stage table is their only place (#20). */
-    public function saveRule($level, $days, $feeAmount, $sendEmail, $templateRef, $user, $enabled = 1, $feePrivate = 0.0, $paymentDays = 0)
+    /** Save all settings of a stage of a profile; the stage table is their only place (#20, #32). */
+    public function saveRule($level, $days, $feeAmount, $sendEmail, $templateRef, $user, $enabled = 1, $paymentDays = 0, $profileId = 0)
     {
         global $conf;
         $level = max(1, min(4, (int) $level));
@@ -64,14 +73,15 @@ trait DunningManagerStages
         if ($templateRef === '') {
             $templateRef = 'internal';
         }
-        if (!$this->ensureRuleRows($user)) {
+        $profileId = (int) $profileId > 0 ? (int) $profileId : $this->getDefaultProfileId($user);
+        if (!$this->ensureRuleRows($user, $profileId)) {
             return false;
         }
         $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
         $sql = 'UPDATE '.MAIN_DB_PREFIX.'mahnwesen_rule SET days_after_due = '.$days.', fee_amount = '.((float) $feeAmount).', send_email = '.$sendEmail;
-        $sql .= ', fee_private = '.max(0.0, (float) $feePrivate).', payment_days = '.max(0, min(365, (int) $paymentDays));
+        $sql .= ', payment_days = '.max(0, min(365, (int) $paymentDays));
         $sql .= ", email_template = '".$this->db->escape($templateRef)."', enabled = ".$enabled.', fk_user_modif = '.$uid;
-        $sql .= ' WHERE entity = '.((int) $conf->entity).' AND level = '.$level;
+        $sql .= ' WHERE entity = '.((int) $conf->entity).' AND fk_profile = '.$profileId.' AND level = '.$level;
         if (!$this->db->query($sql)) {
             $this->error = $this->db->lasterror();
             return false;
@@ -80,8 +90,8 @@ trait DunningManagerStages
         return true;
     }
 
-    /** Remember which email template a stage uses: native:auto or native:<id>. */
-    public function saveRuleTemplate($level, $templateRef, $user)
+    /** Remember which email template a stage of a profile uses: native:auto or native:<id>. */
+    public function saveRuleTemplate($level, $templateRef, $user, $profileId = 0)
     {
         global $conf;
         $level = max(1, min(4, (int) $level));
@@ -89,12 +99,13 @@ trait DunningManagerStages
             $this->error = 'Invalid template reference';
             return false;
         }
-        if (!$this->ensureRuleRows($user)) {
+        $profileId = (int) $profileId > 0 ? (int) $profileId : $this->getDefaultProfileId($user);
+        if (!$this->ensureRuleRows($user, $profileId)) {
             return false;
         }
         $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
         $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_rule SET email_template = '".$this->db->escape((string) $templateRef)."', fk_user_modif = ".$uid;
-        $sql .= ' WHERE entity = '.((int) $conf->entity).' AND level = '.$level;
+        $sql .= ' WHERE entity = '.((int) $conf->entity).' AND fk_profile = '.$profileId.' AND level = '.$level;
         if (!$this->db->query($sql)) {
             $this->error = $this->db->lasterror();
             return false;
@@ -136,7 +147,6 @@ trait DunningManagerStages
             'level' => $level,
             'days_after_due' => $days[$level],
             'fee_amount' => $fees[$level],
-            'fee_private' => 0.0,
             'payment_days' => 0,
             'interest_rate' => 0.0,
             'send_email' => 0,
@@ -145,14 +155,19 @@ trait DunningManagerStages
         );
     }
 
-    /** Ensure four stage rows exist in the module's own rule table. */
-    public function ensureRuleRows($user = null)
+    /** Ensure the four stage rows of a profile exist, the default profile's when 0. */
+    public function ensureRuleRows($user = null, $profileId = 0)
     {
         global $conf;
+        $profileId = (int) $profileId > 0 ? (int) $profileId : $this->getDefaultProfileId($user);
+        if ($profileId <= 0) {
+            $this->error = $this->error ?: 'No dunning profile';
+            return false;
+        }
         $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
         for ($level = 1; $level <= 4; $level++) {
             $code = 'STAGE'.$level;
-            $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_rule WHERE entity = '.((int) $conf->entity)." AND code = '".$this->db->escape($code)."'".$this->db->plimit(1);
+            $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_rule WHERE entity = '.((int) $conf->entity).' AND fk_profile = '.$profileId.' AND level = '.$level.$this->db->plimit(1);
             $res = $this->db->query($sql);
             if (!$res) {
                 $this->error = $this->db->lasterror();
@@ -164,8 +179,8 @@ trait DunningManagerStages
                 continue;
             }
             $d = $this->getDefaultRule($level);
-            $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_rule (entity, code, label, level, days_after_due, fee_amount, fee_private, payment_days, interest_rate, send_email, email_template, enabled, date_creation, fk_user_create, fk_user_modif) VALUES (';
-            $sql .= ((int) $conf->entity).", '".$this->db->escape($code)."', '".$this->db->escape($d['label'])."', ".$level.', '.((int) $d['days_after_due']).', '.((float) $d['fee_amount']).", 0, 0, 0, 0, 'internal', 1, '".$this->db->escape($this->db->idate(dol_now()))."', ".$uid.', '.$uid.')';
+            $sql = 'INSERT INTO '.MAIN_DB_PREFIX.'mahnwesen_rule (entity, fk_profile, code, label, level, days_after_due, fee_amount, payment_days, interest_rate, send_email, email_template, enabled, date_creation, fk_user_create, fk_user_modif) VALUES (';
+            $sql .= ((int) $conf->entity).', '.$profileId.", '".$this->db->escape($code)."', '".$this->db->escape($d['label'])."', ".$level.', '.((int) $d['days_after_due']).', '.((float) $d['fee_amount']).", 0, 0, 0, 'internal', 1, '".$this->db->escape($this->db->idate(dol_now()))."', ".$uid.', '.$uid.')';
             if (!$this->db->query($sql)) {
                 $this->error = $this->db->lasterror();
                 return false;
@@ -179,10 +194,11 @@ trait DunningManagerStages
      * Move the stage settings that earlier versions kept as constants into the
      * stage table, then remove the constants (#20).
      *
-     * Days lived in MAHNWESEN_STAGE<n>_DAYS as well as in the table, private
-     * fees only in MAHNWESEN_PRIVATE_FEE_<n>, payment periods (1.0.5) only in
-     * MAHNWESEN_PAYMENT_DAYS_<n>. The table wins for the days; the other two
-     * move over. Runs on every activation; without constants it does nothing.
+     * Days lived in MAHNWESEN_STAGE<n>_DAYS as well as in the table, payment
+     * periods (1.0.5) only in MAHNWESEN_PAYMENT_DAYS_<n>. The table wins for the
+     * days; the payment periods move over, into the default profile. The private
+     * fees move with migrateProfiles() (#32). Runs on every activation; without
+     * constants it does nothing.
      *
      * @param User|null $user Acting user
      * @return bool
@@ -191,7 +207,8 @@ trait DunningManagerStages
     {
         global $conf;
         $hadRows = count($this->getStoredRuleLevels()) === 4;
-        if (!$this->ensureRuleRows($user)) {
+        $profileId = $this->getDefaultProfileId($user);
+        if (!$this->ensureRuleRows($user, $profileId)) {
             return false;
         }
         for ($level = 1; $level <= 4; $level++) {
@@ -201,22 +218,18 @@ trait DunningManagerStages
             if (!$hadRows && $days !== '' && is_numeric($days)) {
                 $set[] = 'days_after_due = '.max(0, (int) $days);
             }
-            $private = getDolGlobalString('MAHNWESEN_PRIVATE_FEE_'.$level);
-            if ($private !== '') {
-                $set[] = 'fee_private = '.max(0.0, (float) price2num($private));
-            }
             $payment = getDolGlobalString('MAHNWESEN_PAYMENT_DAYS_'.$level);
             if ($payment !== '') {
                 $set[] = 'payment_days = '.max(0, min(365, (int) $payment));
             }
             if ($set) {
-                $sql = 'UPDATE '.MAIN_DB_PREFIX.'mahnwesen_rule SET '.implode(', ', $set).' WHERE entity = '.((int) $conf->entity).' AND level = '.$level;
+                $sql = 'UPDATE '.MAIN_DB_PREFIX.'mahnwesen_rule SET '.implode(', ', $set).' WHERE entity = '.((int) $conf->entity).' AND fk_profile = '.$profileId.' AND level = '.$level;
                 if (!$this->db->query($sql)) {
                     $this->error = $this->db->lasterror();
                     return false;
                 }
             }
-            foreach (array('MAHNWESEN_STAGE'.$level.'_DAYS', 'MAHNWESEN_PRIVATE_FEE_'.$level, 'MAHNWESEN_PAYMENT_DAYS_'.$level) as $name) {
+            foreach (array('MAHNWESEN_STAGE'.$level.'_DAYS', 'MAHNWESEN_PAYMENT_DAYS_'.$level) as $name) {
                 if (getDolGlobalString($name) !== '' || isset($conf->global->$name)) {
                     dolibarr_del_const($this->db, $name, $conf->entity);
                 }
@@ -244,22 +257,22 @@ trait DunningManagerStages
     /**
      * @return array<int,int>
      */
-    /** @return array<int,bool> Level => whether the stage is switched on */
-    public function getEnabledLevels()
+    /** @return array<int,bool> Level => whether the stage of a profile is switched on */
+    public function getEnabledLevels($profileId = 0)
     {
         $enabled = array();
-        foreach ($this->getRules() as $level => $rule) {
+        foreach ($this->getRules(false, $profileId) as $level => $rule) {
             $enabled[(int) $level] = !empty($rule['enabled']);
         }
         return $enabled;
     }
 
-    /** @return array<int,int> Level => days after the due date */
-    public function getStageThresholds()
+    /** @return array<int,int> Level => days after the due date, in a profile */
+    public function getStageThresholds($profileId = 0)
     {
         // getRules() always returns the four stages, stored or default (#20).
         $out = array();
-        foreach ($this->getRules() as $level => $rule) {
+        foreach ($this->getRules(false, $profileId) as $level => $rule) {
             $out[(int) $level] = (int) $rule['days_after_due'];
         }
         ksort($out);
@@ -270,11 +283,12 @@ trait DunningManagerStages
      * Determine dunning stage from days after due date.
      *
      * @param int $daysLate Days after due date
+     * @param int $profileId Profile, 0 for the default profile
      * @return int 0..4
      */
-    public function determineStage($daysLate)
+    public function determineStage($daysLate, $profileId = 0)
     {
-        return MahnwesenWorkflowPolicy::stageForDaysLate($daysLate, $this->getStageThresholds(), $this->getEnabledLevels());
+        return MahnwesenWorkflowPolicy::stageForDaysLate($daysLate, $this->getStageThresholds($profileId), $this->getEnabledLevels($profileId));
     }
 
     /**
@@ -312,8 +326,9 @@ trait DunningManagerStages
     }
 
     /**
-     * Classify a Dolibarr third party for SAFE fee automation. This is a
-     * master-data heuristic, not a legal determination of the transaction.
+     * Classify a Dolibarr third party by its type: the customer type a dunning
+     * profile can name (#32). This is a master-data heuristic, not a legal
+     * determination of the transaction.
      *
      * @return array{class:string,code:string,label:string}
      */
@@ -354,74 +369,45 @@ trait DunningManagerStages
         }
     }
 
-    /** Return configured business/B2B fee for a stage. */
-    public function getBusinessFeeForLevel($level)
-    {
-        $rule = $this->getRuleByLevel($level);
-        return max(0.0, (float) $rule['fee_amount']);
-    }
-
-    /** Return configured private-person/consumer fee for a stage. */
-    public function getPrivateFeeForLevel($level)
-    {
-        $rule = $this->getRuleByLevel($level);
-        return max(0.0, (float) $rule['fee_private']);
-    }
-
     /** Payment period in days that a notice of this stage grants, 0 for none (#64). */
-    public function getPaymentDaysForLevel($level)
+    public function getPaymentDaysForLevel($level, $profileId = 0)
     {
-        $rule = $this->getRuleByLevel($level);
+        $rule = $this->getRuleByLevel($level, $profileId);
         return max(0, min(365, (int) $rule['payment_days']));
     }
 
     /** Payment deadline of a notice of this stage written at $from (default now), null without a period. */
-    public function getPaymentDeadline($level, $from = null)
+    public function getPaymentDeadline($level, $from = null, $profileId = 0)
     {
-        $days = $this->getPaymentDaysForLevel($level);
+        $days = $this->getPaymentDaysForLevel($level, $profileId);
         if ($days <= 0) {
             return null;
         }
         return (int) strtotime('+'.$days.' days', $from === null ? dol_now() : (int) $from);
     }
 
-    /**
-     * Return the fee actually applied for a stage/customer.
-     *
-     * Business and private-person amounts are configured independently. The
-     * third-party master-data classification selects the matching column.
-     * Unknown/special customer types remain fee-free unless the explicit
-     * compatibility switch MAHNWESEN_UNKNOWN_FEES_ALLOWED is enabled, in
-     * which case the more conservative private-person amount is used.
-     */
-    public function getFeeForLevel($level, $thirdparty)
+    /** The fee of a stage in a profile: the total owed from that stage on (#32). */
+    public function getFeeForLevel($level, $profileId = 0)
     {
-        $classification = $this->classifyThirdparty($thirdparty);
-        if ($classification['class'] === 'business') {
-            return $this->getBusinessFeeForLevel($level);
-        }
-        if ($classification['class'] === 'consumer') {
-            return getDolGlobalInt('MAHNWESEN_PRIVATE_FEES_ALLOWED', 0) ? $this->getPrivateFeeForLevel($level) : 0.0;
-        }
-        if (($classification['class'] === 'unknown' || $classification['class'] === 'special') && getDolGlobalInt('MAHNWESEN_UNKNOWN_FEES_ALLOWED')) {
-            return $this->getPrivateFeeForLevel($level);
-        }
-        return 0.0;
+        $rule = $this->getRuleByLevel($level, $profileId);
+        return max(0.0, (float) $rule['fee_amount']);
     }
 
-    /** @return array{invoice:float,fee:float,total:float,classification:array} */
+    /** @return array{invoice:float,fee:float,total:float,classification:array,profile_id:int} */
     public function getAmountBreakdown($invoice, $case, $level)
     {
         if (empty($invoice->thirdparty)) {
             $invoice->fetch_thirdparty();
         }
         $base = isset($case['remaining_amount']) ? max(0.0, (float) $case['remaining_amount']) : 0.0;
-        $fee = $this->getFeeForLevel($level, $invoice->thirdparty);
+        $profileId = (int) $this->resolveProfile((int) $invoice->id)['profile_id'];
+        $fee = $this->getFeeForLevel($level, $profileId);
         return array(
             'invoice' => $base,
             'fee' => $fee,
             'total' => $base + $fee,
             'classification' => $this->classifyThirdparty($invoice->thirdparty),
+            'profile_id' => $profileId,
         );
     }
 }

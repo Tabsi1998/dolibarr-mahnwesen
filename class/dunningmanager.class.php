@@ -13,6 +13,7 @@ require_once __DIR__.'/mahnwesenworkflowpolicy.class.php';
 require_once __DIR__.'/dunningmanager.access.trait.php';
 require_once __DIR__.'/dunningmanager.scan.trait.php';
 require_once __DIR__.'/dunningmanager.stages.trait.php';
+require_once __DIR__.'/dunningmanager.profiles.trait.php';
 require_once __DIR__.'/dunningmanager.workflow.trait.php';
 require_once __DIR__.'/dunningmanager.cases.trait.php';
 require_once __DIR__.'/dunningmanager.attempts.trait.php';
@@ -29,7 +30,7 @@ require_once __DIR__.'/dunningmanager.automation.trait.php';
  */
 class DunningManager
 {
-    use DunningManagerAccess, DunningManagerScan, DunningManagerStages, DunningManagerWorkflow, DunningManagerCases, DunningManagerAttempts, DunningManagerFees, DunningManagerHistory, DunningManagerAutomation;
+    use DunningManagerAccess, DunningManagerScan, DunningManagerStages, DunningManagerProfiles, DunningManagerWorkflow, DunningManagerCases, DunningManagerAttempts, DunningManagerFees, DunningManagerHistory, DunningManagerAutomation;
 
     /** @var DoliDB */
     public $db;
@@ -46,8 +47,20 @@ class DunningManager
     /** @var array Diagnostic counters from last scan */
     public $diagnostics = array();
 
-    /** @var array|null Cached stage rules */
+    /** @var array<int,array>|null Stage rules by profile */
     protected $rulesCache = null;
+
+    /** @var array<int,array>|null Profiles of the active entity */
+    protected $profilesCache = null;
+
+    /** @var array|null Categories and customer types that lead to profiles */
+    protected $profileMatchesCache = null;
+
+    /** @var array<int,array> Profile of each invoice, for one request */
+    protected $profileResolutionCache = array();
+
+    /** @var array<int,array> Dolibarr's categories by type, for one request */
+    protected $categoryTreeCache = array();
 
     /** @var array<int,array<int,bool>> Completed-stage cache for one request. */
     protected $completedLevelsCache = array();

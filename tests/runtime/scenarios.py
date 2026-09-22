@@ -29,7 +29,8 @@ from dolibarr_http import Browser, Mailpit, Page, token_of
 MODULE_DIR = "/var/www/html/custom/mahnwesen"
 TESTS_DIR = "/opt/mahnwesen-tests"
 MODULE_TABLES = ("mahnwesen_case", "mahnwesen_history", "mahnwesen_rule", "mahnwesen_attempt",
-                 "mahnwesen_attempt_file", "mahnwesen_fee", "mahnwesen_pause", "mahnwesen_run")
+                 "mahnwesen_attempt_file", "mahnwesen_fee", "mahnwesen_pause", "mahnwesen_run",
+                 "mahnwesen_profile", "mahnwesen_profile_match")
 LANGS = Path(__file__).resolve().parents[2] / "langs"
 PHP_PROBLEM = re.compile(r"PHP (Fatal error|Parse error|Warning|Notice|Deprecated|Recoverable fatal error):"
                          r"\s*(.+?) in (/var/www/html/custom/mahnwesen/\S+) on line \d+")
@@ -323,6 +324,7 @@ def upgrade_from(stack: Stack, package: Path) -> str:
     stack.sql("UPDATE llx_mahnwesen_rule SET fee_amount = 55 WHERE level = 3 AND entity = 1")
     stack.sql("UPDATE llx_mahnwesen_rule SET days_after_due = 12 WHERE level = 2 AND entity = 1")
     set_const(stack, "MAHNWESEN_PRIVATE_FEE_3", "7.00")
+    set_const(stack, "MAHNWESEN_PRIVATE_FEES_ALLOWED", "1")
     set_const(stack, "MAHNWESEN_PAYMENT_DAYS_1", "14")
 
     def state() -> list:
@@ -340,20 +342,28 @@ def upgrade_from(stack: Stack, package: Path) -> str:
     tables = {row[0] for row in stack.sql("SHOW TABLES LIKE 'llx_mahnwesen_%'")}
     missing = [name for name in MODULE_TABLES if f"llx_{name}" not in tables]
     expect(not missing, f"after the upgrade from {old} the tables {', '.join(missing)} are missing")
-    rules = {row[0]: row[1:] for row in stack.sql(
-        "SELECT level, days_after_due, ROUND(fee_amount, 2), ROUND(fee_private, 2), payment_days FROM llx_mahnwesen_rule "
-        "WHERE entity = 1 ORDER BY level")}
-    expect(rules.get("1", [None] * 4)[3] == "14" and rules.get("2", [None])[0] == "12"
-           and rules.get("3", [None] * 3)[1:3] == ["55.00", "7.00"],
-           f"the upgrade from {old} did not move the stage settings into the stage table: {rules} (#20)")
-    leftovers = stack.sql(f"SELECT name FROM llx_const WHERE {STAGE_CONSTANTS}")
-    expect(not leftovers, f"the upgrade from {old} left the old stage constants {leftovers} (#20)")
+    # The company fee, the private fee (allowed) and the fee of customers of
+    # unclear type (none) become three profiles, each with the stage settings (#20, #32).
+    def rules_of(code: str) -> dict:
+        return {row[0]: row[1:] for row in stack.sql(
+            "SELECT r.level, r.days_after_due, ROUND(r.fee_amount, 2), r.payment_days FROM llx_mahnwesen_rule r "
+            f"JOIN llx_mahnwesen_profile p ON p.rowid = r.fk_profile WHERE p.code = '{code}' AND r.entity = 1 ORDER BY r.level")}
+    default, company, private = rules_of("default"), rules_of("company"), rules_of("private")
+    expect(all(rules.get("1", [None] * 3)[2] == "14" and rules.get("2", [None])[0] == "12" for rules in (default, company, private))
+           and [rules.get("3", [None] * 2)[1] for rules in (default, company, private)] == ["0.00", "55.00", "7.00"],
+           f"the upgrade from {old} did not move the stage and fee settings into profiles: "
+           f"default {default}, company {company}, private {private} (#20, #32)")
+    types = {row[0]: row[1] for row in stack.sql("SELECT m.customer_type, p.code FROM llx_mahnwesen_profile_match m "
+                                                  "JOIN llx_mahnwesen_profile p ON p.rowid = m.fk_profile WHERE m.kind = 'customer_type'")}
+    expect(types == {"company": "company", "private": "private"}, f"the profiles after the upgrade from {old} apply to {types} (#32)")
+    leftovers = stack.sql(f"SELECT name FROM llx_const WHERE {STAGE_CONSTANTS} OR name LIKE 'MAHNWESEN\\_%\\_FEES\\_ALLOWED'")
+    expect(not leftovers, f"the upgrade from {old} left the old stage constants {leftovers} (#20, #32)")
     assets = stack.sql("SELECT name FROM llx_const WHERE name IN ('MAIN_MODULE_MAHNWESEN_CSS', 'MAIN_MODULE_MAHNWESEN_JS')")
     expect(not assets, f"the upgrade from {old} still loads the module's CSS or JS on every page: {assets} (#27)")
     columns = {row[0] for row in stack.sql("SHOW COLUMNS FROM llx_mahnwesen_rule")}
     body = stack.value("SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
                        "AND TABLE_NAME = 'llx_mahnwesen_attempt' AND COLUMN_NAME = 'body_html'")
-    expect(not columns & {"minimum_amount", "generate_pdf"} and body == "mediumtext",
+    expect(not columns & {"minimum_amount", "generate_pdf", "fee_private"} and body == "mediumtext",
            f"the schema after the upgrade from {old}: rule columns {sorted(columns)}, body_html {body} (#20)")
     missing = [name for name in package_settings(stack.package) if stack.const(name) is None]
     if missing:
@@ -476,6 +486,7 @@ def pages(stack: Stack) -> str:
         "dashboard": "/custom/mahnwesen/index.php",
         "attempts": "/custom/mahnwesen/attempts.php",
         "setup general": "/custom/mahnwesen/admin/setup.php?tab=general",
+        "setup profiles": "/custom/mahnwesen/admin/setup.php?tab=profiles",
         "setup stages": "/custom/mahnwesen/admin/setup.php?tab=stages",
         "setup templates": "/custom/mahnwesen/admin/setup.php?tab=templates",
         "setup automation": "/custom/mahnwesen/admin/setup.php?tab=automation",
@@ -1277,6 +1288,85 @@ def dunning_block(stack: Stack) -> str:
     return "customer and invoice blocks named in dry run, tab, composer and list; a block ends after its last day"
 
 
+def profiles(stack: Stack) -> str:
+    """Company, membership and merchandise invoices get their own profiles, a mixed one the most careful (#32)."""
+    browser = stack.browser()
+    expect(stack.sql("SELECT code FROM llx_mahnwesen_profile WHERE entity = 1") == [["default"]],
+           "a new installation should have the default profile only (#32)")
+    data = stack.php_fixture("profiles")
+    made = data["invoices"]
+    company = invoice(stack, "company_overdue")
+    setup = "/custom/mahnwesen/admin/setup.php"
+
+    def create(label: str, changes: dict, drop: tuple = (), fee: str = "0") -> str:
+        page = page_ok(browser.get(f"{setup}?tab=profiles"), "profiles setup")
+        page_ok(browser.submit(form_with_action(page, "create_profile", "profiles setup"), {"profile_label": label}), f"add {label}")
+        profile = stack.value(f"SELECT rowid FROM llx_mahnwesen_profile WHERE label = '{label}'")
+        expect(profile, f"the profile {label} was not added (#32)")
+        form = page_ok(browser.get(f"{setup}?tab=profiles&profile={profile}&edit=1"), f"form of {label}")
+        page_ok(browser.submit(form_with_action(form, "save_profile", f"form of {label}"), changes, drop=drop), f"save {label}")
+        stages = page_ok(browser.get(f"{setup}?tab=stages&profile={profile}"), f"stages of {label}")
+        page_ok(browser.submit(form_with_action(stages, "save_stages", f"stages of {label}"),
+                               {f"stage_fee_{level}": fee for level in range(1, 5)}), f"fees of {label}")
+        return profile
+
+    firms = create("Runtime Firmen", {"customer_type": "company"}, fee="40")
+    dues = create("Runtime Mitgliedsbeitrag", {"product_categories[]": data["categories"]["membership"],
+                                               "profile_final_step": "membership_review"}, drop=("profile_auto_allowed",))
+    shop = create("Runtime Merchandise", {"product_categories[]": data["categories"]["merchandise"]}, fee="5")
+    default = stack.value("SELECT rowid FROM llx_mahnwesen_profile WHERE code = 'default'")
+    taken = page_ok(browser.submit(form_with_action(page_ok(browser.get(f"{setup}?tab=profiles&profile={shop}&edit=1"), "form"),
+                                                    "save_profile", "form"), {"customer_type": "company"}), "a second profile for companies")
+    expect(stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_profile_match WHERE customer_type = 'company'") == "1"
+           and "Runtime Firmen" in html.unescape(taken.text), "a customer type was given to two profiles (#32)")
+
+    dashboard = page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard")
+    page_ok(browser.submit(form_with_action(dashboard, "sync_cases", "dashboard")), "synchronise")
+    result = page_ok(browser.submit(form_with_action(page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard"),
+                                                     "dry_run", "dashboard")), "dry run")
+    found = {}
+    for row in result.text.split('<tr class="oddeven">'):
+        ref = re.search(r"invoice\.php\?id=\d+\">([^<]+)</a>", row)
+        profile = re.search(r'data-profile="(\d+)"', row)
+        if ref and profile:
+            found[html.unescape(ref.group(1))] = profile.group(1)
+    wanted = {company["ref"]: firms, made["membership"]["ref"]: dues, made["merchandise"]["ref"]: shop, made["mixed"]["ref"]: dues}
+    expect({ref: found.get(ref) for ref in wanted} == wanted,
+           f"the dry run names the profiles {found}, expected {wanted} (#32)")
+
+    def tab(key: str) -> str:
+        return html.unescape(re.sub(r"<[^>]+>", " ", page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={made[key]['id']}"), f"tab {key}").text))
+    mixed = tab("mixed")
+    expect("Runtime Mitgliedsbeitrag" in mixed and "Mitgliedsbeitrag, Merchandise" in mixed and "Runtime Merchandise" in mixed
+           and any(text in mixed for text in translations("MahnwesenProfileMostCareful")),
+           "the tab of a mixed invoice does not say that several profiles apply and the most careful one holds (#32)")
+    expect(any(text in tab("membership") for text in translations("MahnwesenFinalStepMembership")),
+           "the tab of a dues invoice does not name the final step of its profile (#32)")
+    expect("5,00" in tab("merchandise"), "the merchandise invoice does not carry the fee of its profile (#32)")
+
+    # A preset comes switched off, and the invoice card offers active profiles only.
+    presets = page_ok(browser.get(f"{setup}?tab=profiles"), "profiles setup")
+    preset = next((form for form in presets.forms() if form.value("action") == "add_profile_preset" and form.value("preset") == "club"), None)
+    expect(preset is not None, "the setup does not offer the club preset (#32)")
+    page_ok(browser.submit(preset), "add the club preset")
+    club = stack.sql("SELECT rowid, active, auto_allowed, final_step FROM llx_mahnwesen_profile WHERE code = 'club'")
+    expect(club and club[0][1:] == ["0", "0", "membership_review"], f"the club preset should come switched off: {club} (#32)")
+    # Dolibarr 24 asks for the session token on a link with an action.
+    card_url = f"/compta/facture/card.php?facid={made['merchandise']['id']}"
+    token = token_of(page_ok(browser.get(card_url), "invoice card"))
+    card = page_ok(browser.get(f"{card_url}&action=edit_extras&attribute=mahnwesen_profile&token={token}"),
+                   "invoice card, dunning profile field")
+    options = set(re.findall(r'<option value="(\d+)"', card.text.split('name="options_mahnwesen_profile"', 1)[-1].split("</select>", 1)[0]))
+    expect({firms, dues, shop, default} <= options and club[0][0] not in options,
+           f"the invoice card offers the profiles {sorted(options)}, expected the active ones only (#32)")
+    page_ok(browser.submit(form_with_action(card, "update_extras", "invoice card"), {"options_mahnwesen_profile": firms}),
+            "choose a profile on the invoice")
+    chosen = tab("merchandise")
+    expect("Runtime Firmen" in chosen and any(text in chosen for text in translations("MahnwesenProfileReasonChoice")) and "40,00" in chosen,
+           "the profile chosen on the invoice does not apply (#32)")
+    return "company, dues, merchandise and mixed invoices get their profiles; presets off; the invoice's choice wins"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1305,6 +1395,7 @@ SCENARIOS = (
     ("dry-run", "The dry run decides exactly as the cron", dry_run, ("broken-invoice",)),
     ("billing-role", "The customer's default billing contact as recipient", billing_role, ("dry-run",)),
     ("dunning-block", "A dunning block stops notices until its last day", dunning_block, ("billing-role",)),
+    ("profiles", "Each kind of claim gets its dunning profile", profiles, ("dunning-block",)),
 )
 
 

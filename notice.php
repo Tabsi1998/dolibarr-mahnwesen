@@ -124,14 +124,14 @@ if (GETPOSTISSET('prepared_remaining')) { $postedRemaining = GETPOST('prepared_r
 
 if (!$case) { setEventMessages($langs->trans('NoticeRequiresCase'), null, 'errors'); }
 elseif ($case['status'] !== 'open') { setEventMessages($langs->trans('NoticeCaseClosed'), null, 'errors'); }
-elseif (!empty($workflow['block'])) { setEventMessages($langs->trans('MahnwesenNoticeBlocked', $manager->describeBlock($workflow['block'])), null, 'warnings'); }
+elseif (!empty($workflow['block'])) { setEventMessages($langs->trans('MahnwesenNoticeBlocked').' '.$manager->describeBlock($workflow['block']), null, 'warnings'); }
 elseif (!empty($case['paused'])) { setEventMessages($langs->trans('NoticeCasePaused'), null, 'warnings'); }
 elseif ($calculatedLevel > 0 && $level <= 0) { setEventMessages($langs->trans('MahnwesenNoDueWorkflowStage'), null, 'mesgs'); }
 
 $customerLang = (!empty($invoice->thirdparty) && !empty($invoice->thirdparty->default_lang)) ? (string) $invoice->thirdparty->default_lang : $langs->defaultlang;
 $templateId = GETPOSTINT('modelmailselected');
 $template = ($templateId > 0 && $level > 0) ? $service->getTemplateById($templateId, $level, $customerLang, $user) : false;
-if ($template === false && $level > 0) { $template = $service->getTemplate($level, $customerLang, $user); }
+if ($template === false && $level > 0) { $template = $service->getTemplate($level, $customerLang, $user, $workflow ? (int) $workflow['profile_id'] : 0); }
 if ($template === false && $level > 0) { setEventMessages($service->error, $service->errors, 'errors'); }
 if ($template !== false) { $templateId = (int) $template['source_id']; }
 $templateLang = ($template !== false && !empty($template['lang'])) ? (string) $template['lang'] : $customerLang;

@@ -9,7 +9,7 @@ A custom Dolibarr module for controlled dunning workflows on overdue customer in
 - no Dolibarr core modifications
 - persistent dunning cases and audit history
 - configurable dunning stages and fees
-- customer-type-aware fee rules (private person vs. business)
+- dunning profiles per kind of claim: stages, fees, payment periods, automatic sending and the final step, chosen by the invoice, the categories of its products, the customer's categories or type
 - native Dolibarr HTML email templates
 - Sponge-aligned dunning PDF
 - manual and controlled automatic sending

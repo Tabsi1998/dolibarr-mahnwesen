@@ -74,7 +74,9 @@ Siehe [docs/VARIABLES.md](docs/VARIABLES.md).
 
 ## Mahnspesen
 
-Mahnspesen sind pro Stufe und Kundentyp konfigurierbar. Ein Dolibarr-Drittpartei-Datensatz kann ausdrücklich eine Privatperson sein; `TE_PRIVATE` wird entsprechend behandelt. Unklare Typen sollen sicherheitshalber nicht automatisch wie B2B behandelt werden.
+Mahnspesen stehen in **Mahnprofilen**: Ein Profil legt je Stufe Tage, Spesen und Zahlungsfrist fest, dazu ob automatisch gesendet werden darf und was nach der letzten Stufe kommt (Inkasso prüfen, Mitgliedschaft prüfen oder nichts). Welches Profil gilt, entscheidet in dieser Reihenfolge: die Wahl an der Rechnung (Feld „Mahnprofil“), die Kategorien der Produkte und Leistungen auf der Rechnung, die Kategorien des Kunden, der Kundentyp (Privatperson oder Firma), sonst das Standardprofil. Passen mehrere Profile, gilt das vorsichtigste: ohne automatischen Versand vor einem mit, dann die niedrigsten Spesen. So bekommen ein Mitgliedsbeitrag, ein Verkauf an ein Mitglied und eine Sponsorrechnung jeweils die passenden Regeln. Der Reiter „Mahnwesen“ an der Rechnung und der Testlauf nennen das Profil und den Grund.
+
+Beim Update auf 1.3.1 werden die bisherigen Spesen für Unternehmen und Privatpersonen zu Profilen, sodass jeder Kunde dieselben Spesen zahlt wie vorher.
 
 Die Spesen verändern **nicht** den Originalbetrag der Dolibarr-Rechnung und erzeugen keinen Buchungssatz. Nach erfolgreichem Versand werden sie in einem eigenen Nebenbuch geführt und müssen ausdrücklich als bezahlt oder erlassen verbucht werden. Der technische Standardwert ist 0,00.
 

@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '1.3.0';
+        $this->version = '1.3.1';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -85,8 +85,6 @@ class modMahnwesen extends DolibarrModules
             11 => array('MAHNWESEN_AUTO_SEND_ENABLED', 'chaine', '0', 'Allow cron to send configured dunning levels automatically', 0, 'current', 1),
             12 => array('MAHNWESEN_AUTO_SEND_MAX', 'chaine', '10', 'Maximum automatic sends per cron run', 0, 'current', 0),
             13 => array('MAHNWESEN_AUTO_RECIPIENT_POLICY', 'chaine', 'single_billing', 'Automatic recipient resolution policy', 0, 'current', 0),
-            15 => array('MAHNWESEN_PRIVATE_FEES_ALLOWED', 'chaine', '0', 'Apply configured dunning fees to TE_PRIVATE customers', 0, 'current', 0),
-            16 => array('MAHNWESEN_UNKNOWN_FEES_ALLOWED', 'chaine', '0', 'Apply configured dunning fees to unknown/special customer types', 0, 'current', 0),
             21 => array('MAHNWESEN_ALLOW_LANGUAGE_FALLBACK', 'chaine', '0', 'Allow explicit cross-language template fallback', 0, 'current', 0),
             22 => array('MAHNWESEN_AUTO_RETRY_MAX', 'chaine', '3', 'Maximum failed automatic attempts per case and stage', 0, 'current', 0),
             23 => array('MAHNWESEN_AUTO_MAX_PER_CUSTOMER', 'chaine', '1', 'Maximum automatic delivery attempts per customer and cron run', 0, 'current', 0),
@@ -219,6 +217,12 @@ class modMahnwesen extends DolibarrModules
             dol_syslog(__METHOD__.' '.$this->error, LOG_ERR);
             return -1;
         }
+        // The fees for companies and private persons become dunning profiles, once (#32).
+        if (!$migration->migrateProfiles(isset($GLOBALS['user']) ? $GLOBALS['user'] : null)) {
+            $this->error = 'Unable to move the fee settings into dunning profiles: '.$migration->error;
+            dol_syslog(__METHOD__.' '.$this->error, LOG_ERR);
+            return -1;
+        }
 
         // Dolibarr's own fields hold the dunning block of a customer and of an
         // invoice (#37). Adding a field that exists changes nothing.
@@ -238,6 +242,13 @@ class modMahnwesen extends DolibarrModules
                     return -1;
                 }
             }
+        }
+        // The dunning profile chosen on an invoice goes before its categories (#32).
+        $profileList = array('options' => array('mahnwesen_profile:label:rowid::(active:=:1) AND (entity:=:$ENTITY$)' => null));
+        if ($extrafields->addExtraField('mahnwesen_profile', 'MahnwesenProfile', 'sellist', 1103, '', 'facture', 0, 0, '', $profileList, 1, '', '1', 'MahnwesenProfileFieldHelp', '', '', 'mahnwesen@mahnwesen', "isModEnabled('mahnwesen')") <= 0) {
+            $this->error = 'Unable to add the field mahnwesen_profile to facture: '.$extrafields->error;
+            dol_syslog(__METHOD__.' '.$this->error, LOG_ERR);
+            return -1;
         }
 
         $this->remove($options);

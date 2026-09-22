@@ -33,7 +33,7 @@ trait DunningNoticeServiceDelivery
         }
         $evaluation = $this->manager->evaluateInvoice((int) $invoice->id);
         $calculatedLevel = ($evaluation !== false && !empty($evaluation['eligible'])) ? (int) $evaluation['row']['stage'] : 0;
-        $requiredLevel = $this->manager->getNextRequiredLevel((int) $case['id'], $calculatedLevel);
+        $requiredLevel = $this->manager->getNextRequiredLevel((int) $case['id'], $calculatedLevel, $evaluation !== false ? (int) $evaluation['row']['profile_id'] : 0);
         if ((int) $level <= 0 || (int) $requiredLevel !== (int) $level) {
             $this->error = 'Dunning workflow changed. Reload before sending; earlier unsent stages may not be skipped.';
             return false;
@@ -99,7 +99,7 @@ trait DunningNoticeServiceDelivery
         $historyMessage .= "\nInvoice amount: ".number_format($breakdown['invoice'], 2, '.', '').' '.$GLOBALS['conf']->currency;
         $historyMessage .= "\nDunning fee: ".number_format($breakdown['fee'], 2, '.', '').' '.$GLOBALS['conf']->currency;
         $historyMessage .= "\nTotal: ".number_format($breakdown['total'], 2, '.', '').' '.$GLOBALS['conf']->currency;
-        $deadline = $this->manager->getPaymentDeadline((int) $level);
+        $deadline = $this->manager->getPaymentDeadline((int) $level, null, (int) $breakdown['profile_id']);
         if ($deadline) { $historyMessage .= "\nPayment deadline: ".dol_print_date($deadline, '%Y-%m-%d', 'tzserver'); }
 
         // Reserve before generating or touching an attachment. The manager
@@ -212,8 +212,9 @@ trait DunningNoticeServiceDelivery
         // before entering the SMTP ambiguity window.
         $this->manager->refreshWorkflowCaches((int) $case['id']);
         $lastEvaluation = $this->manager->evaluateInvoice((int) $freshInvoice->id);
-        $lastRequiredLevel = ($lastEvaluation !== false && !empty($lastEvaluation['eligible'])) ? $this->manager->getNextRequiredLevel((int) $case['id'], (int) $lastEvaluation['row']['stage']) : 0;
-        $lastRequiredAt = $lastRequiredLevel > 0 ? $this->manager->calculateWorkflowStageDueAt((int) $case['id'], (string) $lastEvaluation['row']['due_ymd'], $lastRequiredLevel) : null;
+        $lastProfileId = $lastEvaluation !== false ? (int) $lastEvaluation['row']['profile_id'] : 0;
+        $lastRequiredLevel = ($lastEvaluation !== false && !empty($lastEvaluation['eligible'])) ? $this->manager->getNextRequiredLevel((int) $case['id'], (int) $lastEvaluation['row']['stage'], $lastProfileId) : 0;
+        $lastRequiredAt = $lastRequiredLevel > 0 ? $this->manager->calculateWorkflowStageDueAt((int) $case['id'], (string) $lastEvaluation['row']['due_ymd'], $lastRequiredLevel, $lastProfileId) : null;
         $lastBreakdown = $this->manager->getAmountBreakdown($freshInvoice, array('remaining_amount' => $lastEvaluation !== false ? (float) $lastEvaluation['remain_to_pay'] : 0.0), $level);
         $lastRecipientOption = $this->getRecipientOptionByEmail($freshInvoice, $recipient);
         if ($lastEvaluation === false || empty($lastEvaluation['eligible']) || $lastRequiredLevel !== (int) $level || ($lastRequiredAt && (int) $this->db->jdate($lastRequiredAt) > dol_now()) || abs((float) $lastEvaluation['remain_to_pay'] - (float) $breakdown['invoice']) > 0.000001 || abs((float) $lastBreakdown['fee'] - (float) $breakdown['fee']) > 0.000001 || $lastRecipientOption === false || (int) $lastRecipientOption['contact_id'] !== (int) $recipientOption['contact_id']) {

@@ -27,11 +27,12 @@ trait DunningManagerWorkflow
         }
         $calculated = !empty($evaluation['eligible']) ? (int) $evaluation['row']['stage'] : 0;
         $caseId = $case ? (int) $case['id'] : 0;
-        $required = $this->getNextRequiredLevel($caseId, $calculated);
-        $future = $this->getNextFutureLevel($calculated);
+        $profileId = (int) $evaluation['row']['profile_id'];
+        $required = $this->getNextRequiredLevel($caseId, $calculated, $profileId);
+        $future = $this->getNextFutureLevel($calculated, $profileId);
         $dueYmd = !empty($evaluation['row']['due_ymd']) ? (string) $evaluation['row']['due_ymd'] : '';
-        $requiredAt = $required > 0 ? $this->calculateWorkflowStageDueAt($caseId, $dueYmd, $required) : null;
-        $futureAt = $future > 0 ? $this->calculateWorkflowStageDueAt($caseId, $dueYmd, $future) : null;
+        $requiredAt = $required > 0 ? $this->calculateWorkflowStageDueAt($caseId, $dueYmd, $required, $profileId) : null;
+        $futureAt = $future > 0 ? $this->calculateWorkflowStageDueAt($caseId, $dueYmd, $future, $profileId) : null;
         $requiredReached = ($requiredAt === null || ((int) $this->db->jdate($requiredAt)) <= dol_now());
         $block = $this->getDunningBlock((int) $invoiceId);
         return array(
@@ -43,6 +44,8 @@ trait DunningManagerWorkflow
             'completed_levels' => $this->getCompletedLevels($caseId),
             'required_at' => $requiredAt,
             'future_at' => $futureAt,
+            'profile_id' => $profileId,
+            'profile' => $evaluation['profile'],
             'block' => $block,
             'actionable' => ($case && $case['status'] === 'open' && empty($case['paused']) && $block === null && !empty($evaluation['eligible']) && $required > 0 && $requiredReached) ? 1 : 0,
         );
@@ -169,16 +172,16 @@ trait DunningManagerWorkflow
     /** Drop request-local workflow caches before the final SMTP safety check. */
     public function refreshWorkflowCaches($caseId = 0)
     {
-        $this->rulesCache = null;
+        $this->forgetProfiles();
         if ((int) $caseId > 0) { unset($this->completedLevelsCache[(int) $caseId]); }
         else { $this->completedLevelsCache = array(); }
     }
 
     /** First due, enabled, incomplete stage. This is the anti-skip guard. */
-    public function getNextRequiredLevel($caseId, $calculatedLevel)
+    public function getNextRequiredLevel($caseId, $calculatedLevel, $profileId = 0)
     {
         if ((int) $calculatedLevel <= 0) { return 0; }
-        return MahnwesenWorkflowPolicy::nextRequiredLevel($calculatedLevel, $this->getEnabledLevels(), $this->getCompletedLevels((int) $caseId));
+        return MahnwesenWorkflowPolicy::nextRequiredLevel($calculatedLevel, $this->getEnabledLevels($profileId), $this->getCompletedLevels((int) $caseId));
     }
 
     /** Highest completed stage. */
@@ -232,9 +235,9 @@ trait DunningManagerWorkflow
     }
 
     /** Return the closest earlier enabled stage, or 0 if this is the first one. */
-    public function getPreviousEnabledLevel($level)
+    public function getPreviousEnabledLevel($level, $profileId = 0)
     {
-        return MahnwesenWorkflowPolicy::previousEnabledLevel($level, $this->getEnabledLevels());
+        return MahnwesenWorkflowPolicy::previousEnabledLevel($level, $this->getEnabledLevels($profileId));
     }
 
     /**
@@ -251,33 +254,33 @@ trait DunningManagerWorkflow
      * A sent notice that named a payment deadline also holds the next stage
      * back until the day after that deadline (#64).
      */
-    public function calculateWorkflowStageDueAt($caseId, $dueYmd, $level)
+    public function calculateWorkflowStageDueAt($caseId, $dueYmd, $level, $profileId = 0)
     {
-        $calendarDue = $this->calculateStageDueAt($dueYmd, $level);
+        $calendarDue = $this->calculateStageDueAt($dueYmd, $level, $profileId);
         if ($calendarDue === null || (int) $level <= 1 || (int) $caseId <= 0) { return $calendarDue; }
 
-        $previous = $this->getPreviousEnabledLevel((int) $level);
+        $previous = $this->getPreviousEnabledLevel((int) $level, $profileId);
         if ($previous <= 0) { return $calendarDue; }
         $completedAt = $this->getStageCompletionTimestamp((int) $caseId, $previous);
         if (empty($completedAt)) { return $calendarDue; }
 
-        $thresholds = $this->getStageThresholds();
+        $thresholds = $this->getStageThresholds($profileId);
         $gapDays = max(0, ((int) ($thresholds[(int) $level] ?? 0)) - ((int) ($thresholds[$previous] ?? 0)));
-        $paymentDays = $this->getPaymentDaysForLevel($previous);
+        $paymentDays = $this->getPaymentDaysForLevel($previous, $profileId);
         $sentAt = $paymentDays > 0 ? $this->getStageNoticeTimestamp((int) $caseId, $previous) : null;
         return MahnwesenWorkflowPolicy::spacedDueAt($calendarDue, $completedAt, $gapDays, $paymentDays, $sentAt);
     }
 
     /** Next enabled stage whose calendar threshold has not been reached yet. */
-    public function getNextFutureLevel($calculatedLevel)
+    public function getNextFutureLevel($calculatedLevel, $profileId = 0)
     {
-        return MahnwesenWorkflowPolicy::nextFutureLevel($calculatedLevel, $this->getEnabledLevels());
+        return MahnwesenWorkflowPolicy::nextFutureLevel($calculatedLevel, $this->getEnabledLevels($profileId));
     }
 
-    /** Date at which a concrete stage becomes due. */
-    public function calculateStageDueAt($dueYmd, $level)
+    /** Date at which a concrete stage of a profile becomes due. */
+    public function calculateStageDueAt($dueYmd, $level, $profileId = 0)
     {
-        $thresholds = $this->getStageThresholds();
+        $thresholds = $this->getStageThresholds($profileId);
         return MahnwesenWorkflowPolicy::stageDueAt($dueYmd, isset($thresholds[(int) $level]) ? $thresholds[(int) $level] : null);
     }
 

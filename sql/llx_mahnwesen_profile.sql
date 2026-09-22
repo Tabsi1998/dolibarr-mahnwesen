@@ -1,0 +1,14 @@
+CREATE TABLE llx_mahnwesen_profile (
+    rowid INTEGER AUTO_INCREMENT PRIMARY KEY,
+    entity INTEGER DEFAULT 1 NOT NULL,
+    code VARCHAR(32) NOT NULL,
+    label VARCHAR(255) NOT NULL,
+    is_default INTEGER DEFAULT 0 NOT NULL,
+    auto_allowed INTEGER DEFAULT 1 NOT NULL,
+    final_step VARCHAR(32) DEFAULT 'none' NOT NULL,
+    active INTEGER DEFAULT 1 NOT NULL,
+    date_creation DATETIME,
+    tms TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    fk_user_create INTEGER,
+    fk_user_modif INTEGER
+) ENGINE=innodb;

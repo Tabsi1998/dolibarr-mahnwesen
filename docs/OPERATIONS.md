@@ -32,7 +32,8 @@ module disable/enable step and inspect the Dolibarr database/module logs.
 - Resolve open fee claims as paid or waived with a reason.
 - Use dated pauses for payment promises and indefinite pauses for disputes.
 - A dispute or an agreement that covers all invoices of a customer belongs in the customer's *Do not dun* field, with a reason and, if it ends, a last day. On one invoice the same fields block just that invoice. Blocked cases show under *With dunning block* on the dashboard.
-- Run the dry-run report after template, sender, stage, entity or fee changes.
+- Run the dry-run report after template, sender, stage, profile, entity or fee changes. It names the profile of every invoice.
+- Put the fees into dunning profiles by kind of claim, not into the default profile, when some customers must not pay them: the default profile applies to every invoice no other profile takes.
 - Set *Notify about problems* in the automation setup: a run that fails or ends with warnings then sends one email to that address.
 - Automatic sending uses public email templates only; a private template of the user the cron runs as is ignored.
 - Keep Dolibarr's own payment reminder job (`sendEmailsRemindersOnInvoiceDueDate`) off; the dashboard and the setup warn when it is on.

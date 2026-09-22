@@ -75,6 +75,10 @@ While paused:
 
 For a dated pause, the daily job may resume the case after the pause date, then re-evaluate the same sequential rule.
 
+## Dunning profiles
+
+Every stage setting comes from the invoice's dunning profile (#32). The first rule that finds an active profile decides: the profile chosen on the invoice, the categories of its products and services (a category counts through its nearest parent that a profile names), the customer's categories, the customer's type, then the default profile. When one rule finds several profiles, the most careful applies: one without automatic sending before one with it, then the lowest total fee. When the assignment cannot be read, the most careful of all profiles applies. The cron sends automatically only when the profile and the stage allow it.
+
 ## Dunning block
 
 A pause belongs to one case. A dunning block lives in Dolibarr's own fields of the customer (all their invoices) or of one invoice: *Do not dun*, *Dunning block until* (last day, empty = without end) and a reason. While a block applies, no notice is sent by hand or automatically and no dunning PDF is made; the dry run names the block. The day after its last day it no longer applies. A block that cannot be read counts as a block.
