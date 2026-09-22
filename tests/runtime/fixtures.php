@@ -238,6 +238,14 @@ if ($stage === 'reset') {
         $statements[] = "DROP TABLE ".$table;
     }
     $statements[] = "SET FOREIGN_KEY_CHECKS = 1";
+    // The module's fields on customers and invoices (#37), declaration and column.
+    $statements[] = "DELETE FROM ".MAIN_DB_PREFIX."extrafields WHERE name LIKE 'mahnwesen\\_%'";
+    $columns = rt_value($db, "SELECT GROUP_CONCAT(CONCAT(table_name, ' ', column_name)) FROM information_schema.columns WHERE table_schema = DATABASE()"
+        ." AND table_name IN ('".MAIN_DB_PREFIX."societe_extrafields', '".MAIN_DB_PREFIX."facture_extrafields') AND column_name LIKE 'mahnwesen\\_%'");
+    foreach (array_filter(explode(',', (string) $columns)) as $pair) {
+        list($table, $column) = explode(' ', $pair);
+        $statements[] = "ALTER TABLE ".$table." DROP COLUMN ".$column;
+    }
     foreach ($statements as $sql) {
         rt_exec($db, $sql);
     }

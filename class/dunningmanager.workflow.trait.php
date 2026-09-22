@@ -33,6 +33,7 @@ trait DunningManagerWorkflow
         $requiredAt = $required > 0 ? $this->calculateWorkflowStageDueAt($caseId, $dueYmd, $required) : null;
         $futureAt = $future > 0 ? $this->calculateWorkflowStageDueAt($caseId, $dueYmd, $future) : null;
         $requiredReached = ($requiredAt === null || ((int) $this->db->jdate($requiredAt)) <= dol_now());
+        $block = $this->getDunningBlock((int) $invoiceId);
         return array(
             'evaluation' => $evaluation,
             'case' => $case,
@@ -42,7 +43,8 @@ trait DunningManagerWorkflow
             'completed_levels' => $this->getCompletedLevels($caseId),
             'required_at' => $requiredAt,
             'future_at' => $futureAt,
-            'actionable' => ($case && $case['status'] === 'open' && empty($case['paused']) && !empty($evaluation['eligible']) && $required > 0 && $requiredReached) ? 1 : 0,
+            'block' => $block,
+            'actionable' => ($case && $case['status'] === 'open' && empty($case['paused']) && $block === null && !empty($evaluation['eligible']) && $required > 0 && $requiredReached) ? 1 : 0,
         );
     }
 
@@ -53,6 +55,96 @@ trait DunningManagerWorkflow
      * @param int $level Level
      * @return bool
      */
+    /**
+     * The dunning block of the invoice or its customer that applies today (#37).
+     *
+     * Dolibarr's own fields hold it: "Nicht mahnen", an optional last day and a
+     * reason, on the invoice and on the customer; the invoice's block is named
+     * first. A block that cannot be read counts as a block.
+     *
+     * @param int $invoiceId Invoice id
+     * @return array|null scope (invoice, customer or unreadable), reason, until (YYYY-MM-DD or '')
+     */
+    public function getDunningBlock($invoiceId)
+    {
+        $sql = 'SELECT '.$this->dunningBlockColumns().' FROM '.MAIN_DB_PREFIX.'facture as f'
+            .' LEFT JOIN '.MAIN_DB_PREFIX.'facture_extrafields as fe ON fe.fk_object = f.rowid'
+            .' LEFT JOIN '.MAIN_DB_PREFIX.'societe_extrafields as se ON se.fk_object = f.fk_soc'
+            .' WHERE f.rowid = '.((int) $invoiceId);
+        $resql = $this->db->query($sql);
+        if (!$resql) {
+            $this->errors[] = 'Unable to read the dunning block: '.$this->db->lasterror();
+            return array('scope' => 'unreadable', 'reason' => '', 'until' => '');
+        }
+        $obj = $this->db->fetch_object($resql);
+        $this->db->free($resql);
+        return $this->blockFromRow($obj);
+    }
+
+    /**
+     * The columns that say whether a block applies today, for a query that joins
+     * the invoice's extra fields as fe and the customer's as se (#37).
+     *
+     * @return string
+     */
+    public function dunningBlockColumns()
+    {
+        return $this->dunningBlockSql('fe').' as invoice_blocked, fe.mahnwesen_block_until as invoice_block_until, fe.mahnwesen_block_reason as invoice_block_reason, '
+            .$this->dunningBlockSql('se').' as customer_blocked, se.mahnwesen_block_until as customer_block_until, se.mahnwesen_block_reason as customer_block_reason';
+    }
+
+    /**
+     * SQL that is 1 when the block in the extra fields under $alias applies
+     * today: switched on, and its last day, if any, not passed (#37).
+     *
+     * @param string $alias fe or se
+     * @return string
+     */
+    public function dunningBlockSql($alias)
+    {
+        $alias = ($alias === 'se') ? 'se' : 'fe';
+        $today = $this->db->escape(dol_print_date(dol_get_first_hour(dol_now(), 'tzserver'), '%Y-%m-%d', 'tzserver'));
+        return '(CASE WHEN '.$alias.'.mahnwesen_block = 1 AND ('.$alias.'.mahnwesen_block_until IS NULL OR '.$alias.".mahnwesen_block_until >= '".$today."') THEN 1 ELSE 0 END)";
+    }
+
+    /**
+     * The block in a row with the columns of dunningBlockColumns(), or null.
+     *
+     * @param object|null|false $obj Database row
+     * @return array|null
+     */
+    public function blockFromRow($obj)
+    {
+        foreach (array('invoice', 'customer') as $scope) {
+            if ($obj && !empty($obj->{$scope.'_blocked'})) {
+                $until = (string) $obj->{$scope.'_block_until'};
+                return array('scope' => $scope, 'reason' => (string) $obj->{$scope.'_block_reason'}, 'until' => $until !== '' ? substr($until, 0, 10) : '');
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The block in one phrase, for example "Mahnsperre am Kunden bis
+     * 31.12.2026: Ratenzahlung vereinbart". HTML, the reason escaped.
+     *
+     * @param array $block From getDunningBlock()
+     * @return string
+     */
+    public function describeBlock($block)
+    {
+        global $langs;
+        if ($block['scope'] === 'unreadable') {
+            return $langs->trans('MahnwesenBlockUnreadable');
+        }
+        $html = $langs->trans($block['scope'] === 'invoice' ? 'MahnwesenBlockOnInvoice' : 'MahnwesenBlockOnCustomer').' '
+            .($block['until'] !== '' ? $langs->trans('MahnwesenBlockUntilDate', dol_print_date($this->db->jdate($block['until']), 'day')) : $langs->trans('MahnwesenBlockIndefinite'));
+        if (trim($block['reason']) !== '') {
+            $html .= ': '.dol_escape_htmltag($block['reason']);
+        }
+        return $html;
+    }
+
     /** Return completed workflow stages (successful send or audited skip). */
     public function getCompletedLevels($caseId)
     {

@@ -386,3 +386,22 @@ MahnwesenTemplateVariableCopy=klicken zum Kopieren
 DunningCases=Mahnfälle
 MahnwesenListActive=Offen
 MahnwesenListDue=Nächste Stufe fällig
+
+# Mahnsperre (#37)
+MahnwesenBlock=Nicht mahnen
+MahnwesenBlockHelp=Mahnwesen schickt keine Mahnung, weder von Hand noch automatisch. Am Kunden gilt das für alle seine Rechnungen.
+MahnwesenBlockUntil=Mahnsperre bis
+MahnwesenBlockUntilHelp=Letzter Tag der Sperre. Leer lassen für eine Sperre ohne Ende.
+MahnwesenBlockReason=Grund der Mahnsperre
+MahnwesenBlocked=Mahnsperre
+MahnwesenListBlocked=Mit Mahnsperre
+MahnwesenBlockOnInvoice=Mahnsperre an der Rechnung
+MahnwesenBlockOnCustomer=Mahnsperre am Kunden
+MahnwesenBlockUntilDate=bis %s
+MahnwesenBlockIndefinite=ohne Ende
+MahnwesenBlockUnreadable=Die Mahnsperre ist nicht lesbar, deshalb wird nicht gemahnt. Aktivieren Sie das Modul erneut, damit die Felder angelegt werden.
+MahnwesenBlockWhere=Setzen an der <a href="%s">Rechnung</a> oder am <a href="%s">Kunden</a>.
+MahnwesenNoticeBlocked=Keine Mahnung möglich: %s.
+MahnwesenDryRunDetail_blocked_invoice=Mahnsperre an der Rechnung
+MahnwesenDryRunDetail_blocked_customer=Mahnsperre am Kunden
+MahnwesenDryRunDetail_blocked_unreadable=Mahnsperre nicht lesbar

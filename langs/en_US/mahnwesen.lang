@@ -385,3 +385,22 @@ MahnwesenTemplateVariableCopy=click to copy
 DunningCases=Dunning cases
 MahnwesenListActive=Open
 MahnwesenListDue=Next stage due
+
+# Dunning block (#37)
+MahnwesenBlock=Do not dun
+MahnwesenBlockHelp=Mahnwesen sends no dunning notice, neither by hand nor automatically. On the customer it applies to all their invoices.
+MahnwesenBlockUntil=Dunning block until
+MahnwesenBlockUntilHelp=Last day of the block. Leave empty for a block without end.
+MahnwesenBlockReason=Reason for the dunning block
+MahnwesenBlocked=Dunning block
+MahnwesenListBlocked=With dunning block
+MahnwesenBlockOnInvoice=Dunning block on the invoice
+MahnwesenBlockOnCustomer=Dunning block on the customer
+MahnwesenBlockUntilDate=until %s
+MahnwesenBlockIndefinite=without end
+MahnwesenBlockUnreadable=The dunning block cannot be read, so no notice is sent. Activate the module again so that its fields are created.
+MahnwesenBlockWhere=Set on the <a href="%s">invoice</a> or the <a href="%s">customer</a>.
+MahnwesenNoticeBlocked=No notice possible: %s.
+MahnwesenDryRunDetail_blocked_invoice=dunning block on the invoice
+MahnwesenDryRunDetail_blocked_customer=dunning block on the customer
+MahnwesenDryRunDetail_blocked_unreadable=dunning block unreadable

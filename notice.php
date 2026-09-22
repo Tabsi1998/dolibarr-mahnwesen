@@ -124,6 +124,7 @@ if (GETPOSTISSET('prepared_remaining')) { $postedRemaining = GETPOST('prepared_r
 
 if (!$case) { setEventMessages($langs->trans('NoticeRequiresCase'), null, 'errors'); }
 elseif ($case['status'] !== 'open') { setEventMessages($langs->trans('NoticeCaseClosed'), null, 'errors'); }
+elseif (!empty($workflow['block'])) { setEventMessages($langs->trans('MahnwesenNoticeBlocked', $manager->describeBlock($workflow['block'])), null, 'warnings'); }
 elseif (!empty($case['paused'])) { setEventMessages($langs->trans('NoticeCasePaused'), null, 'warnings'); }
 elseif ($calculatedLevel > 0 && $level <= 0) { setEventMessages($langs->trans('MahnwesenNoDueWorkflowStage'), null, 'mesgs'); }
 

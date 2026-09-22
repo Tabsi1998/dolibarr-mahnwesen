@@ -278,6 +278,9 @@ trait DunningManagerAutomation
         if (!empty($case['paused'])) {
             return array_merge($result, array('decision' => 'skip', 'detail' => 'paused'));
         }
+        if (!empty($workflow['block'])) {
+            return array_merge($result, array('decision' => 'skip', 'detail' => 'blocked_'.$workflow['block']['scope']));
+        }
         $level = (int) $workflow['next_required_level'];
         $result['level'] = $level;
         if (empty($workflow['actionable']) || $level <= 0) {

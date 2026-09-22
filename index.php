@@ -149,7 +149,11 @@ $scopeJoin = $user->hasRight('societe', 'client', 'voir') ? ''
     : ' INNER JOIN '.MAIN_DB_PREFIX.'societe_commerciaux as sc ON sc.fk_soc = f.fk_soc AND sc.fk_user = '.((int) $user->id);
 $from = ' FROM '.MAIN_DB_PREFIX.'mahnwesen_case as c INNER JOIN '.MAIN_DB_PREFIX.'facture as f ON f.rowid = c.fk_facture'
     .' INNER JOIN '.MAIN_DB_PREFIX.'societe as s ON s.rowid = f.fk_soc'.$scopeJoin
+    .' LEFT JOIN '.MAIN_DB_PREFIX.'facture_extrafields as fe ON fe.fk_object = f.rowid'
+    .' LEFT JOIN '.MAIN_DB_PREFIX.'societe_extrafields as se ON se.fk_object = s.rowid'
     .' WHERE c.entity = '.((int) $conf->entity);
+// 1 or 2 when a block on the invoice or the customer applies today (#37).
+$blockSum = '('.$manager->dunningBlockSql('fe').' + '.$manager->dunningBlockSql('se').')';
 
 $figures = array('cases' => 0, 'amount' => 0.0, 'levels' => array(0 => 0, 1 => 0, 2 => 0, 3 => 0, 4 => 0));
 $resFigures = $db->query('SELECT c.current_level, COUNT(*) as n, SUM(c.remaining_amount) as amount'.$from." AND c.status = 'open' GROUP BY c.current_level");
@@ -184,8 +188,9 @@ if ($searchLevel !== '' && ctype_digit((string) $searchLevel)) { $where .= ' AND
 $nowSql = "'".$db->escape($db->idate(dol_now()))."'";
 $statusFilters = array(
     'active' => " AND c.status = 'open'",
-    'due' => " AND c.status = 'open' AND c.paused = 0 AND c.next_action_at IS NOT NULL AND c.next_action_at <= ".$nowSql,
+    'due' => " AND c.status = 'open' AND c.paused = 0 AND ".$blockSum." = 0 AND c.next_action_at IS NOT NULL AND c.next_action_at <= ".$nowSql,
     'paused' => " AND c.status = 'open' AND c.paused = 1",
+    'blocked' => " AND c.status = 'open' AND ".$blockSum." > 0",
     'closed' => " AND c.status IN ('closed', 'fee_open')",
     'all' => '',
 );
@@ -201,7 +206,7 @@ if ($resCount && ($o = $db->fetch_object($resCount))) { $total = (int) $o->n; }
 if ($resCount) { $db->free($resCount); }
 $cases = array();
 $sqlList = 'SELECT c.rowid as case_id, c.fk_facture, c.current_level, c.paused, c.status, c.remaining_amount, c.next_action_at,'
-    .' f.ref, f.date_lim_reglement, f.fk_soc, s.nom as socname'.$from.$where
+    .' f.ref, f.date_lim_reglement, f.fk_soc, s.nom as socname, '.$manager->dunningBlockColumns().$from.$where
     .' ORDER BY '.$sortfield.' '.$sortorder.', c.rowid ASC'.$db->plimit($limit, $offset);
 $resList = $db->query($sqlList);
 if (!$resList) { setEventMessages($db->lasterror(), null, 'errors'); }
@@ -292,7 +297,7 @@ print '<form method="GET" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'" 
 print '<input type="hidden" name="sortfield" value="'.dol_escape_htmltag($sortfield).'"><input type="hidden" name="sortorder" value="'.dol_escape_htmltag($sortorder).'">';
 print_barre_liste($langs->trans('DunningCases'), $page, $_SERVER['PHP_SELF'], $param, $sortfield, $sortorder, '', count($cases), $total, 'bill', 0, '', '', $limit);
 print '<div class="div-table-responsive"><table class="tagtable liste centpercent">';
-$statusOptions = array('active' => 'MahnwesenListActive', 'due' => 'MahnwesenListDue', 'paused' => 'Paused', 'closed' => 'CaseClosed', 'all' => 'All');
+$statusOptions = array('active' => 'MahnwesenListActive', 'due' => 'MahnwesenListDue', 'paused' => 'Paused', 'blocked' => 'MahnwesenListBlocked', 'closed' => 'CaseClosed', 'all' => 'All');
 print '<tr class="liste_titre_filter">';
 print '<td class="liste_titre"><input class="flat maxwidth100" type="text" name="search_ref" value="'.dol_escape_htmltag($searchRef).'"></td>';
 print '<td class="liste_titre"><input class="flat maxwidth150" type="text" name="search_company" value="'.dol_escape_htmltag($searchCompany).'"></td>';
@@ -334,8 +339,12 @@ foreach ($cases as $case) {
     print '<td class="right"><strong>'.price((float) $case->remaining_amount, 0, $langs, 1, -1, -1, $conf->currency).'</strong></td>';
     print '<td>'.$langs->trans((int) $case->current_level > 0 ? 'DunningStage'.((int) $case->current_level) : 'DunningStageNone').'</td>';
     print '<td>'.(!empty($case->next_action_at) ? dol_print_date($db->jdate($case->next_action_at), 'day') : '').'</td>';
+    $block = $manager->blockFromRow($case);
     if ($case->status !== 'open') {
         print '<td><span class="badge badge-status0">'.$langs->trans($case->status === 'fee_open' ? 'MahnwesenCaseFeeOpen' : 'CaseClosed').'</span></td>';
+    } elseif ($block !== null) {
+        print '<td><span class="badge badge-status8 classfortooltip" title="'.dol_escape_htmltag(dol_string_nohtmltag($manager->describeBlock($block))).'">'.$langs->trans('MahnwesenBlocked').'</span>'
+            .($block['reason'] !== '' ? ' <span class="small">'.dol_escape_htmltag($block['reason']).'</span>' : '').'</td>';
     } else {
         print '<td><span class="badge '.(!empty($case->paused) ? 'badge-status1">'.$langs->trans('Paused') : 'badge-status4">'.$langs->trans('CaseActive')).'</span></td>';
     }
