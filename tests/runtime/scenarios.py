@@ -1430,7 +1430,11 @@ def interest(stack: Stack) -> str:
 
     # The cron sends the reminder of that profile; letter, email and ledger carry the interest.
     before = stack.value(f"SELECT ROUND(total_ttc, 2) FROM llx_facture WHERE rowid = {merchandise['id']}")
-    stack.sql(f"UPDATE llx_mahnwesen_rule SET send_email = 1 WHERE fk_profile = {firms} AND level = 1 AND entity = 1")
+    # The starter template of the reminder names the interest; take exactly that one.
+    starter = stack.value("SELECT rowid FROM llx_c_email_templates WHERE module = 'mahnwesen' AND type_template = 'mahnwesen_reminder' "
+                          "AND lang = 'de_DE' ORDER BY rowid LIMIT 1")
+    expect(starter, "the starter template of the reminder is missing (#33)")
+    stack.sql(f"UPDATE llx_mahnwesen_rule SET send_email = 1, email_template = 'native:{starter}' WHERE fk_profile = {firms} AND level = 1 AND entity = 1")
     set_const(stack, "MAHNWESEN_AUTO_SEND_ENABLED", "1")
     mailpit = stack.mailpit()
     mailpit.clear()
