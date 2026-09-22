@@ -120,6 +120,16 @@ trait DunningNoticeServicePdf
                 $pdf->SetXY($marginLeft + $descW + 1.5, $y + 1.4);
                 $pdf->Cell($amountW - 3, 4, $this->formatMoney($breakdown['fee'], $outputlangs), 0, 0, 'R');
             }
+            // Late-payment interest of the profile, when there is any (#33).
+            if ($breakdown['interest'] > 0.000001) {
+                $y += $rowH;
+                $pdf->Rect($marginLeft, $y, $descW, $rowH);
+                $pdf->Rect($marginLeft + $descW, $y, $amountW, $rowH);
+                $pdf->SetXY($marginLeft + 1.5, $y + 1.4);
+                $pdf->Cell($descW - 3, 4, $this->manager->describeInterest($breakdown['interest_details'], $outputlangs), 0, 0, 'L');
+                $pdf->SetXY($marginLeft + $descW + 1.5, $y + 1.4);
+                $pdf->Cell($amountW - 3, 4, $this->formatMoney($breakdown['interest'], $outputlangs), 0, 0, 'R');
+            }
             // Total area: keep it visually attached to the amount table, but
             // avoid the previous half-open box where only the right-hand amount
             // cell had borders. Sponge uses a clean subtotal/total treatment, so

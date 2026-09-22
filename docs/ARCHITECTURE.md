@@ -36,6 +36,10 @@ Append-oriented audit/event history for lifecycle and send actions.
 
 The four stages of each dunning profile: days after the due date, fee, payment period, automatic sending, email template, enabled (#20, #32).
 
+### `llx_mahnwesen_interest_rate`
+
+The base rates with the day each starts to apply. A profile with the rule "base rate plus surcharge" counts every day with the rate of that day; days without a rate carry no interest (#33).
+
 ### `llx_mahnwesen_profile` and `llx_mahnwesen_profile_match`
 
 Dunning profiles per kind of claim, with whether automatic sending is allowed and the step after the last stage, and the product categories, customer categories and customer type that lead to each profile. An invoice's own choice lives in Dolibarr's field `mahnwesen_profile` on the invoice (#32).

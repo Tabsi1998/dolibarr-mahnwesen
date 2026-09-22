@@ -30,7 +30,7 @@ trait DunningManagerProfiles
             return $this->profilesCache;
         }
         $profiles = array();
-        $sql = 'SELECT rowid, code, label, is_default, auto_allowed, final_step, active FROM '.MAIN_DB_PREFIX.'mahnwesen_profile';
+        $sql = 'SELECT rowid, code, label, is_default, auto_allowed, final_step, active, interest_mode, interest_rate FROM '.MAIN_DB_PREFIX.'mahnwesen_profile';
         $sql .= ' WHERE entity = '.((int) $conf->entity).' ORDER BY is_default DESC, label ASC, rowid ASC';
         $res = $this->db->query($sql);
         if (!$res) {
@@ -40,7 +40,7 @@ trait DunningManagerProfiles
         while ($o = $this->db->fetch_object($res)) {
             $profiles[(int) $o->rowid] = array('id' => (int) $o->rowid, 'code' => (string) $o->code, 'label' => (string) $o->label,
                 'is_default' => (int) $o->is_default, 'auto_allowed' => (int) $o->auto_allowed, 'final_step' => (string) $o->final_step,
-                'active' => (int) $o->active);
+                'active' => (int) $o->active, 'interest_mode' => (string) $o->interest_mode, 'interest_rate' => (float) $o->interest_rate);
         }
         $this->db->free($res);
         $this->profilesCache = $profiles;
@@ -328,7 +328,8 @@ trait DunningManagerProfiles
         $resolution = array(
             'profile_id' => $profileId,
             'profile' => isset($profiles[$profileId]) ? $profiles[$profileId]
-                : array('id' => 0, 'code' => '', 'label' => '', 'is_default' => 1, 'auto_allowed' => 0, 'final_step' => 'none', 'active' => 1),
+                : array('id' => 0, 'code' => '', 'label' => '', 'is_default' => 1, 'auto_allowed' => 0, 'final_step' => 'none', 'active' => 1,
+                    'interest_mode' => 'none', 'interest_rate' => 0.0),
             'reason' => $reason,
             'names' => array_values($names),
             'candidates' => array_map('intval', array_keys($found)),
@@ -487,7 +488,7 @@ trait DunningManagerProfiles
      *
      * @return bool
      */
-    public function saveProfile($profileId, $label, $active, $autoAllowed, $finalStep, $productCategories, $customerCategories, $customerType, $user)
+    public function saveProfile($profileId, $label, $active, $autoAllowed, $finalStep, $productCategories, $customerCategories, $customerType, $user, $interestMode = 'none', $interestRate = 0.0)
     {
         global $conf, $langs;
         $profiles = $this->getProfiles(true);
@@ -534,8 +535,12 @@ trait DunningManagerProfiles
         }
         $uid = (is_object($user) && isset($user->id)) ? (int) $user->id : 0;
         $this->db->begin();
+        $modes = $this->getInterestModes();
+        $interestMode = isset($modes[$interestMode]) ? (string) $interestMode : 'none';
+        $interestRate = max(0.0, (float) price2num($interestRate));
         $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_profile SET label = '".$this->db->escape($label)."', active = ".($isDefault || $active ? 1 : 0);
-        $sql .= ', auto_allowed = '.($autoAllowed ? 1 : 0).", final_step = '".$this->db->escape($finalStep)."', fk_user_modif = ".$uid;
+        $sql .= ', auto_allowed = '.($autoAllowed ? 1 : 0).", final_step = '".$this->db->escape($finalStep)."'";
+        $sql .= ", interest_mode = '".$this->db->escape($interestMode)."', interest_rate = ".$interestRate.', fk_user_modif = '.$uid;
         $sql .= ' WHERE rowid = '.$profileId.' AND entity = '.((int) $conf->entity);
         $ok = $this->db->query($sql) && $this->db->query('DELETE FROM '.MAIN_DB_PREFIX.'mahnwesen_profile_match WHERE fk_profile = '.$profileId.' AND entity = '.((int) $conf->entity));
         foreach ($wanted as $match) {

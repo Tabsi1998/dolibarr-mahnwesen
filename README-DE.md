@@ -78,6 +78,10 @@ Mahnspesen stehen in **Mahnprofilen**: Ein Profil legt je Stufe Tage, Spesen und
 
 Beim Update auf 1.3.1 werden die bisherigen Spesen für Unternehmen und Privatpersonen zu Profilen, sodass jeder Kunde dieselben Spesen zahlt wie vorher.
 
+## Verzugszinsen
+
+Je Profil lässt sich eine Zinsregel eintragen: ein fester Satz im Jahr oder der Basiszinssatz plus ein Aufschlag in Prozentpunkten. Die Basiszinssätze pflegen Sie mit ihrem Gültigkeitsbeginn unter *Einrichtung > Verzugszinsen*; der Basiszinssatz ändert sich halbjährlich. Gerechnet wird Tag für Tag ab dem Tag nach der Fälligkeit auf den offenen Betrag, auch über einen Wechsel des Basiszinssatzes hinweg. Die Zinsen stehen im Mahnschreiben, in der E-Mail und im Nebenbuch; die Dolibarr-Rechnung bleibt unverändert. Ohne Zinsregel fallen keine Zinsen an. Welcher Satz zulässig ist, hängt von Kundenart und Land ab (Österreich § 1000 ABGB, § 456 UGB; Deutschland § 288 BGB) - das Modul rechnet nur mit den Sätzen, die Sie eintragen.
+
 Die Spesen verändern **nicht** den Originalbetrag der Dolibarr-Rechnung und erzeugen keinen Buchungssatz. Nach erfolgreichem Versand werden sie in einem eigenen Nebenbuch geführt und müssen ausdrücklich als bezahlt oder erlassen verbucht werden. Der technische Standardwert ist 0,00.
 
 ## Voraussetzungen

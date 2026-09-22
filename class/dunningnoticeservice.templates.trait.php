@@ -411,6 +411,8 @@ trait DunningNoticeServiceTemplates
         $breakdown = $this->manager->getAmountBreakdown($invoice, $case, $level);
         $openAmount = $this->formatMoney($breakdown['invoice'], $outputlangs);
         $feeAmount = $this->formatMoney($breakdown['fee'], $outputlangs);
+        $interestAmount = $this->formatMoney($breakdown['interest'], $outputlangs);
+        $interestLine = $this->manager->describeInterest($breakdown['interest_details'], $outputlangs);
         $totalAmount = $this->formatMoney($breakdown['total'], $outputlangs);
         $classLabel = $outputlangs->trans($this->manager->getCustomerClassLabelKey($breakdown['classification']['class']));
         $stageLabel = $outputlangs->trans($this->manager->getStageLabelKey((int) $level));
@@ -435,13 +437,16 @@ trait DunningNoticeServiceTemplates
         if ($breakdown['fee'] > 0.000001) {
             $feeParagraph = $outputlangs->trans('MahnwesenFeeParagraph', $feeAmount);
         }
+        $interestParagraph = $interestLine !== '' ? $outputlangs->trans('MahnwesenInterestParagraph', $interestLine) : '';
         $formmail = new FormMail($this->db);
         $formmail->setSubstitFromObject($invoice, $outputlangs);
         $custom = array(
             '__MAHNWESEN_STAGE__' => $stageLabel, '__MAHNWESEN_OPEN_AMOUNT__' => $openAmount, '__MAHNWESEN_FEE__' => $feeAmount,
             '__MAHNWESEN_TOTAL__' => $totalAmount, '__MAHNWESEN_CUSTOMER_CLASS__' => $classLabel, '__MAHNWESEN_NEXT_STAGE_DATE__' => $next,
             '__MAHNWESEN_FEE_PARAGRAPH__' => $feeParagraph, '__MAHNWESEN_PAYMENT_DEADLINE__' => $paymentDeadline,
-            '__MAHNWESEN_PAYMENT_DAYS__' => $paymentDays, '{INVOICE_REF}' => (string) $invoice->ref,
+            '__MAHNWESEN_PAYMENT_DAYS__' => $paymentDays, '__MAHNWESEN_INTEREST__' => $interestAmount,
+            '__MAHNWESEN_INTEREST_PARAGRAPH__' => $interestParagraph, '__MAHNWESEN_INTEREST_DAYS__' => (string) (int) $breakdown['interest_details']['days'],
+            '{INTEREST}' => $interestAmount, '{INTEREST_PARAGRAPH}' => $interestParagraph, '{INVOICE_REF}' => (string) $invoice->ref,
             '{CUSTOMER_NAME}' => !empty($invoice->thirdparty) ? (string) $invoice->thirdparty->name : '',
             '{INVOICE_DATE}' => dol_print_date($invoice->date, 'day', 'tzserver', $outputlangs), '{DUE_DATE}' => dol_print_date($invoice->date_lim_reglement, 'day', 'tzserver', $outputlangs),
             '{OPEN_AMOUNT}' => $openAmount, '{DUNNING_FEE}' => $feeAmount, '{DUNNING_TOTAL}' => $totalAmount, '{CUSTOMER_CLASS}' => $classLabel,

@@ -1,0 +1,10 @@
+CREATE TABLE llx_mahnwesen_interest_rate (
+    rowid INTEGER AUTO_INCREMENT PRIMARY KEY,
+    entity INTEGER DEFAULT 1 NOT NULL,
+    date_from DATE NOT NULL,
+    rate DOUBLE(24,8) DEFAULT 0 NOT NULL,
+    note VARCHAR(255),
+    date_creation DATETIME,
+    tms TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    fk_user_create INTEGER
+) ENGINE=innodb;

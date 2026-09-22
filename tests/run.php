@@ -21,6 +21,7 @@ if (!class_exists('Facture')) {
 }
 
 require_once __DIR__.'/../class/mahnwesenworkflowpolicy.class.php';
+require_once __DIR__.'/../class/mahnweseninterestpolicy.class.php';
 require_once __DIR__.'/../class/dunningmanager.scan.trait.php';
 require_once __DIR__.'/../class/dunningmanager.stages.trait.php';
 require_once __DIR__.'/../class/dunningmanager.profiles.trait.php';
@@ -82,6 +83,23 @@ $spacing->completedAt = strtotime('2026-01-14 14:00:00');
 $spacing->paymentDays = 10;
 mwAssert($spacing->calculateWorkflowStageDueAt(7, '2026-01-01', 2) === '2026-01-25 00:00:00',
     'a payment deadline holds the next stage back until the day after it (#64)');
+
+// Interest over a change of the base rate, to the cent (#33).
+$periods = array(array('from' => '2026-01-01', 'rate' => 3.62), array('from' => '2026-07-01', 'rate' => 5.5));
+$crossing = MahnwesenInterestPolicy::interest(1000.0, '2026-06-20', '2026-07-10', $periods, 'base_plus', 9.2);
+mwAssert($crossing['days'] === 20, 'interest counts the days after the due date up to today (#33)');
+mwAssert($crossing['amount'] === round(1000.0 * ((3.62 + 9.2) / 100) * 10 / 365 + 1000.0 * ((5.5 + 9.2) / 100) * 10 / 365, 2),
+    'interest over a change of the base rate uses each day its own rate (#33)');
+mwAssert(count($crossing['parts']) === 2 && $crossing['parts'][0]['days'] === 10 && $crossing['parts'][1]['days'] === 10,
+    'the parts of the interest name the days of each rate (#33)');
+mwAssert(MahnwesenInterestPolicy::interest(1000.0, '2026-06-20', '2026-07-10', $periods, 'none', 9.2)['amount'] === 0.0,
+    'a profile without an interest rule charges nothing (#33)');
+mwAssert(MahnwesenInterestPolicy::interest(1000.0, '2025-01-01', '2025-03-01', $periods, 'base_plus', 9.2)['amount'] === 0.0,
+    'days before the first base rate carry no interest (#33)');
+mwAssert(MahnwesenInterestPolicy::interest(1000.0, '2026-06-20', '2026-06-20', $periods, 'fixed', 4.0)['amount'] === 0.0,
+    'the due day itself carries no interest (#33)');
+mwAssert(MahnwesenInterestPolicy::interest(1000.0, '2026-06-20', '2026-06-21', $periods, 'fixed', 4.0)['amount'] === round(1000.0 * 0.04 / 365, 2),
+    'a fixed rate counts the first day after the due date (#33)');
 
 class CarefulProfileFixture
 {

@@ -393,7 +393,7 @@ trait DunningManagerStages
         return max(0.0, (float) $rule['fee_amount']);
     }
 
-    /** @return array{invoice:float,fee:float,total:float,classification:array,profile_id:int} */
+    /** @return array{invoice:float,fee:float,interest:float,total:float,classification:array,profile_id:int,interest_details:array} */
     public function getAmountBreakdown($invoice, $case, $level)
     {
         if (empty($invoice->thirdparty)) {
@@ -402,12 +402,16 @@ trait DunningManagerStages
         $base = isset($case['remaining_amount']) ? max(0.0, (float) $case['remaining_amount']) : 0.0;
         $profileId = (int) $this->resolveProfile((int) $invoice->id)['profile_id'];
         $fee = $this->getFeeForLevel($level, $profileId);
+        // Interest follows the same profile and is counted up to today (#33).
+        $interest = $this->calculateInterest($invoice, $base, $profileId);
         return array(
             'invoice' => $base,
             'fee' => $fee,
-            'total' => $base + $fee,
+            'interest' => (float) $interest['amount'],
+            'total' => $base + $fee + (float) $interest['amount'],
             'classification' => $this->classifyThirdparty($invoice->thirdparty),
             'profile_id' => $profileId,
+            'interest_details' => $interest,
         );
     }
 }

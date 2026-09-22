@@ -6,6 +6,8 @@ CREATE TABLE llx_mahnwesen_profile (
     is_default INTEGER DEFAULT 0 NOT NULL,
     auto_allowed INTEGER DEFAULT 1 NOT NULL,
     final_step VARCHAR(32) DEFAULT 'none' NOT NULL,
+    interest_mode VARCHAR(16) DEFAULT 'none' NOT NULL,
+    interest_rate DOUBLE(24,8) DEFAULT 0 NOT NULL,
     active INTEGER DEFAULT 1 NOT NULL,
     date_creation DATETIME,
     tms TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
