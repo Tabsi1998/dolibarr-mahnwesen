@@ -652,9 +652,11 @@ def manual_send(stack: Stack) -> str:
     sent_day = datetime.date.fromisoformat(stack.value(f"SELECT DATE(reserved_at) FROM llx_mahnwesen_attempt WHERE rowid = {attempt_id}"))
     deadline_day = sent_day + datetime.timedelta(days=10)
     deadline = deadline_day.strftime("%d.%m.%Y")
-    expect(f"Frist: {deadline} (10 Tage)" in sent_html,
+    # The mailer may wrap a long line, so the text is compared without its line breaks.
+    sent_flat = re.sub(r"\s+", " ", sent_html)
+    expect(f"Frist: {deadline} (10 Tage)" in sent_flat,
            f"the sent email does not name the payment deadline {deadline}, it says "
-           f"{(re.search(r'Frist:[^<]*', sent_html) or re.search('$^', '')).group(0) if 'Frist:' in sent_html else 'nothing'!r} (#64)")
+           f"{(re.search(r'Frist:[^<]*', sent_flat) or re.search('$^', '')).group(0) if 'Frist:' in sent_flat else 'nothing'!r} (#64)")
     recorded_text = stack.value("SELECT message FROM llx_mahnwesen_history WHERE action = 'notice_sent' "
                                 f"AND level = 1 AND fk_facture = {company['id']}") or ""
     expect(f"Payment deadline: {deadline_day.isoformat()}" in recorded_text,
