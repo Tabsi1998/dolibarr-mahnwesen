@@ -63,29 +63,14 @@ trait DunningNoticeServicePdf
 
         try {
             $breakdown = $this->manager->getAmountBreakdown($invoice, $case, $level);
-            $format = pdf_getFormat($outputlangs);
-            $pageWidth = (float) $format['width'];
-            $pageHeight = (float) $format['height'];
-            $pdf = pdf_getInstance(array($pageWidth, $pageHeight), $format['unit'], 'P');
-            $pdf->SetCreator('Dolibarr Mahnwesen');
-            $pdf->SetAuthor(is_object($mysoc) ? (string) $mysoc->name : 'Dolibarr');
-            $pdf->SetTitle($outputlangs->trans($this->manager->getStageLabelKey((int) $level)).' '.$invoice->ref);
-            $marginLeft = getDolGlobalInt('MAIN_PDF_MARGIN_LEFT', 10);
-            $marginRight = getDolGlobalInt('MAIN_PDF_MARGIN_RIGHT', 10);
-            $marginTop = getDolGlobalInt('MAIN_PDF_MARGIN_TOP', 10);
-            $marginBottom = getDolGlobalInt('MAIN_PDF_MARGIN_BOTTOM', 10);
-            $pdf->SetMargins($marginLeft, $marginTop, $marginRight);
-            // Reserve room for pdf_pagefoot just like standard Dolibarr models.
-            $pdf->SetAutoPageBreak(true, max(24, $marginBottom + 14));
-            if (method_exists($pdf, 'setPrintHeader')) { $pdf->setPrintHeader(false); $pdf->setPrintFooter(false); }
-            // The font Dolibarr's own models use for the output language (#25).
-            $pdf->SetFont(pdf_getPDFFont($outputlangs));
-            $pdf->AddPage();
-            $this->addLetterhead($pdf, $invoice);
-
-            $bodyStartY = $this->drawSpongeReminderHeader($pdf, $invoice, $level, $outputlangs, $pageWidth, $pageHeight, $marginLeft, $marginRight, $marginTop, !empty($context['contact_id']) ? (int) $context['contact_id'] : 0);
-            $defaultFontSize = pdf_getPDFFontSize($outputlangs);
-            $contentWidth = $pageWidth - $marginLeft - $marginRight;
+            list($pdf, $frame) = $this->startLetter($invoice, $outputlangs, $outputlangs->trans($this->manager->getStageLabelKey((int) $level)).' '.$invoice->ref);
+            $marginLeft = $frame['left'];
+            $marginRight = $frame['right'];
+            $pageWidth = $frame['width'];
+            $pageHeight = $frame['height'];
+            $bodyStartY = $this->drawSpongeReminderHeader($pdf, $invoice, $level, $outputlangs, $pageWidth, $pageHeight, $marginLeft, $marginRight, $frame['top'], !empty($context['contact_id']) ? (int) $context['contact_id'] : 0);
+            $defaultFontSize = $frame['font'];
+            $contentWidth = $frame['content'];
 
             // The layout chosen in the setup draws the amounts; the frame is the
             // same for every layout (#76).
@@ -96,34 +81,7 @@ trait DunningNoticeServicePdf
             ));
             // Printed letter body. The dedicated PDF cleanup removes email-only
             // signature graphics and supports an explicit PDF end marker.
-            $pdf->SetY($bodyY);
-            $pdf->SetTextColor(0, 0, 0);
-            $pdf->SetFont('', '', max(7, $defaultFontSize - 1));
-            $pdfBody = $this->prepareBodyForPdf($body);
-            $pdfHtml = '<div style="font-size:9pt; line-height:1.20;">'.$this->asHtml($pdfBody).'</div>';
-            $pdf->writeHTML($pdfHtml, true, false, true, false, '');
-
-            // Keep payment terms/bank information in the same visual family as
-            // the invoice when enough room remains. If content flows, TCPDF can
-            // add a page; each page still receives the standard Dolibarr footer.
-            $paymentY = $pdf->GetY() + 5;
-            if ($paymentY < $pageHeight - 55) {
-                $this->drawSpongePaymentInfo($pdf, $invoice, $outputlangs, $paymentY, $pageWidth, $marginLeft, $marginRight);
-            }
-
-            // Standard Dolibarr invoice footer: same free-text area/page number
-            // handling as Sponge, without changing the invoice itself.
-            $showDetails = getDolGlobalInt('MAIN_GENERATE_DOCUMENTS_SHOW_FOOT_DETAILS', 0);
-            // Footer helpers write into the reserved bottom area. Disable TCPDF's
-            // automatic page break while drawing them; otherwise a short free-text
-            // footer can create an almost empty second page.
-            $pdf->SetAutoPageBreak(false, 0);
-            $numPages = $pdf->getNumPages();
-            for ($page = 1; $page <= $numPages; $page++) {
-                $pdf->setPage($page);
-                pdf_pagefoot($pdf, $outputlangs, 'INVOICE_FREE_TEXT', $mysoc, $marginBottom, $marginLeft, $pageHeight, $invoice, $showDetails, 0, $pageWidth, '');
-            }
-            $pdf->Output($fullpath, 'F');
+            $this->finishLetter($pdf, $invoice, $outputlangs, $frame, $bodyY, $this->prepareBodyForPdf($body), $fullpath);
         } catch (Throwable $e) {
             $this->error = get_class($e).': '.$e->getMessage();
             dol_syslog(__METHOD__.' '.$this->error, LOG_ERR);
@@ -135,6 +93,171 @@ trait DunningNoticeServicePdf
             return false;
         }
         return array('fullpath' => $fullpath, 'relative' => $relative, 'filename' => $filename, 'modulepart' => $modulepart, 'preview' => $preview ? 1 : 0);
+    }
+
+    /**
+     * Start a letter: page format, margins, the font of the language and the
+     * letterhead of Dolibarr's PDF setup (#25, #38).
+     *
+     * @param Facture $invoice Invoice the letterhead belongs to
+     * @param Translate $outputlangs Language of the customer
+     * @param string $title Title of the PDF document
+     * @return array{0:TCPDF,1:array} The PDF and its frame
+     */
+    protected function startLetter($invoice, $outputlangs, $title)
+    {
+        global $mysoc;
+        $format = pdf_getFormat($outputlangs);
+        $pageWidth = (float) $format['width'];
+        $pageHeight = (float) $format['height'];
+        $pdf = pdf_getInstance(array($pageWidth, $pageHeight), $format['unit'], 'P');
+        $pdf->SetCreator('Dolibarr Mahnwesen');
+        $pdf->SetAuthor(is_object($mysoc) ? (string) $mysoc->name : 'Dolibarr');
+        $pdf->SetTitle($title);
+        $frame = array(
+            'left' => getDolGlobalInt('MAIN_PDF_MARGIN_LEFT', 10),
+            'right' => getDolGlobalInt('MAIN_PDF_MARGIN_RIGHT', 10),
+            'top' => getDolGlobalInt('MAIN_PDF_MARGIN_TOP', 10),
+            'bottom' => getDolGlobalInt('MAIN_PDF_MARGIN_BOTTOM', 10),
+            'width' => $pageWidth,
+            'height' => $pageHeight,
+            'font' => pdf_getPDFFontSize($outputlangs),
+        );
+        $frame['content'] = $pageWidth - $frame['left'] - $frame['right'];
+        $pdf->SetMargins($frame['left'], $frame['top'], $frame['right']);
+        // Reserve room for pdf_pagefoot just like standard Dolibarr models.
+        $pdf->SetAutoPageBreak(true, max(24, $frame['bottom'] + 14));
+        if (method_exists($pdf, 'setPrintHeader')) { $pdf->setPrintHeader(false); $pdf->setPrintFooter(false); }
+        // The font Dolibarr's own models use for the output language (#25).
+        $pdf->SetFont(pdf_getPDFFont($outputlangs));
+        $pdf->AddPage();
+        $this->addLetterhead($pdf, $invoice);
+        return array($pdf, $frame);
+    }
+
+    /**
+     * Finish a letter: its text, the payment terms of the invoice and
+     * Dolibarr's footer on every page, then write the file (#25, #38).
+     *
+     * @param TCPDF $pdf PDF
+     * @param Facture $invoice Invoice the payment terms and footer belong to
+     * @param Translate $outputlangs Language of the customer
+     * @param array $frame From startLetter()
+     * @param float $bodyY Where the text starts
+     * @param string $body Text of the letter, HTML
+     * @param string $fullpath File to write
+     * @return void
+     */
+    protected function finishLetter($pdf, $invoice, $outputlangs, $frame, $bodyY, $body, $fullpath)
+    {
+        global $mysoc;
+        // Printed letter body. The dedicated PDF cleanup removes email-only
+        // signature graphics and supports an explicit PDF end marker.
+        $pdf->SetY($bodyY);
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->SetFont('', '', max(7, $frame['font'] - 1));
+        $pdf->writeHTML('<div style="font-size:9pt; line-height:1.20;">'.$this->asHtml($body).'</div>', true, false, true, false, '');
+        // Keep payment terms/bank information in the same visual family as the
+        // invoice when enough room remains. If content flows, TCPDF can add a
+        // page; each page still receives the standard Dolibarr footer.
+        $paymentY = $pdf->GetY() + 5;
+        if ($paymentY < $frame['height'] - 55) {
+            $this->drawSpongePaymentInfo($pdf, $invoice, $outputlangs, $paymentY, $frame['width'], $frame['left'], $frame['right']);
+        }
+        // Standard Dolibarr invoice footer: same free-text area/page number
+        // handling as Sponge. Footer helpers write into the reserved bottom
+        // area; the automatic page break is off while they draw, otherwise a
+        // short free-text footer can create an almost empty second page.
+        $showDetails = getDolGlobalInt('MAIN_GENERATE_DOCUMENTS_SHOW_FOOT_DETAILS', 0);
+        $pdf->SetAutoPageBreak(false, 0);
+        $numPages = $pdf->getNumPages();
+        for ($page = 1; $page <= $numPages; $page++) {
+            $pdf->setPage($page);
+            pdf_pagefoot($pdf, $outputlangs, 'INVOICE_FREE_TEXT', $mysoc, $frame['bottom'], $frame['left'], $frame['height'], $invoice, $showDetails, 0, $frame['width'], '');
+        }
+        $pdf->Output($fullpath, 'F');
+    }
+
+    /**
+     * One letter for several invoices of the same customer, like a statement
+     * of account (#38).
+     *
+     * Every invoice keeps its own stage, fee and interest; the letter lists
+     * them and names the highest stage in its title.
+     *
+     * @param array $items Each invoice, case, level and breakdown
+     * @param string $lang Language of the customer
+     * @param string $fullpath File to write
+     * @param int $contactId Recipient contact, 0 for the customer
+     * @return bool
+     */
+    public function generateCollectivePdf($items, $lang, $fullpath, $contactId = 0)
+    {
+        global $conf;
+        $this->error = '';
+        $outputlangs = new Translate('', $conf);
+        $outputlangs->setDefaultLang($lang);
+        $outputlangs->loadLangs(array('main', 'bills', 'companies', 'compta', 'mahnwesen@mahnwesen'));
+        $first = $items[0];
+        $highest = 0;
+        foreach ($items as $item) {
+            $highest = max($highest, (int) $item['level']);
+        }
+        try {
+            list($pdf, $frame) = $this->startLetter($first['invoice'], $outputlangs, $outputlangs->transnoentities('MahnwesenCollectiveTitle',
+                $outputlangs->transnoentities($this->manager->getStageLabelKey($highest))));
+            $y = $this->drawSpongeReminderHeader($pdf, $first['invoice'], $highest, $outputlangs, $frame['width'], $frame['height'],
+                $frame['left'], $frame['right'], $frame['top'], (int) $contactId, count($items));
+            // The statement: one row per invoice, with its own stage and claims.
+            $widths = array(34, 24, 38, 30, 30);
+            $widths[] = $frame['content'] - array_sum($widths);
+            $heads = array('Invoice', 'DateDue', 'DunningStage', 'MahnwesenPartInvoice', 'MahnwesenPartFee', 'MahnwesenPartInterest');
+            $pdf->SetDrawColor(128, 128, 128);
+            $pdf->SetTextColor(0, 0, 0);
+            $pdf->SetFont('', 'B', max(6, $frame['font'] - 2));
+            $x = $frame['left'];
+            foreach ($heads as $index => $head) {
+                $pdf->SetXY($x, $y);
+                $pdf->Cell($widths[$index], 6, $outputlangs->transnoentities($head), 1, 0, $index >= 3 ? 'R' : 'L');
+                $x += $widths[$index];
+            }
+            $pdf->SetFont('', '', max(6, $frame['font'] - 2));
+            $total = 0.0;
+            foreach ($items as $item) {
+                $y += 6;
+                $breakdown = $item['breakdown'];
+                $cells = array((string) $item['invoice']->ref, dol_print_date($item['invoice']->date_lim_reglement, 'day', 'tzserver', $outputlangs),
+                    $outputlangs->transnoentities($this->manager->getStageLabelKey((int) $item['level'])),
+                    $this->formatMoney($breakdown['invoice'], $outputlangs), $this->formatMoney($breakdown['fee'], $outputlangs),
+                    $this->formatMoney($breakdown['interest'], $outputlangs));
+                $x = $frame['left'];
+                foreach ($cells as $index => $cell) {
+                    $pdf->SetXY($x, $y);
+                    $pdf->Cell($widths[$index], 6, $cell, 1, 0, $index >= 3 ? 'R' : 'L');
+                    $x += $widths[$index];
+                }
+                $total += (float) $breakdown['total'];
+            }
+            $y += 8;
+            $pdf->SetFont('', 'B', $frame['font']);
+            $pdf->SetXY($frame['left'], $y);
+            $pdf->Cell($frame['content'], 5, $outputlangs->transnoentities('MahnwesenLetterTotal').' '.$this->formatMoney($total, $outputlangs), 0, 0, 'R');
+            $deadline = $this->manager->getPaymentDeadline($highest, null, (int) $first['breakdown']['profile_id']);
+            $text = '<p>'.dol_escape_htmltag($outputlangs->transnoentities('MahnwesenCollectiveText')).'</p>';
+            if ($deadline) {
+                $text .= '<p>'.dol_escape_htmltag($outputlangs->transnoentities('MahnwesenLetterDeadline', dol_print_date($deadline, 'day', 'tzserver', $outputlangs))).'</p>';
+            }
+            $this->finishLetter($pdf, $first['invoice'], $outputlangs, $frame, $y + 12, $text, $fullpath);
+        } catch (Throwable $e) {
+            $this->error = get_class($e).': '.$e->getMessage();
+            dol_syslog(__METHOD__.' '.$this->error, LOG_ERR);
+            return false;
+        }
+        if (!is_file($fullpath) || filesize($fullpath) <= 0) {
+            $this->error = 'Generated collective PDF is missing or empty';
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -204,7 +327,7 @@ trait DunningNoticeServicePdf
      *
      * @return float Y position below the address frames
      */
-    protected function drawSpongeReminderHeader(&$pdf, $invoice, $level, $outputlangs, $pageWidth, $pageHeight, $marginLeft, $marginRight, $marginTop, $recipientContactId = 0)
+    protected function drawSpongeReminderHeader(&$pdf, $invoice, $level, $outputlangs, $pageWidth, $pageHeight, $marginLeft, $marginRight, $marginTop, $recipientContactId = 0, $collectiveCount = 0)
     {
         global $conf, $mysoc;
         $defaultFontSize = pdf_getPDFFontSize($outputlangs);
@@ -246,14 +369,23 @@ trait DunningNoticeServicePdf
         $pdf->SetXY($posx, $posy);
         $pdf->SetTextColor(0, 0, 60);
         $pdf->SetFont('', 'B', $defaultFontSize + 3);
-        $pdf->MultiCell($w, 3, $stageTitle.' '.$outputlangs->convToOutputCharset((string) $invoice->ref), 0, 'R');
-        $metaY = $pdf->GetY() + 1;
-        $pdf->SetFont('', '', max(6, $defaultFontSize - 2));
-        $pdf->SetXY($posx, $metaY);
-        $pdf->MultiCell($w, 3, $outputlangs->transnoentities('DateInvoice').' : '.dol_print_date($invoice->date, 'day', false, $outputlangs, true), 0, 'R');
-        $metaY = $pdf->GetY();
-        $pdf->SetXY($posx, $metaY);
-        $pdf->MultiCell($w, 3, $outputlangs->transnoentities('DateDue').' : '.dol_print_date($invoice->date_lim_reglement, 'day', false, $outputlangs, true), 0, 'R');
+        if ($collectiveCount > 1) {
+            // A letter for several invoices names itself as one, with the highest stage (#38).
+            $pdf->MultiCell($w, 3, $outputlangs->transnoentities('MahnwesenCollectiveTitle', $stageTitle), 0, 'R');
+            $metaY = $pdf->GetY() + 1;
+            $pdf->SetFont('', '', max(6, $defaultFontSize - 2));
+            $pdf->SetXY($posx, $metaY);
+            $pdf->MultiCell($w, 3, $outputlangs->transnoentities('MahnwesenCollectiveCount', (int) $collectiveCount).' - '.dol_print_date(dol_now(), 'day', false, $outputlangs, true), 0, 'R');
+        } else {
+            $pdf->MultiCell($w, 3, $stageTitle.' '.$outputlangs->convToOutputCharset((string) $invoice->ref), 0, 'R');
+            $metaY = $pdf->GetY() + 1;
+            $pdf->SetFont('', '', max(6, $defaultFontSize - 2));
+            $pdf->SetXY($posx, $metaY);
+            $pdf->MultiCell($w, 3, $outputlangs->transnoentities('DateInvoice').' : '.dol_print_date($invoice->date, 'day', false, $outputlangs, true), 0, 'R');
+            $metaY = $pdf->GetY();
+            $pdf->SetXY($posx, $metaY);
+            $pdf->MultiCell($w, 3, $outputlangs->transnoentities('DateDue').' : '.dol_print_date($invoice->date_lim_reglement, 'day', false, $outputlangs, true), 0, 'R');
+        }
         if (!getDolGlobalString('MAIN_PDF_HIDE_CUSTOMER_CODE') && !empty($invoice->thirdparty->code_client)) {
             $metaY = $pdf->GetY();
             $pdf->SetXY($posx, $metaY);

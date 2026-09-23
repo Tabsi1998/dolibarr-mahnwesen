@@ -227,6 +227,14 @@ trait DunningManagerAttempts
         return true;
     }
 
+    /** The subject and text of a reserved attempt, when they are only known after its reservation (#38). */
+    public function updateNoticeAttemptMessage($attemptId, $subject, $bodyHtml)
+    {
+        $sql = 'UPDATE '.MAIN_DB_PREFIX.'mahnwesen_attempt SET subject = \''.$this->db->escape((string) $subject).'\', body_html = \''.$this->db->escape((string) $bodyHtml).'\' WHERE rowid = '.((int) $attemptId)." AND status = 'reserved'";
+        if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); return false; }
+        return true;
+    }
+
     /** Persist one exact attachment snapshot for an attempt. */
     public function addNoticeAttemptFile($attemptId, $role, $displayName, $path, $mime = '')
     {

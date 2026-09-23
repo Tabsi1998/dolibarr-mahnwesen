@@ -274,17 +274,7 @@ trait DunningNoticeServiceDelivery
             $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
             return false;
         }
-        // Payments are maintained in separate Dolibarr tables and cannot be
-        // held behind the module case lock. Re-read once more immediately
-        // before entering the SMTP ambiguity window.
-        $this->manager->refreshWorkflowCaches((int) $case['id']);
-        $lastEvaluation = $this->manager->evaluateInvoice((int) $freshInvoice->id);
-        $lastProfileId = $lastEvaluation !== false ? (int) $lastEvaluation['row']['profile_id'] : 0;
-        $lastRequiredLevel = ($lastEvaluation !== false && !empty($lastEvaluation['eligible'])) ? $this->manager->getNextRequiredLevel((int) $case['id'], (int) $lastEvaluation['row']['stage'], $lastProfileId) : 0;
-        $lastRequiredAt = $lastRequiredLevel > 0 ? $this->manager->calculateWorkflowStageDueAt((int) $case['id'], (string) $lastEvaluation['row']['due_ymd'], $lastRequiredLevel, $lastProfileId) : null;
-        $lastBreakdown = $this->manager->getAmountBreakdown($freshInvoice, array('remaining_amount' => $lastEvaluation !== false ? (float) $lastEvaluation['remain_to_pay'] : 0.0), $level);
-        $lastRecipientOption = $this->getRecipientOptionByEmail($freshInvoice, $recipient);
-        if ($lastEvaluation === false || empty($lastEvaluation['eligible']) || $lastRequiredLevel !== (int) $level || ($lastRequiredAt && (int) $this->db->jdate($lastRequiredAt) > dol_now()) || abs((float) $lastEvaluation['remain_to_pay'] - (float) $breakdown['invoice']) > 0.000001 || abs((float) $lastBreakdown['fee'] - (float) $breakdown['fee']) > 0.000001 || abs((float) $lastBreakdown['interest'] - (float) $breakdown['interest']) > 0.01 || $lastRecipientOption === false || (int) $lastRecipientOption['contact_id'] !== (int) $recipientOption['contact_id']) {
+        if ($this->changedSinceReservation($freshInvoice, $case, $level, $breakdown, $recipient, (int) $recipientOption['contact_id'])) {
             $this->error = 'Invoice state changed while the final document was generated. Delivery was cancelled.';
             $this->manager->finalizeNoticeAttempt($attemptId, false, $this->error, $case, $user, false);
             return false;
@@ -380,6 +370,256 @@ trait DunningNoticeServiceDelivery
             'interest' => $breakdown['interest'],
             'total' => $breakdown['total'],
         );
+    }
+
+    /**
+     * Whether an invoice changed after its notice was reserved (#14, #38).
+     *
+     * Payments are maintained in separate Dolibarr tables and cannot be held
+     * behind the module case lock, so the invoice is read once more right
+     * before the SMTP ambiguity window: stage, amount, fee, interest and the
+     * recipient must still be what the letter says.
+     *
+     * @param Facture $invoice Invoice, freshly loaded
+     * @param array $case Case of the reservation
+     * @param int $level Stage
+     * @param array $breakdown Amounts of the reservation
+     * @param string $recipient Email address
+     * @param int $contactId Recipient contact, 0 for the customer
+     * @return bool
+     */
+    protected function changedSinceReservation($invoice, $case, $level, $breakdown, $recipient, $contactId)
+    {
+        $this->manager->refreshWorkflowCaches((int) $case['id']);
+        $evaluation = $this->manager->evaluateInvoice((int) $invoice->id);
+        if ($evaluation === false || empty($evaluation['eligible'])) {
+            return true;
+        }
+        $profileId = (int) $evaluation['row']['profile_id'];
+        $requiredLevel = $this->manager->getNextRequiredLevel((int) $case['id'], (int) $evaluation['row']['stage'], $profileId);
+        $requiredAt = $requiredLevel > 0 ? $this->manager->calculateWorkflowStageDueAt((int) $case['id'], (string) $evaluation['row']['due_ymd'], $requiredLevel, $profileId) : null;
+        $now = $this->manager->getAmountBreakdown($invoice, array('remaining_amount' => (float) $evaluation['remain_to_pay']), $level);
+        $option = $this->getRecipientOptionByEmail($invoice, $recipient);
+        return $requiredLevel !== (int) $level || ($requiredAt && (int) $this->db->jdate($requiredAt) > dol_now())
+            || abs((float) $evaluation['remain_to_pay'] - (float) $breakdown['invoice']) > 0.000001
+            || abs((float) $now['fee'] - (float) $breakdown['fee']) > 0.000001
+            || abs((float) $now['interest'] - (float) $breakdown['interest']) > 0.01
+            || $option === false || (int) $option['contact_id'] !== (int) $contactId;
+    }
+
+    /**
+     * Send what decideAutomaticSend() decided for one invoice, with the
+     * template of its stage (#38).
+     *
+     * @param array $decision A send decision
+     * @param User $user Acting user
+     * @param string $mode manual or automatic
+     * @return array|false
+     */
+    public function sendDecision($decision, $user, $mode)
+    {
+        $invoice = $decision['invoice'];
+        $case = $decision['case'];
+        $level = (int) $decision['level'];
+        $template = $decision['template'];
+        $lang = (string) $decision['lang'];
+        $subject = $this->renderTemplate($template['subject'], $invoice, $case, $level, $lang);
+        $body = $this->renderTemplate($template['body'], $invoice, $case, $level, $lang);
+        // Only native templates exist; their "join files" flag decides.
+        $attachInvoice = ((string) ($template['joinfiles'] ?? '') === '1');
+        return $this->sendNotice($invoice, $case, $level, (string) $decision['recipient'], $subject, $body, $attachInvoice, $user, $mode,
+            isset($template['email_from']) ? $template['email_from'] : '', isset($template['lang']) ? $template['lang'] : $lang, '', '',
+            !empty($template['source_id']) ? (int) $template['source_id'] : 0);
+    }
+
+    /**
+     * One email with one letter for several invoices of the same customer (#38).
+     *
+     * Every invoice keeps its own attempt: its stage, fee, interest and
+     * history are recorded as if it went out alone, and the reservation checks
+     * each one, the recipient included. The attempts share the mail, so they
+     * share its outcome.
+     *
+     * @param array $decisions Send decisions of decideAutomaticSend(), one customer and one recipient
+     * @param User $user Acting user
+     * @param string $mode manual or automatic
+     * @return array sent (invoice refs), failed (invoice ref => message)
+     */
+    public function sendCollectiveNotice($decisions, $user, $mode)
+    {
+        global $conf;
+        $this->error = '';
+        $this->errors = array();
+        $mode = ($mode === 'automatic') ? 'automatic' : 'manual';
+        $result = array('sent' => array(), 'failed' => array());
+        $first = $decisions[0];
+        $recipient = (string) $first['recipient'];
+        $lang = (string) $first['lang'];
+        $from = $this->getFromEmail((string) ($first['template']['email_from'] ?? ''));
+        $problem = '';
+        if (($mode === 'automatic' && !$this->isAutomaticSendEnabled()) || ($mode === 'manual' && !$this->isManualSendEnabled())) {
+            $problem = 'Sending dunning emails is disabled in module settings.';
+        } elseif ($from === '' || !filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
+            $problem = 'No valid sender or recipient email.';
+        }
+        $items = array();
+        foreach ($decisions as $decision) {
+            $invoice = $decision['invoice'];
+            $option = $problem === '' ? $this->getRecipientOptionByEmail($invoice, $recipient) : false;
+            if ($problem !== '') {
+                $result['failed'][(string) $invoice->ref] = $problem;
+            } elseif ($this->manager->getDunningBlock((int) $invoice->id) !== null) {
+                $result['failed'][(string) $invoice->ref] = 'Dunning is blocked on the invoice or its customer (#37).';
+            } elseif ($option === false || (int) $invoice->socid !== (int) $first['invoice']->socid) {
+                $result['failed'][(string) $invoice->ref] = 'Recipient is no longer an active BILLING contact or the customer email.';
+            } else {
+                $items[] = array('invoice' => $invoice, 'case' => $decision['case'], 'level' => (int) $decision['level'], 'contact_id' => (int) $option['contact_id'],
+                    'breakdown' => $this->manager->getAmountBreakdown($invoice, $decision['case'], (int) $decision['level']));
+            }
+        }
+        $outputlangs = new Translate('', $conf);
+        $outputlangs->setDefaultLang($lang);
+        $outputlangs->loadLangs(array('main', 'bills', 'mahnwesen@mahnwesen'));
+        list($subject, $bodyHtml) = $this->collectiveMessage($items, $outputlangs);
+        // Each invoice is reserved alone, under its own lock and checks.
+        $reserved = array();
+        foreach ($items as $item) {
+            $reservation = $this->manager->reserveNoticeAttempt($item['case'], $recipient, $item['level'], (float) $item['breakdown']['invoice'],
+                'Collective letter', $user, $mode, array(
+                    'contact_id' => $item['contact_id'], 'sender' => $from, 'subject' => $subject, 'body_html' => $bodyHtml,
+                    'fee' => (float) $item['breakdown']['fee'], 'interest' => (float) $item['breakdown']['interest'],
+                    'total' => (float) $item['breakdown']['total'], 'template_lang' => $lang,
+                ));
+            if ($reservation === false) {
+                $result['failed'][(string) $item['invoice']->ref] = $this->manager->error ?: 'Unable to reserve dunning notice send';
+                continue;
+            }
+            $fresh = new Facture($this->db);
+            if ($fresh->fetch((int) $reservation['case']['invoice_id']) <= 0) {
+                $this->manager->finalizeNoticeAttempt((int) $reservation['id'], false, 'Unable to reload invoice after send reservation.', $reservation['case'], $user, false);
+                $result['failed'][(string) $item['invoice']->ref] = 'Unable to reload invoice after send reservation.';
+                continue;
+            }
+            $fresh->fetch_thirdparty();
+            $reserved[] = array_merge($item, array('invoice' => $fresh, 'attempt_id' => (int) $reservation['id'], 'case' => $reservation['case'], 'breakdown' => $reservation['breakdown']));
+        }
+        if (empty($reserved)) {
+            return $result;
+        }
+        // The letter names exactly the invoices that were reserved.
+        list($subject, $bodyHtml) = $this->collectiveMessage($reserved, $outputlangs);
+        $refs = array();
+        foreach ($reserved as $item) {
+            $refs[] = (string) $item['invoice']->ref;
+        }
+        $historyMessage = 'Collective letter for '.implode(', ', $refs)."
+Subject: ".$subject."
+From: ".$from;
+        $cancel = function ($message, $ambiguous = false) use (&$result, $reserved, $user, $historyMessage) {
+            foreach ($reserved as $item) {
+                $this->manager->finalizeNoticeAttempt($item['attempt_id'], false, $historyMessage."
+Error: ".$message, $item['case'], $user, $ambiguous);
+                $result['failed'][(string) $item['invoice']->ref] = $message;
+            }
+            return $result;
+        };
+        $filename = dol_sanitizeFileName($outputlangs->transnoentities('MahnwesenCollectiveFile').'_'.dol_print_date(dol_now(), 'dayrfc').'.pdf');
+        $dir = $this->getAttemptEvidenceDir($reserved[0]['attempt_id']);
+        if (!is_dir($dir) && dol_mkdir($dir) < 0) {
+            return $cancel('Unable to create the evidence directory.');
+        }
+        $pdfPath = $dir.'/'.$filename;
+        if (!$this->generateCollectivePdf($reserved, $lang, $pdfPath, $reserved[0]['contact_id'])) {
+            return $cancel($this->error ?: 'Collective PDF generation failed.');
+        }
+        // Every attempt keeps its own copy as evidence.
+        foreach ($reserved as $index => $item) {
+            $copy = $this->getAttemptEvidenceDir($item['attempt_id']).'/'.$filename;
+            if ($copy !== $pdfPath && ((!is_dir(dirname($copy)) && dol_mkdir(dirname($copy)) < 0) || !@copy($pdfPath, $copy))) {
+                return $cancel('Unable to keep a copy of the collective letter.');
+            }
+            $reserved[$index]['pdf'] = $copy;
+            if (!$this->manager->addNoticeAttemptFile($item['attempt_id'], 'dunning', $filename, $copy, 'application/pdf')
+                || !$this->manager->updateNoticeAttemptArtifacts($item['attempt_id'], array('fullpath' => $copy, 'relative' => 'attempts/'.$item['attempt_id'].'/'.$filename))
+                || !$this->manager->updateNoticeAttemptMessage($item['attempt_id'], $subject, $bodyHtml)) {
+                return $cancel('Unable to persist the attachment audit: '.$this->manager->error);
+            }
+        }
+        foreach ($reserved as $item) {
+            if ($this->changedSinceReservation($item['invoice'], $item['case'], $item['level'], $item['breakdown'], $recipient, $item['contact_id'])) {
+                return $cancel('Invoice '.$item['invoice']->ref.' changed while the letter was generated. Delivery was cancelled.');
+            }
+        }
+        $historyMessage .= "
+PDF SHA-256: ".hash_file('sha256', $pdfPath);
+        foreach ($reserved as $item) {
+            if (!$this->manager->markNoticeAttemptSending($item['attempt_id'])) {
+                return $cancel('Unable to mark the attempt as sending: '.$this->manager->error);
+            }
+        }
+        $mail = null;
+        $error = '';
+        try {
+            // Dolibarr's track id of the customer: its email collector links replies to it (#28).
+            $mail = new CMailFile($subject, $recipient, $from, $bodyHtml, array($pdfPath), array('application/pdf'), array($filename),
+                '', '', 0, 1, '', '', 'thi'.((int) $first['invoice']->socid), '', 'standard', $from);
+            $sent = $mail->sendfile();
+        } catch (Throwable $e) {
+            $sent = 0;
+            $error = get_class($e).': '.$e->getMessage();
+        }
+        if (empty($sent)) {
+            if ($error === '') {
+                $error = (is_object($mail) && !empty($mail->error)) ? $mail->error : 'CMailFile sendfile failed';
+            }
+            // Only a failure that certainly delivered nothing may be retried (#14).
+            return $cancel($error, !$this->failedBeforeMessageData($mail));
+        }
+        $messageId = is_object($mail) ? (string) ($mail->message_id ?? ($mail->msgid ?? '')) : '';
+        foreach ($reserved as $item) {
+            $ref = (string) $item['invoice']->ref;
+            if (!$this->manager->finalizeNoticeAttempt($item['attempt_id'], true, $historyMessage, $item['case'], $user, false, $messageId)) {
+                $result['failed'][$ref] = 'The mailer reported success, but audit finalization failed. Do not retry; the attempt remains blocked. '.$this->manager->error;
+                continue;
+            }
+            $result['sent'][] = $ref;
+            if ($this->publishToInvoiceDocuments($item['invoice'], $item['level'], $item['pdf']) === '') {
+                $this->errors[] = 'The email was sent, but the dunning PDF could not be copied to the documents of '.$ref.'.';
+            }
+            if ($this->manager->syncInvoiceCase((int) $item['invoice']->id, $user) === false) {
+                $this->errors[] = 'The email was sent, but the case of '.$ref.' could not be synchronised: '.$this->manager->error;
+            }
+            $this->manager->syncHistoryToAgenda((int) $item['invoice']->id, $user);
+        }
+        return $result;
+    }
+
+    /**
+     * Subject and text of a collective email: the invoices with their stage
+     * and amount, the details in the attached letter (#38).
+     *
+     * @param array $items Invoice, level and breakdown each
+     * @param Translate $outputlangs Language of the customer
+     * @return array{0:string,1:string} Subject and HTML
+     */
+    protected function collectiveMessage($items, $outputlangs)
+    {
+        global $mysoc;
+        $highest = 0;
+        $refs = array();
+        $lines = '';
+        foreach ($items as $item) {
+            $highest = max($highest, (int) $item['level']);
+            $refs[] = (string) $item['invoice']->ref;
+            $lines .= '<li>'.dol_escape_htmltag($item['invoice']->ref.' - '.$outputlangs->transnoentities($this->manager->getStageLabelKey((int) $item['level']))
+                .' - '.$this->formatMoney($item['breakdown']['total'], $outputlangs)).'</li>';
+        }
+        $subject = dol_trunc($outputlangs->transnoentities('MahnwesenCollectiveTitle', $outputlangs->transnoentities($this->manager->getStageLabelKey($highest)))
+            .': '.implode(', ', $refs), 250, 'right', 'UTF-8', 1);
+        $body = '<p>'.dol_escape_htmltag($outputlangs->transnoentities('MahnwesenCollectiveMailIntro')).'</p><ul>'.$lines.'</ul>'
+            .'<p>'.dol_escape_htmltag($outputlangs->transnoentities('MahnwesenCollectiveMailOutro')).'</p>'
+            .'<p>'.dol_escape_htmltag(is_object($mysoc) ? (string) $mysoc->name : '').'</p>';
+        return array($subject, $body);
     }
 
     /**

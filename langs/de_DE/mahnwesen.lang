@@ -572,3 +572,13 @@ MahnwesenLayoutLetter=Schlichter Brief
 MahnwesenLayoutLetterHelp=Beträge als Textzeilen ohne Tabelle und ohne QR-Code, etwa für Vereine.
 MahnwesenLetterTotal=Zu zahlen insgesamt:
 MahnwesenLetterDeadline=Bitte zahlen Sie bis %s.
+
+# Sammelmahnung je Kunde (#38)
+MahnwesenCollectiveLetters=Sammelmahnung je Kunde
+MahnwesenCollectiveLettersHelp=Sind für einen Kunden mehrere Rechnungen gleichzeitig zu mahnen, geht eine E-Mail mit einem Schreiben, das alle Rechnungen auflistet. Jede Rechnung behält ihre eigene Stufe, Spesen und ihren Verlauf. Gilt für den automatischen Versand und für „Ausgewählte mahnen“.
+MahnwesenCollectiveTitle=Sammelmahnung - %s
+MahnwesenCollectiveCount=%s offene Rechnungen
+MahnwesenCollectiveText=Für die oben genannten Rechnungen haben wir noch keine Zahlung erhalten. Bitte begleichen Sie den offenen Gesamtbetrag. Sollten Sie bereits bezahlt haben, betrachten Sie dieses Schreiben bitte als gegenstandslos.
+MahnwesenCollectiveMailIntro=Guten Tag, für die folgenden Rechnungen haben wir noch keine Zahlung erhalten:
+MahnwesenCollectiveMailOutro=Die Aufstellung mit allen Beträgen finden Sie im beigefügten Schreiben. Sollten Sie bereits bezahlt haben, betrachten Sie diese Nachricht bitte als gegenstandslos.
+MahnwesenCollectiveFile=Sammelmahnung

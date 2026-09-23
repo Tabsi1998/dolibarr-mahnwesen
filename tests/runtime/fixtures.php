@@ -433,6 +433,18 @@ if ($stage === 'postal') {
     exit(0);
 }
 
+if ($stage === 'collective') {
+    // A customer with three overdue invoices at once, for the collective letter (#38).
+    $countryId = (int) rt_value($db, "SELECT rowid FROM ".MAIN_DB_PREFIX."c_country WHERE code = 'AT'");
+    $customer = rt_customer($db, $admin, 'Runtime Sammelkunde', 'sammel@runtime-kunde.test', 'TE_SMALL', $countryId);
+    $invoices = array();
+    foreach (array(array(30, 18), array(50, 20), array(70, 22)) as $invoice) {
+        $invoices[] = rt_invoice($db, $admin, $customer, $invoice[0], $invoice[1], 0, array(array('Runtime-Sammelposten', $invoice[0], 0)));
+    }
+    print json_encode(array('customer' => (int) $customer->id, 'email' => 'sammel@runtime-kunde.test', 'invoices' => $invoices), JSON_PRETTY_PRINT)."\n";
+    exit(0);
+}
+
 if ($stage === 'bank') {
     // A bank account with IBAN and BIC; Dolibarr builds its EPC QR code from it (#35).
     require_once DOL_DOCUMENT_ROOT.'/compta/bank/class/account.class.php';

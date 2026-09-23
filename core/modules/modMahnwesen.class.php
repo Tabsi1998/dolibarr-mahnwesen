@@ -99,6 +99,7 @@ class modMahnwesen extends DolibarrModules
             33 => array('MAHNWESEN_API_MAX_DOCUMENT_MB', 'chaine', '20', 'Largest archived dunning letter the API hands out', 0, 'current', 0),
             34 => array('MAHNWESEN_RETENTION_DAYS', 'chaine', '0', 'Days after which mail texts and attachment copies are deleted, 0 keeps them', 0, 'current', 0),
             35 => array('MAHNWESEN_ADDON_PDF', 'chaine', 'standard', 'Layout of the dunning letter', 0, 'current', 0),
+            36 => array('MAHNWESEN_COLLECTIVE_LETTERS', 'chaine', '0', 'One letter per customer for several due notices', 0, 'current', 0),
         );
 
         // What dunning needs today, on Dolibarr's home page (#41).

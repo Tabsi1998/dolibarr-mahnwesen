@@ -40,6 +40,10 @@ The four stages of each dunning profile: days after the due date, fee, payment p
 
 An open fee or interest claim can go on its own Dolibarr invoice. The claim then points at that invoice (`fk_claim_invoice`, status `invoiced`) and counts as paid once the invoice is paid; the daily job checks that (#34).
 
+### Collective letters
+
+With `MAHNWESEN_COLLECTIVE_LETTERS` on, the daily run and the selection first decide every invoice, then `deliverDecisions()` groups the send decisions by customer and recipient. A group of one goes through `sendNotice()` as before. A larger group goes through `sendCollectiveNotice()`: every invoice is reserved alone, under its own lock and checks, the recipient included; one letter lists the reserved invoices; each attempt keeps its own copy of it as evidence; one email goes out, and all attempts are finalised with its outcome. The track id is the customer's (`thi<id>`) (#38).
+
 ### Layouts of the dunning letter
 
 `core/modules/mahnwesen/doc/pdf_mahnwesen_<name>.modules.php` holds one layout each, derived from `ModelePDFMahnwesen`. The frame of the letter - letterhead, addresses, the text of the template, payment terms and Dolibarr's footer - is drawn by the notice service and is the same for every layout; a layout decides how the amounts are shown. The setup lists every file it finds and stores the choice in `MAHNWESEN_ADDON_PDF`. A new layout is a new file (#76).

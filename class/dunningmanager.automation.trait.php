@@ -183,6 +183,7 @@ trait DunningManagerAutomation
         $maxSend = $budget['max'];
         $maxRetry = $budget['retry_max'];
         $maxPerCustomer = $budget['max_per_customer'];
+        $decisions = array();
         foreach ($rows as $row) {
             $decision = $this->decideAutomaticSend($row, $service, $budget);
             if ($decision['detail'] === 'run_limit_reached') {
@@ -197,26 +198,17 @@ trait DunningManagerAutomation
                 $this->errors[] = 'Auto-send '.$row['invoice_ref'].': '.$decision['message'];
                 continue;
             }
-            if ($decision['decision'] !== 'send') {
-                continue;
+            if ($decision['decision'] === 'send') {
+                $decisions[] = $decision;
             }
-            $invoice = $decision['invoice'];
-            $case = $decision['case'];
-            $level = (int) $decision['level'];
-            $template = $decision['template'];
-            $customerLang = $decision['lang'];
-            $subject = $service->renderTemplate($template['subject'], $invoice, $case, $level, $customerLang);
-            $body = $service->renderTemplate($template['body'], $invoice, $case, $level, $customerLang);
-            // Only native templates exist; their "join files" flag decides.
-            $attachInvoice = ((string) ($template['joinfiles'] ?? '') === '1');
-            $attempted++;
-            $result = $service->sendNotice($invoice, $case, $level, $decision['recipient'], $subject, $body, $attachInvoice, $actor, 'automatic', isset($template['email_from']) ? $template['email_from'] : '', isset($template['lang']) ? $template['lang'] : $customerLang, '', '', !empty($template['source_id']) ? (int) $template['source_id'] : 0);
-            if ($result === false) {
-                $failed++;
-                $this->errors[] = 'Auto-send '.$invoice->ref.': '.$service->error;
-            } else {
-                $sent++;
-            }
+        }
+        // Decided first and sent afterwards, so the notices of one customer can share a letter (#38).
+        $attempted = count($decisions);
+        $delivery = $this->deliverDecisions($decisions, $service, $actor, 'automatic');
+        $sent = $delivery['sent'];
+        foreach ($delivery['failed'] as $ref => $message) {
+            $failed++;
+            $this->errors[] = 'Auto-send '.$ref.': '.$message;
         }
 
         $counters['attempted'] = $attempted;
@@ -273,9 +265,11 @@ trait DunningManagerAutomation
      * @param DunningNoticeService $service Notice service
      * @param array $budget From newAutomaticBudget(), updated
      * @param bool $simulate Dry run
+     * @param bool $manual A person sends the selected cases: the switches of
+     *                     the automatic run and its limits do not apply (#38)
      * @return array decision, detail, message, level, invoice, case, recipient, template, lang
      */
-    public function decideAutomaticSend($row, $service, &$budget, $simulate = false)
+    public function decideAutomaticSend($row, $service, &$budget, $simulate = false, $manual = false)
     {
         global $langs;
         $result = array('decision' => 'wait', 'detail' => 'not_due', 'message' => '', 'level' => 0, 'invoice' => null,
@@ -308,11 +302,11 @@ trait DunningManagerAutomation
         }
         // The profile allows automatic sending, then the stage (#32).
         $profileId = (int) $workflow['profile_id'];
-        if (empty($workflow['profile']['profile']['auto_allowed'])) {
+        if (!$manual && empty($workflow['profile']['profile']['auto_allowed'])) {
             return array_merge($result, array('decision' => 'off', 'detail' => 'profile_auto_disabled'));
         }
         $rule = $this->getRuleByLevel($level, $profileId);
-        if (empty($rule['send_email'])) {
+        if (!$manual && empty($rule['send_email'])) {
             return array_merge($result, array('decision' => 'off', 'detail' => 'stage_auto_disabled'));
         }
         $caseId = (int) $case['id'];
@@ -322,7 +316,7 @@ trait DunningManagerAutomation
         if ($caseId > 0 && $this->hasPendingNoticeAtLevel($caseId, $level)) {
             return array_merge($result, array('decision' => 'skip', 'detail' => 'attempt_pending'));
         }
-        if ($caseId > 0 && $this->getAutomaticFailureCount($caseId, $level) >= $budget['retry_max']) {
+        if (!$manual && $caseId > 0 && $this->getAutomaticFailureCount($caseId, $level) >= $budget['retry_max']) {
             return array_merge($result, array('decision' => 'skip', 'detail' => 'retry_limit_reached'));
         }
         $invoice = new Facture($this->db);
@@ -332,7 +326,9 @@ trait DunningManagerAutomation
         $invoice->fetch_thirdparty();
         $result['invoice'] = $invoice;
         $customerId = (int) $invoice->socid;
-        if ($customerId > 0 && !empty($budget['per_customer'][$customerId]) && $budget['per_customer'][$customerId] >= $budget['max_per_customer']) {
+        // A collective letter sends all notices of a customer as one (#38).
+        $perCustomerLimit = !$manual && !getDolGlobalInt('MAHNWESEN_COLLECTIVE_LETTERS');
+        if ($perCustomerLimit && $customerId > 0 && !empty($budget['per_customer'][$customerId]) && $budget['per_customer'][$customerId] >= $budget['max_per_customer']) {
             return array_merge($result, array('decision' => 'skip', 'detail' => 'customer_limit_reached'));
         }
         $recipient = $service->getAutomaticRecipientOption($invoice, $budget['policy']);
