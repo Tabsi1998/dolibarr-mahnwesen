@@ -571,3 +571,13 @@ MahnwesenLayoutLetter=Plain letter
 MahnwesenLayoutLetterHelp=Amounts as lines of text, without a table and without a QR code, for a club for example.
 MahnwesenLetterTotal=Total to pay:
 MahnwesenLetterDeadline=Please pay by %s.
+
+# Collective dunning letter per customer (#38)
+MahnwesenCollectiveLetters=Collective letter per customer
+MahnwesenCollectiveLettersHelp=When several invoices of one customer are due for a reminder at the same time, one email goes out with one letter listing all of them. Each invoice keeps its own stage, fee and history. Applies to automatic sending and to "Dun the selected".
+MahnwesenCollectiveTitle=Collective reminder - %s
+MahnwesenCollectiveCount=%s open invoices
+MahnwesenCollectiveText=We have not yet received payment for the invoices listed above. Please pay the total amount due. If you have already paid, please disregard this letter.
+MahnwesenCollectiveMailIntro=Hello, we have not yet received payment for the following invoices:
+MahnwesenCollectiveMailOutro=The statement with all amounts is in the attached letter. If you have already paid, please disregard this message.
+MahnwesenCollectiveFile=Collective_reminder

@@ -268,6 +268,15 @@ class Mailpit:
                 hashes[part["FileName"]] = hashlib.sha256(response.read()).hexdigest()
         return hashes
 
+    def attachments(self, message_id: str) -> dict:
+        """File name to bytes of every attachment, as Mailpit received them."""
+        files = {}
+        for part in self.message(message_id).get("Attachments") or []:
+            url = f"{self.base}/api/v1/message/{message_id}/part/{part['PartID']}"
+            with urllib.request.urlopen(url, timeout=self.timeout) as response:
+                files[part["FileName"]] = response.read()
+        return files
+
     def clear(self) -> None:
         request = urllib.request.Request(f"{self.base}/api/v1/messages", method="DELETE")
         with urllib.request.urlopen(request, timeout=self.timeout) as response:

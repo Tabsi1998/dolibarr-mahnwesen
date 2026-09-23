@@ -13,6 +13,11 @@ Dunning where you already work.
 
 ### Added
 
+- A collective letter per customer, switched on in the general setup: when
+  several invoices of one customer are due at the same time, one email goes
+  out with one letter listing every invoice with its stage, open amount, fee
+  and interest. Each invoice keeps its own attempt, stage, fee and history.
+  The daily run and *Ausgewählte mahnen* use the same way out (#38).
 - A choice of layout for the dunning letter in the general setup: *Standard*
   with the amount table, total, payment deadline and QR code, or *Plain
   letter* with the amounts as lines of text. Each layout is a document model
@@ -44,6 +49,12 @@ Dunning where you already work.
 - A box on Dolibarr's home page with the dunning steps due today, the
   unresolved delivery attempts and the open claims, counted exactly as the
   dashboard counts them and limited to the user's own customers (#41).
+
+### Fixed
+
+- *Ausgewählte mahnen* no longer applies the switches and limits of the
+  automatic run: a stage or profile without automatic sending can be dunned by
+  hand from the list, as from the invoice (#38).
 
 ## [1.4.3] - 2026-09-23
 

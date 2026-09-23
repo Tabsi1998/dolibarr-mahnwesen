@@ -19,36 +19,62 @@ trait DunningManagerBulk
         global $langs;
         $result = array('sent' => 0, 'skipped' => array());
         $budget = $this->newAutomaticBudget();
-        // A person is acting, so the run limits of the cron do not apply.
+        // A person is acting, so the run limit of the cron does not apply.
         $budget['max'] = count($invoiceIds) + 1;
-        $budget['max_per_customer'] = count($invoiceIds) + 1;
+        $decisions = array();
         foreach ($this->rowsForInvoices($invoiceIds) as $row) {
             $ref = (string) $row['invoice_ref'];
             if (!$this->canSeeCustomer($user, (int) $row['socid'])) {
                 $result['skipped'][$ref] = $langs->trans('MahnwesenBulkSkippedScope');
                 continue;
             }
-            $decision = $this->decideAutomaticSend($row, $service, $budget, false);
+            // The switches of the automatic run do not bind a person (#38).
+            $decision = $this->decideAutomaticSend($row, $service, $budget, false, true);
             if ($decision['decision'] !== 'send') {
                 $result['skipped'][$ref] = $langs->trans('MahnwesenDryRunDetail_'.$decision['detail']);
                 continue;
             }
-            $invoice = $decision['invoice'];
-            $case = $decision['case'];
-            $level = (int) $decision['level'];
-            $template = $decision['template'];
-            $lang = (string) $decision['lang'];
-            $subject = $service->renderTemplate($template['subject'], $invoice, $case, $level, $lang);
-            $body = $service->renderTemplate($template['body'], $invoice, $case, $level, $lang);
-            $attachInvoice = ((string) ($template['joinfiles'] ?? '') === '1');
-            $sent = $service->sendNotice($invoice, $case, $level, $decision['recipient'], $subject, $body, $attachInvoice, $user, 'manual',
-                isset($template['email_from']) ? $template['email_from'] : '', isset($template['lang']) ? $template['lang'] : $lang, '', '',
-                !empty($template['source_id']) ? (int) $template['source_id'] : 0);
-            if ($sent === false) {
-                $result['skipped'][$ref] = $service->error;
-                continue;
+            $decisions[] = $decision;
+        }
+        $delivery = $this->deliverDecisions($decisions, $service, $user, 'manual');
+        $result['sent'] = $delivery['sent'];
+        $result['skipped'] += $delivery['failed'];
+        return $result;
+    }
+
+    /**
+     * Send the notices decided for a run or a selection (#38).
+     *
+     * With collective letters switched on, the notices of one customer to the
+     * same address go out as one email with one letter; otherwise, and for a
+     * customer with a single due notice, each goes out alone.
+     *
+     * @param array $decisions Send decisions of decideAutomaticSend()
+     * @param DunningNoticeService $service Notice service
+     * @param User $user Acting user
+     * @param string $mode manual or automatic
+     * @return array sent (count), failed (invoice ref => message)
+     */
+    public function deliverDecisions($decisions, $service, $user, $mode)
+    {
+        $collective = getDolGlobalInt('MAHNWESEN_COLLECTIVE_LETTERS') > 0;
+        $groups = array();
+        foreach ($decisions as $decision) {
+            $key = $collective ? ((int) $decision['invoice']->socid).'|'.strtolower((string) $decision['recipient']) : 'invoice'.((int) $decision['invoice']->id);
+            $groups[$key][] = $decision;
+        }
+        $result = array('sent' => 0, 'failed' => array());
+        foreach ($groups as $group) {
+            if (count($group) > 1) {
+                $outcome = $service->sendCollectiveNotice($group, $user, $mode);
+                $result['sent'] += count($outcome['sent']);
+                $result['failed'] += $outcome['failed'];
+                $this->errors = array_merge($this->errors, $service->errors);
+            } elseif ($service->sendDecision($group[0], $user, $mode) === false) {
+                $result['failed'][(string) $group[0]['invoice']->ref] = $service->error;
+            } else {
+                $result['sent']++;
             }
-            $result['sent']++;
         }
         return $result;
     }

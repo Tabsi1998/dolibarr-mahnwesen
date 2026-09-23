@@ -82,6 +82,10 @@ Beim Update auf 1.3.1 werden die bisherigen Spesen für Unternehmen und Privatpe
 
 Der Kunde bekommt einen Reiter *Mahnwesen* mit allen seinen Mahnfällen, dem offenen Betrag und den offenen Spesen und Zinsen. Auf Dolibarrs Startseite zeigt eine Box, was heute ansteht: fällige Mahnschritte, ungeklärte Versandversuche und offene Spesen. Beide zeigen nur Kunden, die der Benutzer sehen darf, und zählen dasselbe wie die Übersicht.
 
+## Sammelmahnung je Kunde
+
+In der allgemeinen Einrichtung lässt sich die *Sammelmahnung je Kunde* einschalten. Sind für einen Kunden mehrere Rechnungen gleichzeitig zu mahnen, bekommt er dann eine E-Mail mit einem Schreiben, das alle Rechnungen mit Stufe, offenem Betrag, Spesen und Zinsen auflistet. Für jede Rechnung wird trotzdem einzeln festgehalten, dass sie gemahnt wurde, mit ihrer eigenen Stufe und ihren Spesen. Das gilt für den täglichen Lauf und für *Ausgewählte mahnen*.
+
 ## Layout des Mahnschreibens
 
 In der allgemeinen Einrichtung lässt sich das Layout wählen: *Standard* zeigt die Beträge als Tabelle wie auf der Rechnung, mit Summe, Zahlungsfrist und QR-Code; *Schlichter Brief* nennt sie als Textzeilen ohne Tabelle und ohne QR-Code. Briefpapier, Anschrift, Text und Fußzeile sind bei beiden gleich. Weitere Layouts sind eigene Vorlagen-Dateien.

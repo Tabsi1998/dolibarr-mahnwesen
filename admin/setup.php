@@ -130,6 +130,7 @@ if ($action === 'save_general') {
     $maxScan = GETPOSTINT('max_scan');
     $includeDeposits = GETPOSTINT('include_deposits') > 0 ? 1 : 0;
     $letterQr = GETPOSTINT('letter_qr') > 0 ? 1 : 0;
+    $collectiveLetters = GETPOSTINT('collective_letters') > 0 ? 1 : 0;
     $retentionDays = GETPOSTINT('retention_days');
     $layoutName = GETPOST('letter_layout', 'aZ09');
     if (ModelePDFMahnwesen::load($layoutName) === null) { $errors[] = $langs->trans('MahnwesenLayoutInvalid'); }
@@ -143,6 +144,7 @@ if ($action === 'save_general') {
             && mw4_set_const($db, 'MAHNWESEN_MAX_SCAN', $maxScan, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_INCLUDE_DEPOSITS', $includeDeposits, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_LETTER_QR', $letterQr, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_COLLECTIVE_LETTERS', $collectiveLetters, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_RETENTION_DAYS', $retentionDays, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_ADDON_PDF', $layoutName, $conf->entity);
         if ($ok) { $db->commit(); setEventMessages($langs->trans('SetupSaved'), null, 'mesgs'); }
@@ -326,6 +328,7 @@ if ($tab === 'general') {
     print '<tr><td>'.$langs->trans('MaximumScan').'</td><td><input type="number" min="1" max="5000" class="width100" name="max_scan" value="'.((int) $maxScan).'"></td><td>'.$langs->trans('MaximumScanHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('IncludeDepositInvoices').'</td><td><input type="checkbox" name="include_deposits" value="1"'.($includeDeposits ? ' checked' : '').'></td><td>'.$langs->trans('IncludeDepositInvoicesHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('MahnwesenLetterQr').'</td><td><input type="checkbox" name="letter_qr" value="1"'.($letterQr ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenLetterQrHelp').'</td></tr>';
+    print '<tr><td><label for="collective_letters">'.$langs->trans('MahnwesenCollectiveLetters').'</label></td><td><input type="checkbox" name="collective_letters" id="collective_letters" value="1"'.(getDolGlobalInt('MAHNWESEN_COLLECTIVE_LETTERS') ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenCollectiveLettersHelp').'</td></tr>';
     print '<tr><td><label for="letter_layout">'.$langs->trans('MahnwesenLayout').'</label></td><td><select name="letter_layout" id="letter_layout">';
     $currentLayout = ModelePDFMahnwesen::selected();
     foreach (ModelePDFMahnwesen::getModels() as $layoutKey => $layout) {

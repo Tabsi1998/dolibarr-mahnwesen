@@ -1973,6 +1973,39 @@ def layouts(stack: Stack) -> str:
     return "setup offers both layouts; each shows invoice, amount and address, and they differ"
 
 
+def collective(stack: Stack) -> str:
+    """One customer with several due invoices gets one email with one letter listing them (#38)."""
+    browser = stack.browser()
+    made = stack.php_fixture("collective")
+    invoices = made["invoices"]
+    dashboard = page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard")
+    page_ok(browser.submit(form_with_action(dashboard, "sync_cases", "dashboard")), "synchronise")
+    form = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=general"), "general setup")
+    page_ok(browser.submit(form_with_action(form, "save_general", "general setup"), {"collective_letters": "1"}), "switch on collective letters")
+    expect(stack.const("MAHNWESEN_COLLECTIVE_LETTERS") == "1", "the setup did not store the collective letter switch (#38)")
+    mailpit = stack.mailpit()
+    mailpit.clear()
+    try:
+        token = token_of(page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard"))
+        page_ok(browser.post("/custom/mahnwesen/index.php", [("token", token), ("action", "bulk_send")]
+                             + [("case_invoice[]", str(invoice["id"])) for invoice in invoices]), "bulk send")
+    finally:
+        set_const(stack, "MAHNWESEN_COLLECTIVE_LETTERS", "0")
+    mails = [m for m in mailpit.messages() if any(to["Address"] == made["email"] for to in m["To"])]
+    expect(len(mails) == 1, f"the customer got {len(mails)} mails instead of one collective letter (#38)")
+    files = mailpit.attachments(mails[0]["ID"])
+    expect(len(files) == 1, f"the collective mail carries {sorted(files)} instead of one letter (#38)")
+    letter = pdf_text(next(iter(files.values())))
+    missing = [invoice["ref"] for invoice in invoices if invoice["ref"] not in letter]
+    expect(not missing, f"the collective letter does not list {missing} (#38)")
+    for invoice in invoices:
+        attempt = stack.sql(f"SELECT mode, status FROM llx_mahnwesen_attempt WHERE fk_facture = {invoice['id']} ORDER BY rowid DESC LIMIT 1")
+        expect(attempt and attempt[0] == ["manual", "sent"], f"the attempt of {invoice['ref']} is {attempt} (#38)")
+        sent = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE fk_facture = {invoice['id']} AND action = 'notice_sent' AND result = 'success'")
+        expect(int(sent) == 1, f"{invoice['ref']} is {sent} times sent in its history (#38)")
+    return "three due invoices of one customer: one mail, one letter listing all, each recorded as sent"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -2015,6 +2048,7 @@ SCENARIOS = (
     ("handover", "A handed over case ends the automation", handover, ("retention",)),
     ("bulk", "Several cases at once, by email and on paper", bulk, ("handover",)),
     ("layouts", "The chosen layout builds the letter", layouts, ("bulk",)),
+    ("collective", "One letter per customer for several due invoices", collective, ("layouts",)),
 )
 
 
