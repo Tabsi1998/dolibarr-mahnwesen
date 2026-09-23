@@ -1,5 +1,7 @@
 <?php
-/* Drawing the dunning PDF. */
+/* Drawing the dunning PDF: the frame here, the amounts in the layout chosen in the setup (#76). */
+require_once dirname(__DIR__).'/core/modules/mahnwesen/modules_mahnwesen.php';
+
 trait DunningNoticeServicePdf
 {
     /**
@@ -85,93 +87,16 @@ trait DunningNoticeServicePdf
             $defaultFontSize = pdf_getPDFFontSize($outputlangs);
             $contentWidth = $pageWidth - $marginLeft - $marginRight;
 
-            // Sponge-like amount block. Instead of copying an invoice product
-            // grid, the reminder uses the same sober black lines and typography
-            // for a compact description/amount table.
-            $tableY = $bodyStartY;
-            $descW = $contentWidth - 42;
-            $amountW = 42;
-            $rowH = 7;
-            $pdf->SetDrawColor(128, 128, 128);
-            $pdf->SetTextColor(0, 0, 0);
-            $pdf->SetFont('', '', max(6, $defaultFontSize - 1));
-            // Header
-            $pdf->Rect($marginLeft, $tableY, $descW, $rowH);
-            $pdf->Rect($marginLeft + $descW, $tableY, $amountW, $rowH);
-            $pdf->SetXY($marginLeft + 1.5, $tableY + 1.4);
-            $pdf->Cell($descW - 3, 4, $outputlangs->transnoentities('Description'), 0, 0, 'L');
-            $pdf->SetXY($marginLeft + $descW + 1.5, $tableY + 1.4);
-            $pdf->Cell($amountW - 3, 4, $outputlangs->transnoentities('Amount'), 0, 0, 'R');
-            // Open invoice amount
-            $y = $tableY + $rowH;
-            $pdf->Rect($marginLeft, $y, $descW, $rowH);
-            $pdf->Rect($marginLeft + $descW, $y, $amountW, $rowH);
-            $pdf->SetXY($marginLeft + 1.5, $y + 1.4);
-            $pdf->Cell($descW - 3, 4, $outputlangs->transnoentities('MahnwesenOpenInvoiceAmount').' - '.$invoice->ref, 0, 0, 'L');
-            $pdf->SetXY($marginLeft + $descW + 1.5, $y + 1.4);
-            $pdf->Cell($amountW - 3, 4, $this->formatMoney($breakdown['invoice'], $outputlangs), 0, 0, 'R');
-            // Dunning fee only occupies a row when it is non-zero.
-            if ($breakdown['fee'] > 0.000001) {
-                $y += $rowH;
-                $pdf->Rect($marginLeft, $y, $descW, $rowH);
-                $pdf->Rect($marginLeft + $descW, $y, $amountW, $rowH);
-                $pdf->SetXY($marginLeft + 1.5, $y + 1.4);
-                $pdf->Cell($descW - 3, 4, $outputlangs->transnoentities('MahnwesenDunningFee').' - '.$outputlangs->transnoentities($this->manager->getStageLabelKey((int) $level)), 0, 0, 'L');
-                $pdf->SetXY($marginLeft + $descW + 1.5, $y + 1.4);
-                $pdf->Cell($amountW - 3, 4, $this->formatMoney($breakdown['fee'], $outputlangs), 0, 0, 'R');
-            }
-            // Late-payment interest of the profile, when there is any (#33).
-            if ($breakdown['interest'] > 0.000001) {
-                $y += $rowH;
-                $pdf->Rect($marginLeft, $y, $descW, $rowH);
-                $pdf->Rect($marginLeft + $descW, $y, $amountW, $rowH);
-                $pdf->SetXY($marginLeft + 1.5, $y + 1.4);
-                $pdf->Cell($descW - 3, 4, $this->manager->describeInterest($breakdown['interest_details'], $outputlangs), 0, 0, 'L');
-                $pdf->SetXY($marginLeft + $descW + 1.5, $y + 1.4);
-                $pdf->Cell($amountW - 3, 4, $this->formatMoney($breakdown['interest'], $outputlangs), 0, 0, 'R');
-            }
-            // Total area: keep it visually attached to the amount table, but
-            // avoid the previous half-open box where only the right-hand amount
-            // cell had borders. Sponge uses a clean subtotal/total treatment, so
-            // draw one full-width top rule and keep label + amount borderless.
-            $y += $rowH;
-            $pdf->SetFont('', 'B', $defaultFontSize);
-            $pdf->Line($marginLeft, $y, $pageWidth - $marginRight, $y);
-            $pdf->SetXY($marginLeft + $descW - 45, $y + 1.4);
-            $pdf->Cell(43, 4, $outputlangs->transnoentities('Total'), 0, 0, 'R');
-            $pdf->SetXY($marginLeft + $descW + 1.5, $y + 1.4);
-            $pdf->Cell($amountW - 3, 4, $this->formatMoney($breakdown['total'], $outputlangs), 0, 0, 'R');
-            // The same deadline as __MAHNWESEN_PAYMENT_DEADLINE__ in the email (#64).
-            $deadline = $this->manager->getPaymentDeadline((int) $level, null, (int) $breakdown['profile_id']);
-            if ($deadline) {
-                $y += $rowH;
-                $pdf->SetFont('', '', $defaultFontSize);
-                $pdf->SetXY($marginLeft + $descW - 45, $y + 1.4);
-                $pdf->Cell(43, 4, $outputlangs->transnoentities('MahnwesenPaymentDeadline'), 0, 0, 'R');
-                $pdf->SetXY($marginLeft + $descW + 1.5, $y + 1.4);
-                $pdf->Cell($amountW - 3, 4, dol_print_date($deadline, 'day', 'tzserver', $outputlangs), 0, 0, 'R');
-            }
-
-            // A way to pay: Dolibarr's own EPC QR code for the invoice amount,
-            // with a line that says what it covers (#35).
-            $qrPayload = $this->manager->getInvoiceQrPayload($invoice);
-            // Only a code that asks for exactly the amount the letter names.
-            if ($qrPayload !== '' && abs($this->manager->getQrAmount($qrPayload) - (float) $breakdown['invoice']) > 0.005) {
-                $qrPayload = '';
-            }
-            if ($qrPayload !== '') {
-                $y += $rowH;
-                $pdf->SetFont('', '', $defaultFontSize - 1);
-                $pdf->write2DBarcode($qrPayload, 'QRCODE,M', $marginLeft, $y + 2, 22, 22, array(), 'N');
-                $pdf->SetXY($marginLeft + 25, $y + 4);
-                $pdf->MultiCell($pageWidth - $marginRight - $marginLeft - 27, 4,
-                    $outputlangs->transnoentities('MahnwesenPaymentQrTitle')."\n".$this->manager->describeInvoicePaymentScope($breakdown, $outputlangs), 0, 'L');
-                $y += 24;
-                $pdf->SetFont('', '', $defaultFontSize);
-            }
+            // The layout chosen in the setup draws the amounts; the frame is the
+            // same for every layout (#76).
+            $layout = ModelePDFMahnwesen::selected();
+            $bodyY = $layout->drawAmounts($pdf, $this, $invoice, (int) $level, $breakdown, $outputlangs, array(
+                'left' => $marginLeft, 'right' => $marginRight, 'width' => $pageWidth,
+                'content' => $contentWidth, 'font' => $defaultFontSize, 'top' => $bodyStartY,
+            ));
             // Printed letter body. The dedicated PDF cleanup removes email-only
             // signature graphics and supports an explicit PDF end marker.
-            $pdf->SetY($y + $rowH + 8);
+            $pdf->SetY($bodyY);
             $pdf->SetTextColor(0, 0, 0);
             $pdf->SetFont('', '', max(7, $defaultFontSize - 1));
             $pdfBody = $this->prepareBodyForPdf($body);
@@ -434,7 +359,7 @@ trait DunningNoticeServicePdf
     }
 
     /** @return string */
-    protected function formatMoney($amount, $outputlangs)
+    public function formatMoney($amount, $outputlangs)
     {
         global $conf;
         $value = price((float) $amount, 0, $outputlangs, 1, -1, -1, $conf->currency);

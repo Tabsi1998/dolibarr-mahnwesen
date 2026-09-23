@@ -13,6 +13,11 @@ Dunning where you already work.
 
 ### Added
 
+- A choice of layout for the dunning letter in the general setup: *Standard*
+  with the amount table, total, payment deadline and QR code, or *Plain
+  letter* with the amounts as lines of text. Each layout is a document model
+  file under `core/modules/mahnwesen/doc/`; letterhead, addresses, text and
+  footer are the same for both (#76).
 - Several cases at once from the dashboard list: *Ausgewählte mahnen* sends to
   the customers with an email address, with the same checks as a single
   notice and a line for every case it skips. *Briefe der Ausgewählten drucken*

@@ -40,6 +40,10 @@ The four stages of each dunning profile: days after the due date, fee, payment p
 
 An open fee or interest claim can go on its own Dolibarr invoice. The claim then points at that invoice (`fk_claim_invoice`, status `invoiced`) and counts as paid once the invoice is paid; the daily job checks that (#34).
 
+### Layouts of the dunning letter
+
+`core/modules/mahnwesen/doc/pdf_mahnwesen_<name>.modules.php` holds one layout each, derived from `ModelePDFMahnwesen`. The frame of the letter - letterhead, addresses, the text of the template, payment terms and Dolibarr's footer - is drawn by the notice service and is the same for every layout; a layout decides how the amounts are shown. The setup lists every file it finds and stores the choice in `MAHNWESEN_ADDON_PDF`. A new layout is a new file (#76).
+
 ### `llx_mahnwesen_event`
 
 The lasting note of every change of a case, written in the same transaction as the change: event id, type, entity, case and invoice, stage, profile code, case revision, contract version, and its delivery state. Delivery happens after the commit through Dolibarr's own trigger mechanism, so a receiver's failure can never roll back a change (#59).
