@@ -30,14 +30,18 @@ class box_mahnwesen extends ModeleBoxes
 
     public $enabled = 1;
 
+    /** @var string Box parameters of Dolibarr */
+    public $param = '';
+
     /**
      * @param DoliDB $db Database handler
-     * @param string $param More parameters
+     * @param string $param Box parameters of Dolibarr; this box needs none
      */
     public function __construct($db, $param = '')
     {
         global $user;
         $this->db = $db;
+        $this->param = $param;
         $this->hidden = !$user->hasRight('mahnwesen', 'dashboard', 'read');
     }
 
