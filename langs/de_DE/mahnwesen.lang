@@ -506,3 +506,11 @@ MahnwesenPaymentCoversInvoiceOnly=Der Code deckt nur den Rechnungsbetrag von %s.
 MahnwesenPaymentLinkParagraph=Sie können auch online bezahlen: %s
 MahnwesenTokenPaymentUrlDesc=Link zur Onlinezahlung, leer wenn Dolibarr keine anbietet
 MahnwesenTokenPaymentParagraphDesc=Ganzer Satz zur Onlinezahlung samt Hinweis, welchen Betrag sie abdeckt
+
+# Integrationsereignisse (#59)
+MahnwesenEvents=Ereignisse für andere Module
+MahnwesenEventsHelp=Jede Änderung an einem Mahnfall wird zusammen mit der Änderung selbst vermerkt und danach an andere Module gemeldet: gesendete Mahnung, letzte Stufe, Pause, Fortsetzung, Wiederöffnung, Abschluss. Gemeldet werden nur Verweise und Zustände, keine E-Mail-Texte, Empfänger, Bankdaten oder Begründungen. Offen: %s
+MahnwesenEventId=Ereignis
+MahnwesenEventRevision=Fallstand
+MahnwesenEventDelivered=gemeldet
+MahnwesenEventPending=offen, Versuche

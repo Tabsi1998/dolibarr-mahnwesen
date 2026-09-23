@@ -10,6 +10,7 @@ CREATE TABLE llx_mahnwesen_case (
     next_action_at DATETIME,
     note_private TEXT,
     recheck INTEGER DEFAULT 0 NOT NULL,
+    revision INTEGER DEFAULT 0 NOT NULL,
     date_creation DATETIME,
     tms TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     fk_user_create INTEGER,

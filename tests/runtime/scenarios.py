@@ -30,7 +30,7 @@ MODULE_DIR = "/var/www/html/custom/mahnwesen"
 TESTS_DIR = "/opt/mahnwesen-tests"
 MODULE_TABLES = ("mahnwesen_case", "mahnwesen_history", "mahnwesen_rule", "mahnwesen_attempt",
                  "mahnwesen_attempt_file", "mahnwesen_fee", "mahnwesen_pause", "mahnwesen_run",
-                 "mahnwesen_profile", "mahnwesen_profile_match")
+                 "mahnwesen_profile", "mahnwesen_profile_match", "mahnwesen_event")
 LANGS = Path(__file__).resolve().parents[2] / "langs"
 PHP_PROBLEM = re.compile(r"PHP (Fatal error|Parse error|Warning|Notice|Deprecated|Recoverable fatal error):"
                          r"\s*(.+?) in (/var/www/html/custom/mahnwesen/\S+) on line \d+")
@@ -1649,6 +1649,43 @@ def payment_ways(stack: Stack) -> str:
     return "QR code for the invoice amount with its scope named, switchable, and no invented online payment"
 
 
+def events(stack: Stack) -> str:
+    """Every change of a case is noted with the change and reported afterwards (#59)."""
+    browser = stack.browser()
+    company = invoice(stack, "company_overdue")
+    case = stack.value(f"SELECT rowid FROM llx_mahnwesen_case WHERE fk_facture = {company['id']}")
+    sent = stack.sql(f"SELECT event_type, status, case_revision FROM llx_mahnwesen_event WHERE fk_case = {case} "
+                     "AND event_type = 'MAHNWESEN_NOTICE_SENT' ORDER BY rowid")
+    expect(sent and all(row[1] == "delivered" for row in sent) and all(int(row[2]) > 0 for row in sent),
+           f"the sent notices of the case have no delivered events: {sent} (#59)")
+    forbidden = stack.sql("SELECT event_id FROM llx_mahnwesen_event WHERE last_error LIKE '%@%' OR profile_code LIKE '%@%'")
+    expect(not forbidden, f"an event carries an email address: {forbidden} (#59)")
+
+    # Pause, resume and close each report once, and repeat nothing.
+    def types() -> list:
+        return [row[0] for row in stack.sql(f"SELECT event_type FROM llx_mahnwesen_event WHERE fk_case = {case} ORDER BY rowid")]
+
+    before = types()
+    tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={company['id']}"), "dunning tab")
+    page_ok(browser.submit(form_with_action(tab, "pause_case", "dunning tab"), {"pause_reason": "Runtime events"}), "pause the case")
+    tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={company['id']}"), "dunning tab")
+    page_ok(browser.submit(form_with_action(tab, "resume_case", "dunning tab")), "resume the case")
+    after = types()
+    expect(after[len(before):] == ["MAHNWESEN_CASE_PAUSED", "MAHNWESEN_CASE_RESUMED"],
+           f"pause and resume reported {after[len(before):]} (#59)")
+    ids = stack.sql(f"SELECT event_id FROM llx_mahnwesen_event WHERE fk_case = {case}")
+    expect(len({row[0] for row in ids}) == len(ids), f"the same transition was noted twice: {ids} (#59)")
+
+    # The backlog is visible, and a second run repeats nothing.
+    page = page_ok(browser.get("/custom/mahnwesen/attempts.php"), "delivery attempts")
+    expect('data-event="MAHNWESEN_CASE_PAUSED"' in page.text, "the page does not show the events (#59)")
+    stack.cron(expect_ok=False)
+    expect(types() == after, "a run created events again (#59)")
+    waiting = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_event WHERE fk_case = {case} AND status = 'pending'")
+    expect(waiting == "0", f"{waiting} events of the case are still waiting (#59)")
+    return f"{len(after)} events of one case, each once, all delivered and visible"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1683,6 +1720,7 @@ SCENARIOS = (
     ("membership", "A dues invoice is known by its subscription", membership, ("claim-invoice",)),
     ("payment-trigger", "A payment reaches the case at once", payment_trigger, ("synchronise",)),
     ("payment-ways", "The letter offers a way to pay", payment_ways, ("interest",)),
+    ("events", "Dunning changes are reported to other modules", events, ("dry-run",)),
 )
 
 

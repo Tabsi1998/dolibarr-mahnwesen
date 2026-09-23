@@ -1,0 +1,20 @@
+CREATE TABLE llx_mahnwesen_event (
+    rowid INTEGER AUTO_INCREMENT PRIMARY KEY,
+    entity INTEGER DEFAULT 1 NOT NULL,
+    event_id VARCHAR(128) NOT NULL,
+    event_type VARCHAR(64) NOT NULL,
+    fk_case INTEGER NOT NULL,
+    fk_facture INTEGER NOT NULL,
+    level INTEGER DEFAULT 0 NOT NULL,
+    profile_code VARCHAR(32),
+    case_revision INTEGER DEFAULT 0 NOT NULL,
+    contract_version VARCHAR(8) NOT NULL,
+    status VARCHAR(16) DEFAULT 'pending' NOT NULL,
+    attempts INTEGER DEFAULT 0 NOT NULL,
+    last_error VARCHAR(255),
+    occurred_at DATETIME NOT NULL,
+    delivered_at DATETIME,
+    date_creation DATETIME,
+    tms TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    fk_user_create INTEGER
+) ENGINE=innodb;

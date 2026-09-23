@@ -78,6 +78,10 @@ Mahnspesen stehen in **Mahnprofilen**: Ein Profil legt je Stufe Tage, Spesen und
 
 Beim Update auf 1.3.1 werden die bisherigen Spesen für Unternehmen und Privatpersonen zu Profilen, sodass jeder Kunde dieselben Spesen zahlt wie vorher.
 
+## Ereignisse für andere Module
+
+Jede Änderung an einem Mahnfall wird als Ereignis vermerkt und danach über Dolibarrs eigene Auslöser gemeldet: gesendete Mahnung, letzte Stufe, Pause, Fortsetzung, Wiederöffnung, Abschluss. Der Vermerk entsteht in derselben Transaktion wie die Änderung, die Meldung erst danach. Scheitert ein Empfänger, bleibt das Ereignis mit gezähltem Versuch offen; es wird nie eine Mahnung doppelt versendet und keine Änderung zurückgerollt. Gemeldet werden nur Verweise und Zustände - keine E-Mail-Texte, Empfänger, Bankdaten oder Begründungen. Die Seite *Versandversuche* zeigt die Ereignisse und was noch offen ist.
+
 ## Zahlungen
 
 Eine Zahlung, ein Zahlungsstorno oder eine Korrektur an der Rechnung wirkt sofort auf den Mahnfall, über Dolibarrs eigene Auslöser. Eine Teilzahlung senkt den offenen Betrag, die vollständige Zahlung beendet den Fall, ein Storno öffnet ihn wieder, ohne bereits versandte Mahnungen zu wiederholen. Der tägliche Lauf bleibt als Netz bestehen. Mahnspesen und Zinsen im Nebenbuch sind davon getrennt: Die Zahlung der Rechnung bezahlt sie nicht automatisch.

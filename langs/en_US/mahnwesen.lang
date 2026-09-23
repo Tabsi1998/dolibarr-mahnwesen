@@ -505,3 +505,11 @@ MahnwesenPaymentCoversInvoiceOnly=The code covers the invoice amount of %s only.
 MahnwesenPaymentLinkParagraph=You can also pay online: %s
 MahnwesenTokenPaymentUrlDesc=Link for paying online, empty when Dolibarr offers none
 MahnwesenTokenPaymentParagraphDesc=A full sentence about paying online, saying which amount it covers
+
+# Integration events (#59)
+MahnwesenEvents=Events for other modules
+MahnwesenEventsHelp=Every change of a dunning case is noted together with the change itself and reported to other modules afterwards: notice sent, last stage, pause, resume, reopen, close. Only references and states are reported, no email texts, recipients, bank data or reasons. Waiting: %s
+MahnwesenEventId=Event
+MahnwesenEventRevision=Case revision
+MahnwesenEventDelivered=reported
+MahnwesenEventPending=waiting, attempts

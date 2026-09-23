@@ -136,6 +136,11 @@ trait DunningManagerAutomation
             return 1;
         }
         $counters['synchronized'] = (int) $sync['created'] + (int) $sync['updated'] + (int) $sync['level_changed'] + (int) $sync['reopened'] + (int) $sync['closed'] + (int) $sync['unchanged'];
+        // Events of changes that happened before this run (#59).
+        $dispatched = $this->dispatchEvents($actor, 200);
+        if ($dispatched === false) {
+            $warnings[] = 'Unable to deliver dunning events: '.$this->error;
+        }
         // Cases a removed payment left behind (#36).
         $rechecked = $this->processRecheckQueue($actor, 200);
         if ($rechecked === false) {
