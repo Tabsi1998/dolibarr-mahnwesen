@@ -21,6 +21,20 @@ A portal therefore gets a technical user with the customer right, assigned to ex
 
 Dolibarr builds the OpenAPI description itself from these endpoints, at `/api/index.php/explorer`.
 
+## Archived dunning letters
+
+| Method | Path | Answer |
+| --- | --- | --- |
+| GET | `/mahnwesen/invoices/{id}/documents?page=0&limit=25` | The dunning letters really sent for that invoice |
+| GET | `/mahnwesen/documents/{id}` | One archived letter, base64 encoded |
+
+The list holds `document_id`, `attempt_id`, `invoice_id`, `invoice_ref`, `stage`, `sent_at`, `filename`, `mime_type`, `size_bytes` and `sha256`. The single document adds `encoding`, `content` and `sha256_now`, the hash of the bytes handed out, so a reader can compare it with the one recorded at the time of sending.
+
+- Only deliveries that went out are listed. A draft, a preview and an attempt whose outcome is unclear are not; they answer `404` like anything else the caller may not see.
+- The bytes are the archived ones. Nothing is generated again, so a changed amount, name or template never reaches an old letter.
+- A file that is gone from the archive answers `410`, never an invented original. A file larger than `MAHNWESEN_API_MAX_DOCUMENT_MB` (20) answers `413`.
+- The email body, BCC, internal notes and other attachments are never part of it. Rights are checked per call, so a withdrawn assignment ends the access at once.
+
 ## What a case tells
 
 `invoice_id`, `invoice_ref`, `thirdparty_id`, `entity`, `case_id`, `case_revision`, `status`, `paused`, `stage`, `profile_code`, `currency`, `invoice_open`, `fee_open`, `interest_open`, `claims_on_own_invoice`, `due_date`, `next_action_at`, `changed_at`.

@@ -929,6 +929,8 @@ def unused_code(context: Context) -> str:
     """
     sources = [path for path in SNAPSHOT.rglob("*") if path.suffix in (".php", ".js")
                and not {"tests", "langs", "scripts"} & set(path.relative_to(SNAPSHOT).parts)]
+    # Dolibarr's REST framework calls the methods of an api_*.class.php itself.
+    framework = [path for path in sources if path.name.startswith("api_")]
     code = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in sources)
     keys = [match.group(1) for line in (SNAPSHOT / "langs" / "de_DE" / "mahnwesen.lang").read_text(encoding="utf-8").splitlines()
             if (match := re.match(r"^([A-Za-z0-9_]+)=", line))]
@@ -936,7 +938,7 @@ def unused_code(context: Context) -> str:
                    and not re.search(r"['\"]" + re.escape(key) + r"['\"]", code)]
     unused_functions = []
     for path in sources:
-        if path.suffix != ".php":
+        if path.suffix != ".php" or path in framework:
             continue
         for name in re.findall(r"\bfunction\s+(\w+)\s*\(", path.read_text(encoding="utf-8", errors="replace")):
             uses = len(re.findall(r"(?:->|::|(?<![\w>$:]))" + re.escape(name) + r"\s*\(", code))

@@ -80,7 +80,7 @@ Beim Update auf 1.3.1 werden die bisherigen Spesen für Unternehmen und Privatpe
 
 ## Mahnstatus über die API lesen
 
-Andere Anwendungen können den Mahnstatus über Dolibarrs eigene REST-API lesen, nur lesend. Es gibt zwei getrennte Rechte: *Betrieb* sieht den Stand der ganzen Entity samt Automatik und letztem Lauf, *Kunde* nur die Kunden, für die der technische Benutzer in Dolibarr als Vertriebsmitarbeiter eingetragen ist. Diese Zuordnung ist der Nachweis; eine Kundennummer aus der Anfrage allein zählt nicht. Interne Notizen, E-Mail-Texte, Empfänger und fremde Kunden gibt die API nie heraus; eine unbekannte, fremde oder nicht erlaubte Rechnung antwortet gleich, damit nichts über ihre Existenz verrät. Einzelheiten in [docs/API.md](docs/API.md).
+Andere Anwendungen können den Mahnstatus über Dolibarrs eigene REST-API lesen, nur lesend. Es gibt zwei getrennte Rechte: *Betrieb* sieht den Stand der ganzen Entity samt Automatik und letztem Lauf, *Kunde* nur die Kunden, für die der technische Benutzer in Dolibarr als Vertriebsmitarbeiter eingetragen ist. Diese Zuordnung ist der Nachweis; eine Kundennummer aus der Anfrage allein zählt nicht. Interne Notizen, E-Mail-Texte, Empfänger und fremde Kunden gibt die API nie heraus; eine unbekannte, fremde oder nicht erlaubte Rechnung antwortet gleich, damit nichts über ihre Existenz verrät. Über dieselbe API lassen sich auch die tatsächlich versandten Mahnschreiben lesen: die archivierten Bytes von damals samt Prüfsumme, nie eine neu erzeugte Fassung. Entwürfe, Vorschauen und unklare Versandversuche gibt es dort nicht. Einzelheiten in [docs/API.md](docs/API.md).
 
 ## Ereignisse für andere Module
 

@@ -27,6 +27,11 @@ The dunning status through Dolibarr's REST API.
   answer the same, so nothing leaks about what exists (#57).
 - [docs/API.md](docs/API.md) describes the views, the rights, every field, the
   money format and the errors (#57).
+- `/mahnwesen/invoices/{id}/documents` and `/mahnwesen/documents/{id}` hand out
+  the dunning letters that really went out, with the bytes of the archive and
+  the hash recorded when they were sent. Drafts, previews and unclear attempts
+  are not handed out, nothing is generated again, and a file that is gone says
+  so instead of inventing an original (#69).
 
 ## [1.4.2] - 2026-09-23
 
