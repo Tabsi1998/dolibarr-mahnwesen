@@ -11,6 +11,7 @@
  *   profiles products in categories and invoices for them, for the dunning
  *            profiles (#32)
  *   member   a member with a subscription whose invoice Dolibarr links to it (#58)
+ *   payment  one overdue invoice of 40 for the payment checks (#36)
  *
  * Passwords come from the environment only.
  */
@@ -386,4 +387,68 @@ if ($stage === 'member') {
     exit(0);
 }
 
-rt_fail('unknown stage "'.$stage.'", use base, enabled, legacy, reset, profiles or member');
+if ($stage === 'payment') {
+    // One overdue invoice of 40 EUR, for payments in two steps (#36).
+    $customer = new Societe($db);
+    if ($customer->fetch(0, 'Runtime GmbH') <= 0) {
+        rt_fail('customer Runtime GmbH: '.$customer->error);
+    }
+    print json_encode(array('invoice' => rt_invoice($db, $admin, $customer, 40, 18, 0, array(array('Runtime-Zahlungsfall', 40, 0)))), JSON_PRETTY_PRINT)."\n";
+    exit(0);
+}
+
+if ($stage === 'pay') {
+    // A customer payment through Dolibarr's own class, so its triggers fire (#36).
+    require_once DOL_DOCUMENT_ROOT.'/compta/paiement/class/paiement.class.php';
+    $invoiceId = isset($argv[2]) ? (int) $argv[2] : 0;
+    $amount = isset($argv[3]) ? (float) $argv[3] : 0.0;
+    if ($invoiceId <= 0 || $amount <= 0) {
+        rt_fail('pay needs an invoice id and an amount');
+    }
+    $payment = new Paiement($db);
+    $payment->datepaye = dol_now();
+    $payment->amounts = array($invoiceId => $amount);
+    $payment->paiementid = (int) rt_value($db, "SELECT id FROM ".MAIN_DB_PREFIX."c_paiement WHERE code = 'VIR'");
+    $payment->num_payment = 'RT-'.dol_now();
+    if ($payment->create($admin) <= 0) {
+        rt_fail('payment: '.$payment->error.' '.implode(' | ', (array) $payment->errors));
+    }
+    // Dolibarr's payment page closes the invoice when nothing is left.
+    $invoice = new Facture($db);
+    if ($invoice->fetch($invoiceId) > 0 && (float) $invoice->getRemainToPay(0) <= 0 && $invoice->setPaid($admin) <= 0) {
+        rt_fail('set invoice paid: '.$invoice->error);
+    }
+    print json_encode(array('payment' => (int) $payment->id))."\n";
+    exit(0);
+}
+
+if ($stage === 'unpay') {
+    // Cancelling a payment, through Dolibarr's own class (#36).
+    require_once DOL_DOCUMENT_ROOT.'/compta/paiement/class/paiement.class.php';
+    $payment = new Paiement($db);
+    if ($payment->fetch(isset($argv[2]) ? (int) $argv[2] : 0) <= 0) {
+        rt_fail('payment not found');
+    }
+    // Dolibarr refuses to remove a payment from a closed invoice, so the
+    // invoice is opened again first, exactly as its page does.
+    $payment->fetchObjectLinked(null, 'facture');
+    $invoices = array();
+    $res = $db->query('SELECT fk_facture FROM '.MAIN_DB_PREFIX.'paiement_facture WHERE fk_paiement = '.((int) $payment->id));
+    while ($res && ($row = $db->fetch_object($res))) {
+        $invoices[] = (int) $row->fk_facture;
+    }
+    foreach ($invoices as $invoiceId) {
+        $invoice = new Facture($db);
+        if ($invoice->fetch($invoiceId) > 0 && (int) $invoice->paye === 1 && $invoice->setUnpaid($admin) <= 0) {
+            rt_fail('reopen invoice: '.$invoice->error);
+        }
+    }
+    if ($payment->delete($admin) <= 0) {
+        rt_fail('cancel payment: '.$payment->error.' '.implode(' | ', (array) $payment->errors));
+    }
+    print json_encode(array('cancelled' => 1))."
+";
+    exit(0);
+}
+
+rt_fail('unknown stage "'.$stage.'", use base, enabled, legacy, reset, profiles, member, payment, pay or unpay');

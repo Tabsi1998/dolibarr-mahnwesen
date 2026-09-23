@@ -7,6 +7,25 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-22
+
+Payments reach the dunning case at once.
+
+### Added
+
+- A payment, a cancelled payment, or a correction of an invoice re-evaluates
+  its dunning case immediately, through Dolibarr's own triggers
+  (`PAYMENT_CUSTOMER_CREATE`, `PAYMENT_CUSTOMER_DELETE`, `BILL_PAYED`,
+  `BILL_UNPAYED`, `BILL_CANCEL`, `BILL_VALIDATE`, `BILL_UNVALIDATE`,
+  `BILL_MODIFY`). A part payment lowers the open amount, full payment ends the
+  case, and a cancelled payment opens it again without repeating notices that
+  went out. Dolibarr announces a payment that is being removed before it is
+  gone, so that case is noted and re-evaluated by the next Mahnwesen page or
+  the daily run, which stays the safety net (#36).
+- The same evaluation as the daily run and the manual synchronisation is used,
+  so there is no second way of counting. Fees and interest in the ledger stay
+  separate: paying the invoice does not pay them (#36).
+
 ## [1.3.5] - 2026-09-22
 
 ### Fixed
@@ -535,7 +554,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.3.5...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.0
 [1.3.5]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.5
 [1.3.4]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.4
 [1.3.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.4
