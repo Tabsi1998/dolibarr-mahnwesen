@@ -531,3 +531,8 @@ MahnwesenStatsPaidShare=Of those paid by now
 MahnwesenStatsCustomers=Open cases per customer
 MahnwesenStatsProfiles=Open cases per dunning profile
 MahnwesenStatsCases=Cases
+
+# Retention (#42)
+MahnwesenRetention=Keep mail texts and copies for
+MahnwesenRetentionHelp=After that many days the daily run deletes the stored mail text and the copies of the attachments. Date, recipient, subject, file name, size and checksum stay as evidence. 0 means nothing is deleted.
+MahnwesenRetentionInvalid=Please enter a retention between 0 and 3650 days.

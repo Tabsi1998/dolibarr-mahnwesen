@@ -532,3 +532,8 @@ MahnwesenStatsPaidShare=Davon inzwischen bezahlt
 MahnwesenStatsCustomers=Offene Fälle je Kunde
 MahnwesenStatsProfiles=Offene Fälle je Mahnprofil
 MahnwesenStatsCases=Fälle
+
+# Aufbewahrung (#42)
+MahnwesenRetention=Mailtexte und Kopien aufbewahren
+MahnwesenRetentionHelp=Nach so vielen Tagen löscht der tägliche Lauf den gespeicherten Mailtext und die Kopien der Anhänge. Datum, Empfänger, Betreff, Dateiname, Größe und Prüfsumme bleiben als Nachweis erhalten. 0 bedeutet: nichts wird gelöscht.
+MahnwesenRetentionInvalid=Bitte eine Aufbewahrung zwischen 0 und 3650 Tagen eintragen.

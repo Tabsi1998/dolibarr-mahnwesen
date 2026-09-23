@@ -328,6 +328,78 @@ trait DunningManagerAttempts
         return true;
     }
 
+    /**
+     * Delete mail texts and attachment copies that are older than the
+     * retention period; keep what proves the delivery (#42).
+     *
+     * Without a period nothing is deleted. Date, recipient, subject, size and
+     * checksum of every attempt stay, so an old delivery can still be shown
+     * and checked; only the body and the copied files go.
+     *
+     * @param User|null $user Acting user
+     * @param int $limit How many attempts at most
+     * @return array|false Counts, or false on a database error
+     */
+    public function applyRetention($user = null, $limit = 200)
+    {
+        global $conf;
+        $days = getDolGlobalInt('MAHNWESEN_RETENTION_DAYS', 0);
+        $result = array('days' => $days, 'bodies' => 0, 'files' => 0);
+        if ($days <= 0) {
+            return $result;
+        }
+        $limit = max(1, min(1000, (int) $limit));
+        $olderThan = "'".$this->db->escape($this->db->idate(dol_now() - ($days * 86400)))."'";
+        $where = ' WHERE entity = '.((int) $conf->entity)." AND status IN ('sent', 'failed', 'resolved', 'ambiguous')";
+        $where .= ' AND reserved_at < '.$olderThan;
+        // The files first: their rows keep name, size and checksum (#42).
+        $sql = 'SELECT f.rowid, f.snapshot_path FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt_file as f';
+        $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'mahnwesen_attempt as a ON a.rowid = f.fk_attempt';
+        $sql .= ' WHERE f.entity = '.((int) $conf->entity).' AND a.reserved_at < '.$olderThan;
+        $sql .= " AND f.snapshot_path <> '' ORDER BY f.rowid ASC".$this->db->plimit($limit);
+        $res = $this->db->query($sql);
+        if (!$res) {
+            $this->error = $this->db->lasterror();
+            return false;
+        }
+        $files = array();
+        while ($o = $this->db->fetch_object($res)) {
+            $files[(int) $o->rowid] = (string) $o->snapshot_path;
+        }
+        $this->db->free($res);
+        foreach ($files as $fileId => $path) {
+            if ($path !== '' && is_file($path) && !@unlink($path)) {
+                $this->errors[] = 'Unable to delete the archived copy '.$path;
+                continue;
+            }
+            if (!$this->db->query('UPDATE '.MAIN_DB_PREFIX."mahnwesen_attempt_file SET snapshot_path = '' WHERE rowid = ".((int) $fileId))) {
+                $this->error = $this->db->lasterror();
+                return false;
+            }
+            $result['files']++;
+        }
+        // Then the mail bodies; everything that proves the delivery stays.
+        $sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt'.$where." AND body_html <> '' ORDER BY rowid ASC".$this->db->plimit($limit);
+        $res = $this->db->query($sql);
+        if (!$res) {
+            $this->error = $this->db->lasterror();
+            return false;
+        }
+        $attempts = array();
+        while ($o = $this->db->fetch_object($res)) {
+            $attempts[] = (int) $o->rowid;
+        }
+        $this->db->free($res);
+        if ($attempts) {
+            if (!$this->db->query('UPDATE '.MAIN_DB_PREFIX."mahnwesen_attempt SET body_html = '' WHERE rowid IN (".implode(',', $attempts).')')) {
+                $this->error = $this->db->lasterror();
+                return false;
+            }
+            $result['bodies'] = count($attempts);
+        }
+        return $result;
+    }
+
     public function finalizeNoticeAttempt($attemptId, $success, $message, $case, $user, $ambiguous = false, $messageId = '')
     {
         $this->db->begin();

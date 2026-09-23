@@ -1824,6 +1824,41 @@ def stats(stack: Stack) -> str:
     return "figures per stage, claims, customers and profiles agree with the stored data"
 
 
+def retention(stack: Stack) -> str:
+    """After the retention the texts and copies are gone, the evidence stays (#42)."""
+    company = invoice(stack, "company_overdue")
+    attempt = stack.sql("SELECT rowid, recipient, subject, LENGTH(body_html) FROM llx_mahnwesen_attempt WHERE fk_facture = "
+                        f"{company['id']} AND status = 'sent' AND body_html <> '' ORDER BY rowid DESC LIMIT 1")
+    expect(attempt, "there is no sent notice with a stored text (#42)")
+    attempt_id, recipient, subject, length = attempt[0]
+    expect(int(length) > 0, "the stored notice has no text (#42)")
+    files = stack.sql(f"SELECT rowid, snapshot_path, sha256, size_bytes FROM llx_mahnwesen_attempt_file WHERE fk_attempt = {attempt_id}")
+    expect(files, "the sent notice has no archived copy (#42)")
+
+    # Without a retention the daily run keeps everything.
+    stack.cron(expect_ok=False)
+    kept = stack.value(f"SELECT LENGTH(body_html) FROM llx_mahnwesen_attempt WHERE rowid = {attempt_id}")
+    expect(kept == length, f"without a retention the text was deleted anyway: {length} -> {kept} (#42)")
+
+    # With one day, everything older than that goes.
+    stack.sql(f"UPDATE llx_mahnwesen_attempt SET reserved_at = '{container_date(stack, -30, 'Y-m-d')} 08:00:00' WHERE rowid = {attempt_id}")
+    set_const(stack, "MAHNWESEN_RETENTION_DAYS", "1")
+    try:
+        stack.cron(expect_ok=False)
+    finally:
+        set_const(stack, "MAHNWESEN_RETENTION_DAYS", "0")
+    after = stack.sql(f"SELECT LENGTH(body_html), recipient, subject FROM llx_mahnwesen_attempt WHERE rowid = {attempt_id}")[0]
+    expect(after == ["0", recipient, subject], f"the retention changed more than the text: {after} (#42)")
+    remaining = stack.sql(f"SELECT snapshot_path, sha256, size_bytes FROM llx_mahnwesen_attempt_file WHERE fk_attempt = {attempt_id}")
+    expect(all(row[0] == "" for row in remaining), f"a copy still has its path: {remaining} (#42)")
+    expect([row[1:] for row in remaining] == [row[2:] for row in files],
+           f"the retention changed the evidence: {remaining} instead of {files} (#42)")
+    for row in files:
+        gone = stack.shell(f"test -e '{row[1]}'")
+        expect(gone.returncode != 0, f"the copy {row[1]} is still on disk (#42)")
+    return "text and copies deleted after the retention, date, recipient, size and checksum kept"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1862,6 +1897,7 @@ SCENARIOS = (
     ("api", "The status API answers within its limits", api, ("synchronise",)),
     ("customer-tab", "The customer tab and the home page box", customer_tab, ("synchronise",)),
     ("stats", "The dunning figures agree with the data", stats, ("dry-run",)),
+    ("retention", "Mail texts and copies go after the retention", retention, ("stats",)),
 )
 
 

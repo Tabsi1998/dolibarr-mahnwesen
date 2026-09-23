@@ -13,6 +13,10 @@ Dunning where you already work.
 
 ### Added
 
+- A retention in the general setup: after that many days the daily run deletes
+  the stored mail texts and the copies of the attachments, and keeps date,
+  recipient, subject, file name, size and checksum as evidence. Without a
+  retention nothing is deleted (#42).
 - A page *Kennzahlen*: per stage the notices sent, the days from the due date
   to sending and how many of those invoices are paid by now, plus the open
   fees and interest, the open cases per customer and per dunning profile.
