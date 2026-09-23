@@ -494,6 +494,7 @@ def pages(stack: Stack) -> str:
     paths = {
         "dashboard": "/custom/mahnwesen/index.php",
         "attempts": "/custom/mahnwesen/attempts.php",
+        "figures": "/custom/mahnwesen/stats.php",
         "setup general": "/custom/mahnwesen/admin/setup.php?tab=general",
         "setup profiles": "/custom/mahnwesen/admin/setup.php?tab=profiles",
         "setup stages": "/custom/mahnwesen/admin/setup.php?tab=stages",
@@ -1795,6 +1796,34 @@ def customer_tab(stack: Stack) -> str:
     return f"customer tab with {len(refs)} cases, closed to others, box and dashboard agree on {listed} due"
 
 
+def stats(stack: Stack) -> str:
+    """The figures match what the stored cases and the ledger hold (#43)."""
+    browser = stack.browser()
+    page = page_ok(browser.get("/custom/mahnwesen/stats.php"), "figures")
+    shown = {int(match.group(1)): (int(match.group(2)), int(match.group(3)))
+             for match in re.finditer(r'data-stage="(\d)"><td>[^<]*</td>\s*<td class="right">(\d+)</td>\s*<td class="right">[^<]*</td>\s*'
+                                      r'<td class="right" data-paid-share="(\d+)"', page.text)}
+    expect(len(shown) == 4, f"the figures do not show the four stages: {shown} (#43)")
+    for level in (1, 2, 3, 4):
+        notices = stack.value("SELECT COUNT(*) FROM llx_mahnwesen_history WHERE action = 'notice_sent' AND result = 'success' "
+                              f"AND level = {level} AND entity = 1")
+        expect(shown[level][0] == int(notices), f"stage {level} shows {shown[level][0]} notices, the history holds {notices} (#43)")
+    fee = re.search(r'data-open-fee="([0-9.]+)"', page.text)
+    interest = re.search(r'data-open-interest="([0-9.]+)"', page.text)
+    expect(fee is not None and interest is not None, "the figures do not show the open claims (#43)")
+    for kind, match in (("fee", fee), ("interest", interest)):
+        stored = stack.value(f"SELECT ROUND(COALESCE(SUM(amount), 0), 2) FROM llx_mahnwesen_fee WHERE kind = '{kind}' AND status = 'open' AND entity = 1")
+        expect(abs(float(match.group(1)) - float(stored)) < 0.01,
+               f"the open {kind} shows {match.group(1)}, the ledger holds {stored} (#43)")
+    customers = len(re.findall(r'id="mahnwesen-stats-customers".*?</table>', page.text, re.S))
+    expect(customers == 1 and 'id="mahnwesen-stats-profiles"' in page.text, "the figures lack the customer or profile table (#43)")
+    sales = stack.browser("rtsales")
+    limited = page_ok(sales.get("/custom/mahnwesen/stats.php"), "figures for the sales representative")
+    expect(invoice(stack, "private_overdue")["ref"] not in limited.text and "Rita" not in limited.text,
+           "the figures show another customer to a sales representative (#43)")
+    return "figures per stage, claims, customers and profiles agree with the stored data"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1832,6 +1861,7 @@ SCENARIOS = (
     ("events", "Dunning changes are reported to other modules", events, ("dry-run",)),
     ("api", "The status API answers within its limits", api, ("synchronise",)),
     ("customer-tab", "The customer tab and the home page box", customer_tab, ("synchronise",)),
+    ("stats", "The dunning figures agree with the data", stats, ("dry-run",)),
 )
 
 

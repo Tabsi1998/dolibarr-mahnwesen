@@ -521,3 +521,14 @@ MahnwesenBoxTitle=Mahnwesen heute
 MahnwesenBoxDue=Fällige Mahnschritte
 MahnwesenBoxUnresolved=Ungeklärte Versandversuche
 MahnwesenBoxClaims=Offene Spesen und Zinsen
+
+# Mahn-Kennzahlen (#43)
+MahnwesenStats=Kennzahlen
+MahnwesenStatsIntro=Alle Zahlen stammen aus den gespeicherten Mahnfällen und dem Nebenbuch. Sie zeigen nur Kunden, die Sie sehen dürfen.
+MahnwesenStatsStages=Je Mahnstufe
+MahnwesenStatsNotices=Gesendete Mahnungen
+MahnwesenStatsDaysToNotice=Tage von Fälligkeit bis Versand
+MahnwesenStatsPaidShare=Davon inzwischen bezahlt
+MahnwesenStatsCustomers=Offene Fälle je Kunde
+MahnwesenStatsProfiles=Offene Fälle je Mahnprofil
+MahnwesenStatsCases=Fälle
