@@ -133,7 +133,7 @@ trait DunningManagerBulk
         $pdf = pdf_getInstance();
         // Joining files needs TCPDI, which Dolibarr uses unless it is switched off.
         if (!($pdf instanceof TCPDI)) {
-            $this->error = 'Dolibarr's PDF library cannot join files here (MAIN_DISABLE_TCPDI).';
+            $this->error = 'The PDF library of Dolibarr cannot join files here (MAIN_DISABLE_TCPDI).';
             return false;
         }
         $pdf->SetCreator('Dolibarr Mahnwesen');
