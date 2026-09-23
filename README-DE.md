@@ -82,6 +82,10 @@ Beim Update auf 1.3.1 werden die bisherigen Spesen für Unternehmen und Privatpe
 
 Der Kunde bekommt einen Reiter *Mahnwesen* mit allen seinen Mahnfällen, dem offenen Betrag und den offenen Spesen und Zinsen. Auf Dolibarrs Startseite zeigt eine Box, was heute ansteht: fällige Mahnschritte, ungeklärte Versandversuche und offene Spesen. Beide zeigen nur Kunden, die der Benutzer sehen darf, und zählen dasselbe wie die Übersicht.
 
+## Übergabe an Inkasso oder Anwalt
+
+Am Reiter *Mahnwesen* lässt sich ein Fall übergeben. Das Modul mahnt diese Rechnung danach nicht mehr und legt die vollständige Akte in Dolibarrs Dokumentablage: die Rechnung, jedes tatsächlich versandte Mahnschreiben, eine Übersicht mit den Prüfsummen, den offenen Spesen und Zinsen und dem Verlauf. Kein eigenes Archiv, nichts wird neu erzeugt.
+
 ## Aufbewahrung
 
 In der Einrichtung lässt sich eintragen, wie lange gespeicherte Mailtexte und Kopien der Anhänge aufbewahrt werden. Danach löscht der tägliche Lauf Text und Kopien; Datum, Empfänger, Betreff, Dateiname, Größe und Prüfsumme bleiben als Nachweis. Ohne Eintrag wird nichts gelöscht.

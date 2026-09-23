@@ -1859,6 +1859,47 @@ def retention(stack: Stack) -> str:
     return "text and copies deleted after the retention, date, recipient, size and checksum kept"
 
 
+def handover(stack: Stack) -> str:
+    """A handed over case is dunned no more and its file lies in the document store (#40)."""
+    browser = stack.browser()
+    company = invoice(stack, "company_overdue")
+    case = stack.value(f"SELECT rowid FROM llx_mahnwesen_case WHERE fk_facture = {company['id']}")
+    stack.sql(f"UPDATE llx_mahnwesen_case SET status = 'open' WHERE rowid = {case}")
+    evidence = {row[0]: row[1] for row in stack.sql("SELECT f.display_name, f.sha256 FROM llx_mahnwesen_attempt_file f "
+                                                    f"JOIN llx_mahnwesen_attempt a ON a.rowid = f.fk_attempt WHERE a.fk_facture = {company['id']} "
+                                                    "AND a.status = 'sent' AND f.file_role = 'dunning' AND f.snapshot_path <> ''")}
+    tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={company['id']}"), "dunning tab")
+    expect('id="mahnwesen-handover"' in tab.text, "the dunning tab does not offer the handover (#40)")
+    ask = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={company['id']}&action=ask_handover&token={token_of(tab)}"), "handover question")
+    page_ok(browser.submit(form_with_action(ask, "confirm_handover", "handover question"),
+                           {"confirm": "yes", "handover_reason": "Runtime: Inkassobuero Muster"}), "hand the case over")
+    state = stack.sql(f"SELECT status, next_action_at FROM llx_mahnwesen_case WHERE rowid = {case}")[0]
+    expect(state[0] == "handed_over" and state[1] in (None, "", "NULL"), f"the case is {state} after the handover (#40)")
+    history = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE fk_case = {case} AND action = 'case_handed_over'")
+    expect(history == "1", f"the handover is {history} times in the history (#40)")
+
+    # The automation leaves it alone from now on.
+    result = page_ok(browser.submit(form_with_action(page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard"), "dry_run", "dashboard")), "dry run")
+    for row in result.text.split('<tr class="oddeven">'):
+        if company["ref"] in row:
+            expect('data-decision="send"' not in row, f"the dry run still wants to send for a handed over case: {row[:200]} (#40)")
+
+    # The file lies in Dolibarr's document store, with the checksums of the delivery.
+    folder = f"/var/www/documents/ecm/mahnwesen/{company['ref']}"
+    listed = stack.files(folder)
+    expect(any(name.endswith("_Mahnakte.txt") for name in listed), f"the case file has no summary: {listed} (#40)")
+    summary = container_file(stack, f"{folder}/{company['ref']}_Mahnakte.txt").decode("utf-8", errors="replace")
+    expect("Runtime: Inkassobuero Muster" in summary, "the summary does not name the reason of the handover (#40)")
+    for name, sha in evidence.items():
+        expect(name in listed, f"the dunning letter {name} is missing in the case file: {listed} (#40)")
+        expect(sha in summary, f"the summary does not carry the checksum of {name} (#40)")
+        copied = hashlib.sha256(container_file(stack, f"{folder}/{name}")).hexdigest()
+        expect(copied == sha, f"the copy of {name} differs from the delivery: {copied} instead of {sha} (#40)")
+    indexed = stack.value(f"SELECT COUNT(*) FROM llx_ecm_files WHERE filepath = 'ecm/mahnwesen/{company['ref']}'")
+    expect(int(indexed) >= len(evidence) + 1, f"the document store indexed {indexed} files of the case (#40)")
+    return f"case handed over, automation silent, {len(listed)} files in the document store with matching checksums"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1898,6 +1939,7 @@ SCENARIOS = (
     ("customer-tab", "The customer tab and the home page box", customer_tab, ("synchronise",)),
     ("stats", "The dunning figures agree with the data", stats, ("dry-run",)),
     ("retention", "Mail texts and copies go after the retention", retention, ("stats",)),
+    ("handover", "A handed over case ends the automation", handover, ("retention",)),
 )
 
 

@@ -13,6 +13,7 @@ parameters:
     scanDirectories:
         - /var/www/html/core
         - /var/www/html/api/class
+        - /var/www/html/ecm/class
         - /var/www/html/includes/restler/framework/Luracast
         - /var/www/html/compta/facture/class
         - /var/www/html/compta/paiement/class

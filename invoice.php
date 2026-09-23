@@ -68,6 +68,12 @@ if ($action === 'sync_case') {
     if ($manager->skipCurrentStage($id, $skipReason, $user)) { setEventMessages($langs->trans('MahnwesenStageSkipped'), null, 'mesgs'); }
     else { setEventMessages($langs->trans('MahnwesenStageSkipFailed'), array($manager->error), 'errors'); }
     mahnwesenInvoiceRedirect($id);
+} elseif ($action === 'confirm_handover' && GETPOST('confirm', 'alpha') === 'yes') {
+    if (!$user->hasRight('mahnwesen', 'case', 'write')) { accessforbidden(); }
+    $handover = $manager->handOverCase($id, GETPOST('handover_reason', 'alphanohtml'), $user);
+    if ($handover === false) { setEventMessages($manager->error ?: $langs->trans('Error'), $manager->errors, 'errors'); }
+    else { setEventMessages($langs->trans('MahnwesenHandoverDone', count($handover['files'])), null, 'mesgs'); }
+    mahnwesenInvoiceRedirect($id);
 } elseif ($action === 'invoice_claims') {
     if (!$user->hasRight('mahnwesen', 'case', 'write')) { accessforbidden(); }
     $claimCase = $manager->getCaseByInvoice($id);
@@ -126,6 +132,11 @@ $caseForAmounts = $case ?: array('remaining_amount' => (float) $evaluation['rema
 $breakdown = $amountLevel > 0 ? $manager->getAmountBreakdown($invoice, $caseForAmounts, $amountLevel) : array('invoice'=>(float)$evaluation['remain_to_pay'],'fee'=>0.0,'interest'=>0.0,'total'=>(float)$evaluation['remain_to_pay'],'classification'=>$classification);
 
 llxHeader('', $langs->trans('Mahnwesen').' - '.$invoice->ref, '', '', 0, 0, '', array('/mahnwesen/css/mahnwesen.css'), '', 'mod-mahnwesen page-invoice');
+if ($action === 'ask_handover' && $user->hasRight('mahnwesen', 'case', 'write')) {
+    $form = new Form($db);
+    print $form->formconfirm($_SERVER['PHP_SELF'].'?id='.$id, $langs->trans('MahnwesenHandover'), $langs->trans('MahnwesenHandoverConfirm'), 'confirm_handover',
+        array(array('type' => 'text', 'name' => 'handover_reason', 'label' => $langs->trans('MahnwesenHandoverReason'), 'value' => '', 'moreattr' => 'required maxlength="255"')), 'no', 0);
+}
 if ($action === 'ask_skip' && $user->hasRight('mahnwesen', 'case', 'write') && $user->hasRight('mahnwesen', 'notice', 'send')) {
     $form = new Form($db);
     print $form->formconfirm($_SERVER['PHP_SELF'].'?id='.$id, $langs->trans('MahnwesenSkipStage'), $langs->trans('MahnwesenSkipStageConfirm'), 'skip_stage',
@@ -148,7 +159,9 @@ if (!$case) {
         print '<button class="butAction" type="submit">'.$langs->trans('CreateDunningCase').'</button></form></div>';
     }
 } else {
-    $statusHtml = $case['status'] === 'closed'
+    $statusHtml = $case['status'] === 'handed_over'
+        ? '<span class="badge badge-status8">'.$langs->trans('MahnwesenCaseHandedOver').'</span>'
+        : ($case['status'] === 'closed'
         ? '<span class="badge badge-status0">'.$langs->trans('CaseClosed').'</span>'
         : ($case['status'] === 'fee_open'
             ? '<span class="badge badge-status1">'.$langs->trans('MahnwesenCaseFeeOpen').'</span>'
@@ -156,7 +169,7 @@ if (!$case) {
             ? '<span class="badge badge-status8">'.$langs->trans('MahnwesenBlocked').'</span>'
         : (!empty($case['paused'])
             ? '<span class="badge badge-status1">'.$langs->trans('Paused').'</span>'
-            : '<span class="badge badge-status4">'.$langs->trans('CaseActive').'</span>')));
+            : '<span class="badge badge-status4">'.$langs->trans('CaseActive').'</span>'))));
     // One phrase for the next step, the calendar stage only when it is ahead (#56).
     $requiredStageHtml = $manager->describeNextStep($calculatedLevel, $requiredLevel, $futureLevel);
     $timingHtml = '-';
@@ -271,6 +284,11 @@ if (!$case) {
         print '<span class="butActionRefused classfortooltip" title="'.dol_escape_htmltag($langs->trans('MahnwesenWaitingForFutureStage', dol_print_date($db->jdate($workflow['future_at']), 'day'))).'">'.$langs->trans('MahnwesenPrepareNotice').'</span>';
     }
     print '</div>';
+    // The last step: hand the case over and stop the automation (#40).
+    if (in_array($case['status'], array('open', 'fee_open'), true) && $user->hasRight('mahnwesen', 'case', 'write')) {
+        print '<div class="margintoponly"><a class="button" id="mahnwesen-handover" href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?id='.$id.'&action=ask_handover&token='.newToken()).'">'
+            .img_picto('', 'folder').' '.$langs->trans('MahnwesenHandover').'</a> <span class="opacitymedium">'.$langs->trans('MahnwesenHandoverHelp').'</span></div>';
+    }
     // Open fees and interest can go on their own invoice (#34).
     $openClaims = !empty($case['id']) ? $manager->getOpenClaims((int) $case['id']) : array();
     if ($openClaims && $user->hasRight('mahnwesen', 'case', 'write') && $user->hasRight('facture', 'creer')) {
