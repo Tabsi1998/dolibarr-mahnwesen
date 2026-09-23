@@ -71,9 +71,6 @@ trait DunningManagerBulk
         global $conf, $langs;
         require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
         $result = array('path' => '', 'letters' => 0, 'skipped' => array());
-        $budget = $this->newAutomaticBudget();
-        $budget['max'] = count($invoiceIds) + 1;
-        $budget['max_per_customer'] = count($invoiceIds) + 1;
         $pages = array();
         foreach ($this->rowsForInvoices($invoiceIds) as $row) {
             $ref = (string) $row['invoice_ref'];
@@ -144,7 +141,10 @@ trait DunningManagerBulk
             for ($page = 1; $page <= $count; $page++) {
                 $imported = $pdf->importPage($page);
                 $size = $pdf->getTemplateSize($imported);
-                $pdf->AddPage($size['width'] > $size['height'] ? 'L' : 'P', array($size['width'], $size['height']));
+                // TCPDI names the size w and h, FPDI width and height.
+                $width = (float) (isset($size['width']) ? $size['width'] : $size['w']);
+                $height = (float) (isset($size['height']) ? $size['height'] : $size['h']);
+                $pdf->AddPage($width > $height ? 'L' : 'P', array($width, $height));
                 $pdf->useTemplate($imported);
             }
         }

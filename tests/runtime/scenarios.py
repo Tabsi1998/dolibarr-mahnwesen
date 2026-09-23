@@ -1927,8 +1927,7 @@ def bulk(stack: Stack) -> str:
                                                          ("action", "bulk_letters"), ("case_invoice[]", str(postal["id"])),
                                                          ("case_invoice[]", str(made["id"]))])
     expect(batch.status == 200 and batch.body.startswith(b"%PDF"),
-           f"the letter batch is no PDF: HTTP {batch.status}, the page says "
-           f"{[note.strip() for note in re.findall(r'<div class=.(?:warning|error)[^>]*>(.*?)</div>', html.unescape(batch.text), re.S)][:4]} (#39)")
+           f"the letter batch is no PDF: HTTP {batch.status}, it starts with {batch.body[:200]!r} (#39)")
     expect(postal["ref"] in pdf_text(batch.body), f"the batch does not hold the letter of {postal['ref']} (#39)")
     expect(made["ref"] not in pdf_text(batch.body), f"the batch holds a letter of a customer with an email address (#39)")
     after = stack.sql(f"SELECT mode, status FROM llx_mahnwesen_attempt WHERE fk_facture = {postal['id']} ORDER BY rowid DESC LIMIT 1")[0]
