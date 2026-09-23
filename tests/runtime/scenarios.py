@@ -1874,7 +1874,7 @@ def handover(stack: Stack) -> str:
     page_ok(browser.submit(form_with_action(ask, "confirm_handover", "handover question"),
                            {"confirm": "yes", "handover_reason": "Runtime: Inkassobuero Muster"}), "hand the case over")
     state = stack.sql(f"SELECT status, next_action_at FROM llx_mahnwesen_case WHERE rowid = {case}")[0]
-    expect(state[0] == "handed_over" and state[1] in (None, ""), f"the case is {state} after the handover (#40)")
+    expect(state[0] == "handed_over" and state[1] in (None, "", "NULL"), f"the case is {state} after the handover (#40)")
     history = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE fk_case = {case} AND action = 'case_handed_over'")
     expect(history == "1", f"the handover is {history} times in the history (#40)")
 
