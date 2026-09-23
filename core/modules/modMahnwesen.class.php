@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '1.4.2';
+        $this->version = '1.4.3';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -94,6 +94,7 @@ class modMahnwesen extends DolibarrModules
             30 => array('MAHNWESEN_RUN_NOTIFY_EMAIL', 'chaine', '', 'Address told about automatic runs that fail or end with warnings', 0, 'current', 0),
             31 => array('MAHNWESEN_LETTER_QR', 'chaine', '1', 'Print the EPC QR code of the invoice on the dunning letter', 0, 'current', 0),
             32 => array('MAHNWESEN_EVENT_RETRY_MAX', 'chaine', '5', 'How often an event delivery is retried before it rests in the backlog', 0, 'current', 0),
+            33 => array('MAHNWESEN_API_MAX_DOCUMENT_MB', 'chaine', '20', 'Largest archived dunning letter the API hands out', 0, 'current', 0),
         );
 
         // Daily worker. Case synchronization and timed pause release are safe
@@ -142,6 +143,21 @@ class modMahnwesen extends DolibarrModules
         $this->rights[$r][1] = 'Run the automatic dry run';
         $this->rights[$r][4] = 'automation';
         $this->rights[$r][5] = 'dryrun';
+        $r++;
+
+        // Reading the dunning state through Dolibarr's REST API (#57). Two
+        // separate rights: the whole entity, or only the customers a technical
+        // user is the sales representative of.
+        $this->rights[$r][0] = $this->numero.'15';
+        $this->rights[$r][1] = 'Read the dunning status of the whole entity through the API';
+        $this->rights[$r][4] = 'api';
+        $this->rights[$r][5] = 'operations';
+        $r++;
+
+        $this->rights[$r][0] = $this->numero.'16';
+        $this->rights[$r][1] = 'Read the dunning status of its own customers through the API';
+        $this->rights[$r][4] = 'api';
+        $this->rights[$r][5] = 'customer';
         $r++;
 
         // Menus.

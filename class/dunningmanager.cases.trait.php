@@ -642,10 +642,27 @@ trait DunningManagerCases
      * @param int $invoiceId Customer invoice id
      * @return array|null
      */
+    /**
+     * One stored case by its id, in the same shape as getCaseByInvoice() (#57).
+     *
+     * @param int $caseId Case
+     * @return array|null
+     */
+    public function getCase($caseId)
+    {
+        global $conf;
+        $res = $this->db->query('SELECT fk_facture FROM '.MAIN_DB_PREFIX.'mahnwesen_case WHERE rowid = '.((int) $caseId).' AND entity = '.((int) $conf->entity));
+        $row = $res ? $this->db->fetch_object($res) : false;
+        if ($res) {
+            $this->db->free($res);
+        }
+        return $row ? $this->getCaseByInvoice((int) $row->fk_facture) : null;
+    }
+
     public function getCaseByInvoice($invoiceId)
     {
         global $conf;
-        $sql = 'SELECT rowid, entity, fk_facture, current_level, paused, status, remaining_amount, last_notice_at, next_action_at, note_private, date_creation, tms, fk_user_create, fk_user_modif';
+        $sql = 'SELECT rowid, entity, fk_facture, current_level, paused, status, remaining_amount, last_notice_at, next_action_at, note_private, revision, date_creation, tms, fk_user_create, fk_user_modif';
         $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_case';
         $sql .= ' WHERE fk_facture = '.((int) $invoiceId);
         $sql .= ' AND entity = '.((int) $conf->entity);
@@ -672,6 +689,7 @@ trait DunningManagerCases
             'last_notice_at' => $obj->last_notice_at,
             'next_action_at' => $obj->next_action_at,
             'note_private' => (string) $obj->note_private,
+            'revision' => (int) $obj->revision,
             'date_creation' => $obj->date_creation,
             'tms' => $obj->tms,
             'fk_user_create' => (int) $obj->fk_user_create,

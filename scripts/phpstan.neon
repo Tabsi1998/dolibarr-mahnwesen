@@ -12,6 +12,8 @@ parameters:
         - /work/notice.php
     scanDirectories:
         - /var/www/html/core
+        - /var/www/html/api/class
+        - /var/www/html/includes/restler/framework/Luracast
         - /var/www/html/compta/facture/class
         - /var/www/html/compta/paiement/class
         - /var/www/html/societe/class

@@ -78,6 +78,10 @@ Mahnspesen stehen in **Mahnprofilen**: Ein Profil legt je Stufe Tage, Spesen und
 
 Beim Update auf 1.3.1 werden die bisherigen Spesen für Unternehmen und Privatpersonen zu Profilen, sodass jeder Kunde dieselben Spesen zahlt wie vorher.
 
+## Mahnstatus über die API lesen
+
+Andere Anwendungen können den Mahnstatus über Dolibarrs eigene REST-API lesen, nur lesend. Es gibt zwei getrennte Rechte: *Betrieb* sieht den Stand der ganzen Entity samt Automatik und letztem Lauf, *Kunde* nur die Kunden, für die der technische Benutzer in Dolibarr als Vertriebsmitarbeiter eingetragen ist. Diese Zuordnung ist der Nachweis; eine Kundennummer aus der Anfrage allein zählt nicht. Interne Notizen, E-Mail-Texte, Empfänger und fremde Kunden gibt die API nie heraus; eine unbekannte, fremde oder nicht erlaubte Rechnung antwortet gleich, damit nichts über ihre Existenz verrät. Über dieselbe API lassen sich auch die tatsächlich versandten Mahnschreiben lesen: die archivierten Bytes von damals samt Prüfsumme, nie eine neu erzeugte Fassung. Entwürfe, Vorschauen und unklare Versandversuche gibt es dort nicht. Einzelheiten in [docs/API.md](docs/API.md).
+
 ## Ereignisse für andere Module
 
 Jede Änderung an einem Mahnfall wird als Ereignis vermerkt und danach über Dolibarrs eigene Auslöser gemeldet: gesendete Mahnung, letzte Stufe, Pause, Fortsetzung, Wiederöffnung, Abschluss. Der Vermerk entsteht in derselben Transaktion wie die Änderung, die Meldung erst danach. Scheitert ein Empfänger, bleibt das Ereignis mit gezähltem Versuch offen; es wird nie eine Mahnung doppelt versendet und keine Änderung zurückgerollt. Gemeldet werden nur Verweise und Zustände - keine E-Mail-Texte, Empfänger, Bankdaten oder Begründungen. Die Seite *Versandversuche* zeigt die Ereignisse und was noch offen ist.

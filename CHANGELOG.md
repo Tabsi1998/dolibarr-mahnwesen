@@ -7,6 +7,32 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-09-23
+
+The dunning status through Dolibarr's REST API.
+
+### Added
+
+- Read-only endpoints `/mahnwesen/invoices/{id}`,
+  `/mahnwesen/thirdparties/{id}` and `/mahnwesen/status`, with two separate
+  rights: the operations view for the whole entity, and the customer view for
+  the customers a technical user is the sales representative of in Dolibarr.
+  That assignment is the proof of who may be served; a customer id from the
+  request is checked against it and never trusted by itself (#57).
+- A case tells its references, states and amounts, with the open fees and
+  interest kept apart from the invoice amount and claims that went onto an
+  invoice of their own counted only once. It never tells internal notes, email
+  texts, recipients, attachment paths or anything of another customer. An
+  unknown invoice, one of another customer and one of another entity all
+  answer the same, so nothing leaks about what exists (#57).
+- [docs/API.md](docs/API.md) describes the views, the rights, every field, the
+  money format and the errors (#57).
+- `/mahnwesen/invoices/{id}/documents` and `/mahnwesen/documents/{id}` hand out
+  the dunning letters that really went out, with the bytes of the archive and
+  the hash recorded when they were sent. Drafts, previews and unclear attempts
+  are not handed out, nothing is generated again, and a file that is gone says
+  so instead of inventing an original (#69).
+
 ## [1.4.2] - 2026-09-23
 
 Other modules can react to dunning changes.
@@ -589,7 +615,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.4.3...HEAD
+[1.4.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.3
 [1.4.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.2
 [1.4.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.1
 [1.4.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.0
