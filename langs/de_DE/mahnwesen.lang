@@ -551,3 +551,14 @@ MahnwesenHandoverFiles=Dateien der Akte
 MahnwesenHandoverFileDescription=Mahnakte zur Rechnung
 MahnwesenCaseHandedOver=Übergeben
 HistoryActionCaseHandedOver=An Inkasso oder Anwalt übergeben
+
+# Mehrere Fälle auf einmal (#39)
+MahnwesenBulkSend=Ausgewählte mahnen
+MahnwesenBulkLetters=Briefe der Ausgewählten drucken
+MahnwesenBulkHelp=Mahnen sendet an Kunden mit E-Mail, mit denselben Prüfungen wie eine einzelne Mahnung. Drucken erzeugt ein PDF mit den Briefen der Kunden ohne E-Mail und vermerkt den Postversand im Verlauf.
+MahnwesenBulkNothingSelected=Bitte zuerst Fälle auswählen.
+MahnwesenBulkSent=%s Mahnungen gesendet, %s übersprungen.
+MahnwesenBulkNoLetters=Kein Brief erzeugt: Alle ausgewählten Kunden haben eine E-Mail-Adresse oder sind nicht fällig.
+MahnwesenBulkSkippedScope=Kunde außerhalb Ihres Bereichs
+MahnwesenBulkSkippedHasEmail=Kunde hat eine E-Mail-Adresse
+MahnwesenPostalRecipient=Postversand

@@ -137,14 +137,17 @@ trait DunningManagerAttempts
         $lockedInvoice = new Facture($this->db);
         if ($lockedInvoice->fetch($lockedCase['invoice_id']) <= 0) { $this->error = 'Unable to reload invoice for fee validation.'; $this->db->rollback(); return false; }
         $lockedInvoice->fetch_thirdparty();
-        if ((string) $mode === 'manual') {
+        if ((string) $mode === 'manual' || (string) $mode === 'postal') {
             if (!is_object($user) || !$user->hasRight('facture', 'lire') || !$user->hasRight('mahnwesen', 'notice', 'send')) {
                 $this->error = 'User is not allowed to read or send notices for invoices.'; $this->db->rollback(); return false;
             }
             if (!$this->canSeeCustomer($user, (int) $lockedInvoice->socid)) { $this->error = 'Invoice is outside the user customer scope.'; $this->db->rollback(); return false; }
         }
         $contactId = !empty($snapshot['contact_id']) ? (int) $snapshot['contact_id'] : 0;
-        if ($contactId > 0) {
+        if ((string) $mode === 'postal') {
+            // A letter by post is for a customer without an email address (#39).
+            $sqlRecipient = 'SELECT rowid FROM '.MAIN_DB_PREFIX.'societe WHERE rowid = '.((int) $lockedInvoice->socid)." AND (email IS NULL OR email = '')".$this->db->plimit(1);
+        } elseif ($contactId > 0) {
             $sqlRecipient = 'SELECT sp.rowid FROM '.MAIN_DB_PREFIX.'element_contact ec INNER JOIN '.MAIN_DB_PREFIX.'c_type_contact tc ON tc.rowid = ec.fk_c_type_contact INNER JOIN '.MAIN_DB_PREFIX.'socpeople sp ON sp.rowid = ec.fk_socpeople';
             $sqlRecipient .= ' WHERE ec.element_id = '.$lockedCase['invoice_id']." AND tc.element = 'facture' AND tc.source = 'external' AND tc.code = 'BILLING' AND sp.statut = 1 AND sp.rowid = ".$contactId." AND LOWER(sp.email) = LOWER('".$this->db->escape((string) $recipient)."')".$this->db->plimit(1);
         } else {

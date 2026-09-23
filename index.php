@@ -143,6 +143,39 @@ if ($action === 'dry_run') {
     }
 }
 
+// Several cases at once: send, or print the letters of customers without email (#39).
+if (in_array($action, array('bulk_send', 'bulk_letters'), true) && $user->hasRight('mahnwesen', 'notice', 'send')) {
+    $selected = array_map('intval', (array) GETPOST('case_invoice', 'array'));
+    require_once dol_buildpath('/mahnwesen/class/dunningnotice.class.php', 0);
+    $bulkService = new DunningNoticeService($db, $manager);
+    if (empty($selected)) {
+        setEventMessages($langs->trans('MahnwesenBulkNothingSelected'), null, 'warnings');
+    } elseif ($action === 'bulk_send') {
+        $bulk = $manager->sendNoticesForInvoices($selected, $bulkService, $user);
+        setEventMessages($langs->trans('MahnwesenBulkSent', (int) $bulk['sent'], count($bulk['skipped'])), null, 'mesgs');
+        foreach ($bulk['skipped'] as $ref => $why) { setEventMessages($ref.': '.$why, null, 'warnings'); }
+    } else {
+        $batch = $manager->buildLetterBatch($selected, $bulkService, $user);
+        if ($batch === false) {
+            setEventMessages($manager->error ?: $langs->trans('Error'), null, 'errors');
+        } elseif ((int) $batch['letters'] <= 0) {
+            setEventMessages($langs->trans('MahnwesenBulkNoLetters'), null, 'warnings');
+            foreach ($batch['skipped'] as $ref => $why) { setEventMessages($ref.': '.$why, null, 'warnings'); }
+        } else {
+            // The batch goes straight to the printer of the person who asked for it.
+            $name = basename($batch['path']);
+            header('Content-Type: application/pdf');
+            header('Content-Disposition: attachment; filename="'.$name.'"');
+            header('Content-Length: '.filesize($batch['path']));
+            header('X-Content-Type-Options: nosniff');
+            header('Cache-Control: private, must-revalidate');
+            readfile($batch['path']);
+            $db->close();
+            exit;
+        }
+    }
+}
+
 // Cases a removed payment left behind are re-evaluated before anything is shown (#36).
 if ($user->hasRight('mahnwesen', 'case', 'write')) { $manager->processRecheckQueue($user); }
 
@@ -296,7 +329,9 @@ if ($showDiagnostics) {
 }
 
 // The cases as a standard Dolibarr list: filters, sorting, pages (#26).
-print '<form method="GET" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'" id="mahnwesen-case-list">';
+$bulkAllowed = $user->hasRight('mahnwesen', 'notice', 'send');
+print '<form method="'.($bulkAllowed ? 'POST' : 'GET').'" action="'.dol_escape_htmltag($_SERVER['PHP_SELF']).'" id="mahnwesen-case-list">';
+if ($bulkAllowed) { print '<input type="hidden" name="token" value="'.newToken().'">'; }
 print '<input type="hidden" name="sortfield" value="'.dol_escape_htmltag($sortfield).'"><input type="hidden" name="sortorder" value="'.dol_escape_htmltag($sortorder).'">';
 print_barre_liste($langs->trans('DunningCases'), $page, $_SERVER['PHP_SELF'], $param, $sortfield, $sortorder, '', count($cases), $total, 'bill', 0, '', '', $limit);
 print '<div class="div-table-responsive"><table class="tagtable liste centpercent">';
@@ -315,7 +350,8 @@ foreach ($statusOptions as $value => $labelKey) {
     print '<option value="'.$value.'"'.($searchStatus === $value ? ' selected' : '').'>'.$langs->trans($labelKey).'</option>';
 }
 print '</select></td>';
-print '<td class="liste_titre center">'.$form->showFilterButtons().'</td></tr>';
+print '<td class="liste_titre center">'.$form->showFilterButtons().'</td>';
+print '<td class="liste_titre"></td></tr>';
 print '<tr class="liste_titre">';
 print_liste_field_titre('Invoice', $_SERVER['PHP_SELF'], 'f.ref', '', $param, '', $sortfield, $sortorder);
 print_liste_field_titre('ThirdParty', $_SERVER['PHP_SELF'], 's.nom', '', $param, '', $sortfield, $sortorder);
@@ -326,9 +362,10 @@ print_liste_field_titre('MahnwesenCalendarStage', $_SERVER['PHP_SELF'], 'c.curre
 print_liste_field_titre('NextAction', $_SERVER['PHP_SELF'], 'c.next_action_at', '', $param, '', $sortfield, $sortorder);
 print_liste_field_titre('Status', $_SERVER['PHP_SELF'], '', '', $param, '', $sortfield, $sortorder);
 print_liste_field_titre('', $_SERVER['PHP_SELF'], '', '', $param, '', $sortfield, $sortorder, 'center ');
+print_liste_field_titre('', $_SERVER['PHP_SELF'], '', '', $param, '', $sortfield, $sortorder, 'center ');
 print '</tr>';
 if (empty($cases)) {
-    print '<tr class="oddeven"><td colspan="9"><span class="opacitymedium">'.$langs->trans('NoOverdueInvoiceFound').'</span></td></tr>';
+    print '<tr class="oddeven"><td colspan="10"><span class="opacitymedium">'.$langs->trans('NoOverdueInvoiceFound').'</span></td></tr>';
 }
 $today = dol_now();
 foreach ($cases as $case) {
@@ -356,9 +393,17 @@ foreach ($cases as $case) {
     if ($user->hasRight('mahnwesen', 'case', 'write') && $case->status === 'open') {
         print '<a class="button smallpaddingimp" href="'.dol_escape_htmltag($_SERVER['PHP_SELF'].'?action='.(!empty($case->paused) ? 'resume_case' : 'pause_case').'&facid='.((int) $case->fk_facture).'&token='.newToken()).'">'.$langs->trans(!empty($case->paused) ? 'Resume' : 'Pause').'</a>';
     }
-    print '</td></tr>';
+    print '</td>';
+    print '<td class="center">'.($bulkAllowed && $case->status === 'open' ? '<input type="checkbox" name="case_invoice[]" value="'.((int) $case->fk_facture).'">' : '').'</td>';
+    print '</tr>';
 }
-print '</table></div></form>';
+print '</table></div>';
+if ($bulkAllowed) {
+    print '<div class="right margintoponly"><button class="button" type="submit" name="action" value="bulk_send">'.$langs->trans('MahnwesenBulkSend').'</button> ';
+    print '<button class="button" type="submit" name="action" value="bulk_letters">'.$langs->trans('MahnwesenBulkLetters').'</button>';
+    print '<div class="opacitymedium small">'.$langs->trans('MahnwesenBulkHelp').'</div></div>';
+}
+print '</form>';
 
 print '<br><div class="opacitymedium">'.$langs->trans('MahnwesenV04SafetyFooter').'</div>';
 llxFooter();

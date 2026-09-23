@@ -24,6 +24,7 @@ parameters:
         - /var/www/html/cron/class
         - /var/www/html/compta/bank/class
         - /var/www/html/includes/tecnickcom/tcpdf
+        - /var/www/html/includes/tcpdi
     scanFiles:
         - /var/www/html/main.inc.php
     excludePaths:

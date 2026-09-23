@@ -82,6 +82,10 @@ Beim Update auf 1.3.1 werden die bisherigen Spesen für Unternehmen und Privatpe
 
 Der Kunde bekommt einen Reiter *Mahnwesen* mit allen seinen Mahnfällen, dem offenen Betrag und den offenen Spesen und Zinsen. Auf Dolibarrs Startseite zeigt eine Box, was heute ansteht: fällige Mahnschritte, ungeklärte Versandversuche und offene Spesen. Beide zeigen nur Kunden, die der Benutzer sehen darf, und zählen dasselbe wie die Übersicht.
 
+## Mehrere Fälle auf einmal
+
+In der Liste lassen sich mehrere Fälle auswählen. *Ausgewählte mahnen* sendet an alle Kunden mit E-Mail-Adresse, mit denselben Prüfungen wie eine einzelne Mahnung; was nicht geht, wird einzeln genannt. *Briefe der Ausgewählten drucken* erzeugt ein PDF mit den Briefen der Kunden ohne E-Mail-Adresse. Jeder Brief zählt wie eine versandte Mahnung: Die Stufe gilt als erledigt, die Spesen werden einmal gebucht, und im Verlauf steht der Postversand.
+
 ## Übergabe an Inkasso oder Anwalt
 
 Am Reiter *Mahnwesen* lässt sich ein Fall übergeben. Das Modul mahnt diese Rechnung danach nicht mehr und legt die vollständige Akte in Dolibarrs Dokumentablage: die Rechnung, jedes tatsächlich versandte Mahnschreiben, eine Übersicht mit den Prüfsummen, den offenen Spesen und Zinsen und dem Verlauf. Kein eigenes Archiv, nichts wird neu erzeugt.

@@ -550,3 +550,14 @@ MahnwesenHandoverFiles=Files of the case
 MahnwesenHandoverFileDescription=Dunning file for invoice
 MahnwesenCaseHandedOver=Handed over
 HistoryActionCaseHandedOver=Handed over to debt collection or a lawyer
+
+# Several cases at once (#39)
+MahnwesenBulkSend=Dun the selected
+MahnwesenBulkLetters=Print the letters of the selected
+MahnwesenBulkHelp=Dunning sends to customers with an email address, with the same checks as a single notice. Printing builds one PDF with the letters of the customers without one and records the postal delivery in the history.
+MahnwesenBulkNothingSelected=Please select cases first.
+MahnwesenBulkSent=%s notices sent, %s skipped.
+MahnwesenBulkNoLetters=No letter was built: every selected customer has an email address or is not due.
+MahnwesenBulkSkippedScope=customer outside your scope
+MahnwesenBulkSkippedHasEmail=customer has an email address
+MahnwesenPostalRecipient=postal delivery

@@ -8,6 +8,71 @@ trait DunningNoticeServiceDelivery
      *
      * @return array|false
      */
+    /**
+     * One dunning letter for a customer without an email address, recorded as
+     * sent by post (#39).
+     *
+     * It goes through the same reservation as an email, so the stage is
+     * completed once and its fee is booked once. What differs is only the way
+     * out: paper instead of SMTP.
+     *
+     * @param Facture $invoice Invoice
+     * @param array $case Stored case
+     * @param int $level Stage
+     * @param User $user Acting user
+     * @return array|false fullpath and relative path of the letter
+     */
+    public function sendPostalNotice($invoice, $case, $level, $user)
+    {
+        global $conf, $langs;
+        $this->error = '';
+        $this->errors = array();
+        if (empty($case) || $case['status'] !== 'open' || !empty($case['paused'])) {
+            $this->error = 'Dunning case is closed or paused.';
+            return false;
+        }
+        if ($this->manager->getDunningBlock((int) $invoice->id) !== null) {
+            $this->error = 'Dunning is blocked on the invoice or its customer (#37).';
+            return false;
+        }
+        $lang = (!empty($invoice->thirdparty) && !empty($invoice->thirdparty->default_lang)) ? (string) $invoice->thirdparty->default_lang : $langs->defaultlang;
+        $template = $this->getTemplate($level, $lang, null, (int) $this->manager->resolveProfile((int) $invoice->id)['profile_id']);
+        if ($template === false) {
+            return false;
+        }
+        $body = $this->renderTemplate($template['body'], $invoice, $case, $level, $lang);
+        $breakdown = $this->manager->getAmountBreakdown($invoice, $case, $level);
+        $historyMessage = 'Postal letter, stage '.((int) $level).', '.number_format((float) $breakdown['total'], 2, '.', '').' '.$conf->currency;
+        $reservation = $this->manager->reserveNoticeAttempt($case, $langs->transnoentitiesnoconv('MahnwesenPostalRecipient'), $level,
+            (float) $breakdown['invoice'], $historyMessage, $user, 'postal', array(
+                'subject' => $this->renderTemplate($template['subject'], $invoice, $case, $level, $lang),
+                'body_html' => $body,
+                'fee' => (float) $breakdown['fee'],
+                'interest' => (float) $breakdown['interest'],
+                'total' => (float) $breakdown['total'],
+                'template_id' => !empty($template['source_id']) ? (int) $template['source_id'] : 0,
+                'template_lang' => $lang,
+            ));
+        if ($reservation === false) {
+            $this->error = $this->manager->error ?: 'Unable to reserve the postal notice';
+            return false;
+        }
+        $attemptId = (int) $reservation['id'];
+        $pdf = $this->generatePdf($invoice, $case, $level, $body, false, $lang);
+        if ($pdf === false) {
+            $this->manager->finalizeNoticeAttempt($attemptId, false, 'The letter could not be built: '.$this->error, $case, $user, false);
+            return false;
+        }
+        $this->manager->addNoticeAttemptFile($attemptId, 'dunning', basename($pdf['fullpath']), $pdf['fullpath']);
+        if (!$this->manager->finalizeNoticeAttempt($attemptId, true, $historyMessage.' (printed)', $case, $user, false)) {
+            $this->error = $this->manager->error ?: 'The postal notice could not be recorded';
+            return false;
+        }
+        $this->publishToInvoiceDocuments($invoice, $level, $pdf['fullpath']);
+        $this->manager->syncInvoiceCase((int) $invoice->id, $user);
+        return $pdf;
+    }
+
     public function sendNotice($invoice, $case, $level, $recipient, $subject, $body, $attachInvoice, $user, $mode = 'manual', $templateFrom = '', $lang = '', $cc = '', $bcc = '', $templateId = 0, $extraAttachments = array(), $deliveryReceipt = false)
     {
         $this->error = '';

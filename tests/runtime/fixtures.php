@@ -417,6 +417,22 @@ if ($stage === 'api') {
     exit(0);
 }
 
+if ($stage === 'postal') {
+    // A customer without an email address and an overdue invoice, for the letters (#39).
+    $countryId = (int) rt_value($db, "SELECT rowid FROM ".MAIN_DB_PREFIX."c_country WHERE code = 'AT'");
+    $existing = (int) rt_value($db, "SELECT rowid FROM ".MAIN_DB_PREFIX."societe WHERE nom = 'Runtime Papier'");
+    if ($existing > 0) {
+        $customer = new Societe($db);
+        $customer->fetch($existing);
+    } else {
+        $customer = rt_customer($db, $admin, 'Runtime Papier', '', 'TE_SMALL', $countryId);
+        rt_exec($db, "UPDATE ".MAIN_DB_PREFIX."societe SET email = '' WHERE rowid = ".((int) $customer->id));
+    }
+    print json_encode(array('customer' => (int) $customer->id,
+        'invoice' => rt_invoice($db, $admin, $customer, 70, 22, 0, array(array('Runtime-Briefversand', 70, 0)))), JSON_PRETTY_PRINT)."\n";
+    exit(0);
+}
+
 if ($stage === 'bank') {
     // A bank account with IBAN and BIC; Dolibarr builds its EPC QR code from it (#35).
     require_once DOL_DOCUMENT_ROOT.'/compta/bank/class/account.class.php';

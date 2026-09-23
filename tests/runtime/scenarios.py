@@ -1900,6 +1900,43 @@ def handover(stack: Stack) -> str:
     return f"case handed over, automation silent, {len(listed)} files in the document store with matching checksums"
 
 
+def bulk(stack: Stack) -> str:
+    """Several cases at once: emails with the usual checks, letters for customers without one (#39)."""
+    browser = stack.browser()
+    made = stack.php_fixture("payment")["invoice"]
+    postal = stack.php_fixture("postal")["invoice"]
+    dashboard = page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard")
+    page_ok(browser.submit(form_with_action(dashboard, "sync_cases", "dashboard")), "synchronise")
+
+    expect('name="case_invoice[]"' in page_ok(browser.get("/custom/mahnwesen/index.php?limit=100"), "dashboard").text,
+           "the list has no selection boxes (#39)")
+
+    mailpit = stack.mailpit()
+    mailpit.clear()
+    sent = page_ok(browser.post("/custom/mahnwesen/index.php", [("token", token_of(page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard"))),
+                                                                ("action", "bulk_send"), ("case_invoice[]", str(made["id"])),
+                                                                ("case_invoice[]", str(postal["id"]))]), "bulk send")
+    mails = [m for m in mailpit.messages() if made["ref"] in m["Subject"]]
+    expect(mails, f"the bulk send did not reach {made['ref']} (#39)")
+    expect(not [m for m in mailpit.messages() if postal["ref"] in m["Subject"]],
+           f"a customer without an email address got a mail for {postal['ref']} (#39)")
+
+    # The letters of customers without an email address, as one PDF.
+    before = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE fk_facture = {postal['id']} AND action = 'notice_sent'")
+    batch = browser.post("/custom/mahnwesen/index.php", [("token", token_of(page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard"))),
+                                                         ("action", "bulk_letters"), ("case_invoice[]", str(postal["id"])),
+                                                         ("case_invoice[]", str(made["id"]))])
+    expect(batch.status == 200 and batch.body.startswith(b"%PDF"),
+           f"the letter batch is no PDF: HTTP {batch.status}, it starts with {batch.body[:200]!r} (#39)")
+    expect(postal["ref"] in pdf_text(batch.body), f"the batch does not hold the letter of {postal['ref']} (#39)")
+    expect(made["ref"] not in pdf_text(batch.body), f"the batch holds a letter of a customer with an email address (#39)")
+    after = stack.sql(f"SELECT mode, status FROM llx_mahnwesen_attempt WHERE fk_facture = {postal['id']} ORDER BY rowid DESC LIMIT 1")[0]
+    expect(after == ["postal", "sent"], f"the printed letter was recorded as {after} (#39)")
+    history = stack.value(f"SELECT COUNT(*) FROM llx_mahnwesen_history WHERE fk_facture = {postal['id']} AND action = 'notice_sent'")
+    expect(int(history) == int(before) + 1, f"the postal delivery is {before} -> {history} times in the history (#39)")
+    return "bulk send by email, letters of customers without one as one PDF, recorded as postal"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1940,6 +1977,7 @@ SCENARIOS = (
     ("stats", "The dunning figures agree with the data", stats, ("dry-run",)),
     ("retention", "Mail texts and copies go after the retention", retention, ("stats",)),
     ("handover", "A handed over case ends the automation", handover, ("retention",)),
+    ("bulk", "Several cases at once, by email and on paper", bulk, ("handover",)),
 )
 
 

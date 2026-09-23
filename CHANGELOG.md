@@ -13,6 +13,12 @@ Dunning where you already work.
 
 ### Added
 
+- Several cases at once from the dashboard list: *Ausgewählte mahnen* sends to
+  the customers with an email address, with the same checks as a single
+  notice and a line for every case it skips. *Briefe der Ausgewählten drucken*
+  builds one PDF with the letters of the customers without an email address;
+  each counts as a sent notice, so the stage is completed once, its fee is
+  booked once, and the history records the postal delivery (#39).
 - A case can be handed over to debt collection or a lawyer, with a reason. The
   automation then sends nothing more for that invoice, and the whole file goes
   into Dolibarr's document store under `ecm/mahnwesen/<invoice>`: the invoice,
