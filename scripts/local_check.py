@@ -917,7 +917,7 @@ DYNAMIC_LANG_PREFIXES = ("MahnwesenFeeStatus_", "DunningStage", "MahnwesenDryRun
                          "SyncResult", "MahnwesenFileStage", "MahnwesenHistoryResult")
 # Keys Dolibarr looks up for the module, and methods Dolibarr calls.
 DOLIBARR_LANG_KEYS = {"Mahnwesen", "ModuleMahnwesenName", "ModuleMahnwesenDesc", "ModuleMahnwesenDescLong"}
-DOLIBARR_METHODS = {"__construct", "init", "remove", "doScheduledJob", "addMoreActionsButtons", "emailElementlist", "addHtmlHeader", "runTrigger"}
+DOLIBARR_METHODS = {"__construct", "init", "remove", "doScheduledJob", "addMoreActionsButtons", "emailElementlist", "addHtmlHeader", "runTrigger", "loadBox", "showBox"}
 
 
 def unused_code(context: Context) -> str:

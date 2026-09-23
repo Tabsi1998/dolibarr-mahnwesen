@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '1.4.3';
+        $this->version = '1.5.0';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -74,6 +74,8 @@ class modMahnwesen extends DolibarrModules
         // Add a dedicated Mahnwesen tab to customer invoices.
         $this->tabs = array();
         $this->tabs[] = array('data' => 'invoice:+mahnwesen:Mahnwesen:mahnwesen@mahnwesen:$user->hasRight(\'mahnwesen\', \'dashboard\', \'read\'):/mahnwesen/invoice.php?id=__ID__');
+        // All dunning cases and claims of one customer (#41).
+        $this->tabs[] = array('data' => 'thirdparty:+mahnwesen:Mahnwesen:mahnwesen@mahnwesen:$user->hasRight(\'mahnwesen\', \'dashboard\', \'read\'):/mahnwesen/customer.php?socid=__ID__');
         // Defaults. Automatic sending resets to OFF when the module is disabled,
         // so an update never resumes unattended mail. Manual sending is asked
         // for per notice anyway and keeps the administrator's choice (#54).
@@ -95,6 +97,11 @@ class modMahnwesen extends DolibarrModules
             31 => array('MAHNWESEN_LETTER_QR', 'chaine', '1', 'Print the EPC QR code of the invoice on the dunning letter', 0, 'current', 0),
             32 => array('MAHNWESEN_EVENT_RETRY_MAX', 'chaine', '5', 'How often an event delivery is retried before it rests in the backlog', 0, 'current', 0),
             33 => array('MAHNWESEN_API_MAX_DOCUMENT_MB', 'chaine', '20', 'Largest archived dunning letter the API hands out', 0, 'current', 0),
+        );
+
+        // What dunning needs today, on Dolibarr's home page (#41).
+        $this->boxes = array(
+            0 => array('file' => 'box_mahnwesen.php@mahnwesen', 'note' => '', 'enabledbydefaulton' => 'Home'),
         );
 
         // Daily worker. Case synchronization and timed pause release are safe
