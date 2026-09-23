@@ -10,29 +10,33 @@ use Luracast\Restler\RestException;
 require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
 require_once dol_buildpath('/mahnwesen/class/dunningmanager.class.php', 0);
 
+/*
+ * Two views, kept apart on purpose (#57, #69). The operations view, for
+ * internal users with the right api/operations, sees the automation and the
+ * last run of the whole entity. The customer view, for a technical user with
+ * the right api/customer, sees only the customers that user is the sales
+ * representative of in Dolibarr; that assignment is the proof, a customer id
+ * from the request is checked against it and never trusted by itself.
+ *
+ * Every call is read-only, amounts are numbers with two decimals in the
+ * entity's currency, and docs/API.md holds the whole contract.
+ *
+ * The comments of the endpoints stay short on purpose, and every helper starts
+ * with an underscore: Dolibarr's REST framework parses the comments of every
+ * other method and runs out of memory on a longer one.
+ */
+
 /**
- * Read the dunning status (#57).
- *
- * Two views, kept apart on purpose:
- *
- * - the operations view, for internal users with the right "Read the dunning
- *   status of the whole entity through the API": automation state and the last
- *   run. A customer portal never needs this.
- * - the customer view, for a technical user with the right "Read the dunning
- *   status of its own customers through the API". Which customers those are is
- *   proven the native Dolibarr way: the technical user is the sales
- *   representative of exactly those third parties. A customer id from the
- *   request is checked against that, never trusted by itself.
- *
- * Every call is read-only: nothing is sent, no stage moves, no fee changes.
- * Amounts are numbers with two decimals in the entity's currency.
+ * API class for the dunning status
  *
  * @access protected
  * @class  DolibarrApiAccess {@requires user,external}
  */
 class Mahnwesen extends DolibarrApi
 {
-    /** @var DunningManager */
+    /**
+     * @var DunningManager {@type DunningManager}
+     */
     private $manager;
 
     /**
@@ -46,10 +50,7 @@ class Mahnwesen extends DolibarrApi
     }
 
     /**
-     * Dunning status of one customer invoice
-     *
-     * Returns what is open on that invoice, its dunning stage and what comes
-     * next, as far as the caller may see it.
+     * Get the dunning status of a customer invoice
      *
      * @param  int $id Id of the customer invoice
      * @return array Dunning status of the invoice
@@ -66,21 +67,21 @@ class Mahnwesen extends DolibarrApi
             // An invoice of another entity or none at all reads the same.
             throw new RestException(404, 'Not found');
         }
-        $this->checkCustomerAccess((int) $invoice->socid);
+        $this->_checkCustomerAccess((int) $invoice->socid);
         $case = $this->manager->getCaseByInvoice((int) $invoice->id);
         if (!$case) {
             throw new RestException(404, 'Not found');
         }
-        return $this->caseData($case, $invoice);
+        return $this->_caseData($case, $invoice);
     }
 
     /**
-     * Dunning status of the invoices of one customer
+     * Get the dunning status of the invoices of a customer
      *
      * @param  int $id Id of the third party
-     * @param  int $page Page, starting at 0
+     * @param  int $page Page number, starting at 0
      * @param  int $limit Rows per page, at most 100
-     * @return array Cases of that customer
+     * @return array Dunning cases of that customer
      *
      * @url GET thirdparties/{id}
      *
@@ -91,7 +92,7 @@ class Mahnwesen extends DolibarrApi
     {
         global $conf;
         $socid = (int) $id;
-        $this->checkCustomerAccess($socid);
+        $this->_checkCustomerAccess($socid);
         $limit = max(1, min(100, (int) $limit));
         $offset = max(0, (int) $page) * $limit;
         $sql = 'SELECT c.rowid FROM '.MAIN_DB_PREFIX.'mahnwesen_case as c';
@@ -112,17 +113,14 @@ class Mahnwesen extends DolibarrApi
             if ($invoice->fetch((int) $case['invoice_id']) <= 0) {
                 continue;
             }
-            $cases[] = $this->caseData($case, $invoice);
+            $cases[] = $this->_caseData($case, $invoice);
         }
         $this->db->free($resql);
         return array('page' => max(0, (int) $page), 'limit' => $limit, 'cases' => $cases);
     }
 
     /**
-     * State of the dunning automation of this entity
-     *
-     * Only for internal users with the operations right; a customer portal
-     * neither needs nor reaches it.
+     * Get the state of the dunning automation of this entity
      *
      * @return array State of the automation and of the last run
      *
@@ -134,7 +132,7 @@ class Mahnwesen extends DolibarrApi
     {
         global $conf;
         $user = DolibarrApiAccess::$user;
-        if (!$this->mayReadOperations($user)) {
+        if (!$this->_mayReadOperations($user)) {
             throw new RestException(401, 'Not allowed');
         }
         $run = array();
@@ -154,25 +152,20 @@ class Mahnwesen extends DolibarrApi
             'currency' => (string) $conf->currency,
             'automatic_sending' => getDolGlobalInt('MAHNWESEN_AUTO_SEND_ENABLED', 0) ? 1 : 0,
             'manual_sending' => getDolGlobalInt('MAHNWESEN_MANUAL_SEND_ENABLED', 0) ? 1 : 0,
-            'open_cases' => $this->countCases("status = 'open'"),
-            'cases_with_open_claims' => $this->countCases("status = 'fee_open'"),
+            'open_cases' => $this->_countCases("status = 'open'"),
+            'cases_with_open_claims' => $this->_countCases("status = 'fee_open'"),
             'events_waiting' => $this->manager->countPendingEvents(),
             'last_run' => $run,
         );
     }
 
     /**
-     * The dunning letters really sent for one invoice
-     *
-     * Only letters of a delivery that went out, or that was confirmed as gone
-     * out after a controlled clarification. Drafts, previews and unclear
-     * attempts are not in this list. The answer names the archived evidence,
-     * not the current state of anything.
+     * Get the dunning letters really sent for an invoice
      *
      * @param  int $id Id of the customer invoice
-     * @param  int $page Page, starting at 0
+     * @param  int $page Page number, starting at 0
      * @param  int $limit Rows per page, at most 100
-     * @return array The sent dunning letters of that invoice
+     * @return array Archived dunning letters of that invoice
      *
      * @url GET invoices/{id}/documents
      *
@@ -186,10 +179,11 @@ class Mahnwesen extends DolibarrApi
         if ($invoice->fetch((int) $id) <= 0) {
             throw new RestException(404, 'Not found');
         }
-        $this->checkCustomerAccess((int) $invoice->socid);
+        $this->_checkCustomerAccess((int) $invoice->socid);
         $limit = max(1, min(100, (int) $limit));
         $offset = max(0, (int) $page) * $limit;
-        $sql = 'SELECT f.rowid, f.display_name, f.sha256, f.mime_type, f.size_bytes, f.date_creation, a.rowid as attempt_id, a.level, a.sent_at';
+        // Only deliveries that went out; drafts, previews and unclear attempts stay out (#69).
+        $sql = 'SELECT f.rowid, f.display_name, f.sha256, f.mime_type, f.size_bytes, a.rowid as attempt_id, a.level, a.sent_at';
         $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt_file as f';
         $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'mahnwesen_attempt as a ON a.rowid = f.fk_attempt';
         $sql .= ' WHERE f.entity = '.((int) $conf->entity).' AND a.fk_facture = '.((int) $invoice->id);
@@ -219,26 +213,22 @@ class Mahnwesen extends DolibarrApi
     }
 
     /**
-     * One archived dunning letter, exactly as it went out
+     * Get one archived dunning letter, exactly as it went out
      *
-     * The answer holds the bytes of the archive, base64 encoded, with the hash
-     * that was recorded when it was sent. Nothing is generated again, so a
-     * changed amount or name never reaches an old letter.
-     *
-     * @param  int $id Id of the document, from the list
-     * @return array The archived letter
+     * @param  int $id Id of the document from the list
+     * @return array The archived letter, base64 encoded
      *
      * @url GET documents/{id}
      *
      * @throws RestException 401 Not allowed
      * @throws RestException 404 Not found
-     * @throws RestException 410 The archived file is gone
-     * @throws RestException 413 The archived file is too large for the API
+     * @throws RestException 410 Gone
+     * @throws RestException 413 Too large
      */
     public function getDocument($id)
     {
         global $conf;
-        $sql = 'SELECT f.rowid, f.display_name, f.snapshot_path, f.sha256, f.mime_type, f.size_bytes, a.rowid as attempt_id, a.level, a.sent_at, a.fk_facture';
+        $sql = 'SELECT f.rowid, f.display_name, f.snapshot_path, f.sha256, f.mime_type, a.rowid as attempt_id, a.level, a.sent_at, a.fk_facture';
         $sql .= ' FROM '.MAIN_DB_PREFIX.'mahnwesen_attempt_file as f';
         $sql .= ' INNER JOIN '.MAIN_DB_PREFIX.'mahnwesen_attempt as a ON a.rowid = f.fk_attempt';
         $sql .= ' WHERE f.entity = '.((int) $conf->entity).' AND f.rowid = '.((int) $id);
@@ -249,16 +239,17 @@ class Mahnwesen extends DolibarrApi
             $this->db->free($resql);
         }
         if (!$row) {
-            // A draft, an unclear attempt, another entity or nothing at all: the same answer.
+            // A draft, an unclear attempt, another entity or nothing: the same answer.
             throw new RestException(404, 'Not found');
         }
         $invoice = new Facture($this->db);
         if ($invoice->fetch((int) $row->fk_facture) <= 0) {
             throw new RestException(404, 'Not found');
         }
-        $this->checkCustomerAccess((int) $invoice->socid);
+        $this->_checkCustomerAccess((int) $invoice->socid);
         $path = (string) $row->snapshot_path;
-        if ($path === '' || !is_readable($path) || !is_file($path)) {
+        if ($path === '' || !is_file($path) || !is_readable($path)) {
+            // The archive is gone; an original is never invented (#69).
             throw new RestException(410, 'The archived document is not available any more');
         }
         $maxBytes = max(1, getDolGlobalInt('MAHNWESEN_API_MAX_DOCUMENT_MB', 20)) * 1024 * 1024;
@@ -287,24 +278,27 @@ class Mahnwesen extends DolibarrApi
     }
 
     /**
-     * What one case tells the outside: references, states and amounts (#57).
+     * Build what one case tells the outside
      *
-     * Internal notes, email texts, recipients, attachment paths and anything
-     * of another customer stay out.
-     *
-     * @param array $case Stored case
-     * @param Facture $invoice Its invoice
-     * @return array
+     * @param  array $case Stored case
+     * @param  Facture $invoice Its invoice
+     * @return array Contract fields of that case
      */
-    protected function caseData($case, $invoice)
+    protected function _caseData($case, $invoice)
     {
         global $conf;
-        $claims = array('fee_open' => 0.0, 'interest_open' => 0.0, 'on_invoice' => 0.0);
+        // Internal notes, email texts, recipients and attachment paths stay out (#57).
+        $fees = 0.0;
+        $interest = 0.0;
         foreach ($this->manager->getOpenClaims((int) $case['id']) as $claim) {
-            $claims[$claim['kind'] === 'interest' ? 'interest_open' : 'fee_open'] += (float) $claim['amount'];
+            if ($claim['kind'] === 'interest') {
+                $interest += (float) $claim['amount'];
+            } else {
+                $fees += (float) $claim['amount'];
+            }
         }
         // What went onto an invoice of its own is not counted here again (#34).
-        $claims['on_invoice'] = round($this->manager->getSettledClaimAmount((int) $case['id'], 'fee')
+        $onOwnInvoice = round($this->manager->getSettledClaimAmount((int) $case['id'], 'fee')
             + $this->manager->getSettledClaimAmount((int) $case['id'], 'interest'), 2);
         $resolution = $this->manager->resolveProfile((int) $invoice->id);
         $remain = $invoice->getRemainToPay(0);
@@ -314,16 +308,16 @@ class Mahnwesen extends DolibarrApi
             'thirdparty_id' => (int) $invoice->socid,
             'entity' => (int) $case['entity'],
             'case_id' => (int) $case['id'],
-            'case_revision' => (int) ($case['revision'] ?? 0),
+            'case_revision' => (int) (isset($case['revision']) ? $case['revision'] : 0),
             'status' => (string) $case['status'],
             'paused' => !empty($case['paused']) ? 1 : 0,
             'stage' => (int) $case['current_level'],
             'profile_code' => (string) $resolution['profile']['code'],
             'currency' => (string) $conf->currency,
             'invoice_open' => round(is_numeric($remain) ? (float) $remain : 0.0, 2),
-            'fee_open' => round($claims['fee_open'], 2),
-            'interest_open' => round($claims['interest_open'], 2),
-            'claims_on_own_invoice' => $claims['on_invoice'],
+            'fee_open' => round($fees, 2),
+            'interest_open' => round($interest, 2),
+            'claims_on_own_invoice' => $onOwnInvoice,
             'due_date' => $invoice->date_lim_reglement ? dol_print_date($invoice->date_lim_reglement, '%Y-%m-%d', 'tzserver') : '',
             'next_action_at' => !empty($case['next_action_at']) ? dol_print_date($this->db->jdate($case['next_action_at']), '%Y-%m-%d', 'tzserver') : '',
             'changed_at' => !empty($case['tms']) ? dol_print_date($this->db->jdate($case['tms']), '%Y-%m-%d %H:%M:%S', 'tzserver') : '',
@@ -331,24 +325,21 @@ class Mahnwesen extends DolibarrApi
     }
 
     /**
-     * The trust boundary of the customer view (#57).
+     * Check that the caller may see a customer
      *
-     * The caller reaches a customer when it may read the whole entity
-     * (operations) or when Dolibarr itself ties it to that customer as its
-     * sales representative. A customer id alone proves nothing.
-     *
-     * @param int $socid Third party
+     * @param  int $socid Id of the third party
      * @return void
+     *
      * @throws RestException 401 Not allowed
      * @throws RestException 404 Not found
      */
-    protected function checkCustomerAccess($socid)
+    protected function _checkCustomerAccess($socid)
     {
         $user = DolibarrApiAccess::$user;
         if ($socid <= 0) {
             throw new RestException(404, 'Not found');
         }
-        if ($this->mayReadOperations($user)) {
+        if ($this->_mayReadOperations($user)) {
             return;
         }
         if (!is_object($user) || !method_exists($user, 'hasRight') || !$user->hasRight('mahnwesen', 'api', 'customer')) {
@@ -360,14 +351,24 @@ class Mahnwesen extends DolibarrApi
         }
     }
 
-    /** Whether a user may read the dunning state of the whole entity. */
-    protected function mayReadOperations($user)
+    /**
+     * Check whether a user may read the whole entity
+     *
+     * @param  User $user User of the call
+     * @return bool True when the operations right is set
+     */
+    protected function _mayReadOperations($user)
     {
         return is_object($user) && method_exists($user, 'hasRight') && $user->hasRight('mahnwesen', 'api', 'operations');
     }
 
-    /** @return int Cases of the entity in one state */
-    protected function countCases($where)
+    /**
+     * Count the cases of the entity in one state
+     *
+     * @param  string $where Condition on the case table
+     * @return int Number of cases
+     */
+    protected function _countCases($where)
     {
         global $conf;
         $resql = $this->db->query('SELECT COUNT(*) as total FROM '.MAIN_DB_PREFIX.'mahnwesen_case WHERE entity = '.((int) $conf->entity).' AND '.$where);
