@@ -129,6 +129,8 @@ if ($action === 'save_general') {
     $maxScan = GETPOSTINT('max_scan');
     $includeDeposits = GETPOSTINT('include_deposits') > 0 ? 1 : 0;
     $letterQr = GETPOSTINT('letter_qr') > 0 ? 1 : 0;
+    $retentionDays = GETPOSTINT('retention_days');
+    if ($retentionDays < 0 || $retentionDays > 3650) { $errors[] = $langs->trans('MahnwesenRetentionInvalid'); }
     $errors = array();
     if ($minAmount < 0) { $errors[] = $langs->trans('MinAmountInvalid'); }
     if ($maxScan < 1 || $maxScan > 5000) { $errors[] = $langs->trans('MaxScanInvalid'); }
@@ -137,7 +139,8 @@ if ($action === 'save_general') {
         $ok = mw4_set_const($db, 'MAHNWESEN_MIN_AMOUNT', $minAmount, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_MAX_SCAN', $maxScan, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_INCLUDE_DEPOSITS', $includeDeposits, $conf->entity)
-            && mw4_set_const($db, 'MAHNWESEN_LETTER_QR', $letterQr, $conf->entity);
+            && mw4_set_const($db, 'MAHNWESEN_LETTER_QR', $letterQr, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_RETENTION_DAYS', $retentionDays, $conf->entity);
         if ($ok) { $db->commit(); setEventMessages($langs->trans('SetupSaved'), null, 'mesgs'); }
         else { $db->rollback(); setEventMessages($langs->trans('Error'), null, 'errors'); }
         mw4_redirect('general');
@@ -283,6 +286,7 @@ $minAmount = getDolGlobalString('MAHNWESEN_MIN_AMOUNT', '1.00');
 $maxScan = getDolGlobalInt('MAHNWESEN_MAX_SCAN', 500);
 $includeDeposits = getDolGlobalInt('MAHNWESEN_INCLUDE_DEPOSITS', 0);
 $letterQr = getDolGlobalInt('MAHNWESEN_LETTER_QR', 1);
+$retentionDays = getDolGlobalInt('MAHNWESEN_RETENTION_DAYS', 0);
 $fromEmail = getDolGlobalString('MAHNWESEN_FROM_EMAIL');
 $manual = getDolGlobalInt('MAHNWESEN_MANUAL_SEND_ENABLED', 0);
 $auto = getDolGlobalInt('MAHNWESEN_AUTO_SEND_ENABLED', 0);
@@ -318,6 +322,7 @@ if ($tab === 'general') {
     print '<tr><td>'.$langs->trans('MaximumScan').'</td><td><input type="number" min="1" max="5000" class="width100" name="max_scan" value="'.((int) $maxScan).'"></td><td>'.$langs->trans('MaximumScanHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('IncludeDepositInvoices').'</td><td><input type="checkbox" name="include_deposits" value="1"'.($includeDeposits ? ' checked' : '').'></td><td>'.$langs->trans('IncludeDepositInvoicesHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('MahnwesenLetterQr').'</td><td><input type="checkbox" name="letter_qr" value="1"'.($letterQr ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenLetterQrHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenRetention').'</td><td><input type="number" min="0" max="3650" class="width75" name="retention_days" value="'.((int) $retentionDays).'"> '.$langs->trans('Days').'</td><td>'.$langs->trans('MahnwesenRetentionHelp').'</td></tr>';
     print '</table><div class="center"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button></div></form>';
 }
 

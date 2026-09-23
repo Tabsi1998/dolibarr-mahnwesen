@@ -136,6 +136,11 @@ trait DunningManagerAutomation
             return 1;
         }
         $counters['synchronized'] = (int) $sync['created'] + (int) $sync['updated'] + (int) $sync['level_changed'] + (int) $sync['reopened'] + (int) $sync['closed'] + (int) $sync['unchanged'];
+        // Mail texts and copies older than the retention period (#42).
+        $retention = $this->applyRetention($actor, 200);
+        if ($retention === false) {
+            $warnings[] = 'Unable to apply the retention period: '.$this->error;
+        }
         // Events of changes that happened before this run (#59).
         $dispatched = $this->dispatchEvents($actor, 200);
         if ($dispatched === false) {

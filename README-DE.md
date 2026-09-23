@@ -82,6 +82,10 @@ Beim Update auf 1.3.1 werden die bisherigen Spesen für Unternehmen und Privatpe
 
 Der Kunde bekommt einen Reiter *Mahnwesen* mit allen seinen Mahnfällen, dem offenen Betrag und den offenen Spesen und Zinsen. Auf Dolibarrs Startseite zeigt eine Box, was heute ansteht: fällige Mahnschritte, ungeklärte Versandversuche und offene Spesen. Beide zeigen nur Kunden, die der Benutzer sehen darf, und zählen dasselbe wie die Übersicht.
 
+## Aufbewahrung
+
+In der Einrichtung lässt sich eintragen, wie lange gespeicherte Mailtexte und Kopien der Anhänge aufbewahrt werden. Danach löscht der tägliche Lauf Text und Kopien; Datum, Empfänger, Betreff, Dateiname, Größe und Prüfsumme bleiben als Nachweis. Ohne Eintrag wird nichts gelöscht.
+
 ## Kennzahlen
 
 Die Seite *Kennzahlen* zeigt je Mahnstufe, wie viele Mahnungen hinausgingen, wie viele Tage von der Fälligkeit bis zum Versand vergingen und wie viele dieser Rechnungen inzwischen bezahlt sind. Dazu die offenen Spesen und Zinsen, die offenen Fälle je Kunde und je Mahnprofil. Alles aus den gespeicherten Fällen und dem Nebenbuch, begrenzt auf die Kunden, die der Benutzer sehen darf.
