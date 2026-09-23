@@ -71,7 +71,11 @@ def changelog_since(version: str, released: list, text: str | None = None) -> st
 def versions_between(version: str, released: list, text: str) -> list:
     """Versions of the changelog from $version down to the newest release, that one excluded."""
     names = [match.group(1) for match in re.finditer(r"^## \[([^\]]+)\]", text, re.MULTILINE) if match.group(1) != "Unreleased"]
-    newest_release = released[0] if released else ""
+    if not released:
+        # Without a known release there is nothing to catch up on, and the old
+        # sections of the changelog are none of this release's business.
+        return [version]
+    newest_release = released[0]
     out = []
     for name in names:
         if name == newest_release:
