@@ -83,6 +83,10 @@ Every stage setting comes from the invoice's dunning profile (#32). The first ru
 
 The profile holds the interest rule: none, a fixed rate, or the base rate of each day plus a surcharge in percentage points. Interest is counted per day on the open amount, from the day after the due date up to today, and shown in the tab, the email and the letter. A delivered notice books it in the ledger, where a new interest claim replaces the open one of the same case, so nothing is counted twice. The Dolibarr invoice stays as it is (#33).
 
+## Handover
+
+A case that is open can be handed over to debt collection or a lawyer, with a reason. It then rests in the state `handed_over`: the automation sends nothing more for that invoice, and its history stays as it is. The whole file goes into Dolibarr's own document store under `ecm/mahnwesen/<invoice>`: the invoice as it was sent, every dunning letter of a delivery that went out, a summary with the checksums of each file, the open claims and the history. No archive of its own is built, and nothing is generated again (#40).
+
 ## Events for other modules
 
 `MAHNWESEN_NOTICE_SENT`, `MAHNWESEN_CASE_FINAL_STAGE`, `MAHNWESEN_CASE_PAUSED`, `MAHNWESEN_CASE_RESUMED`, `MAHNWESEN_CASE_REOPENED` and `MAHNWESEN_CASE_CLOSED` are ordinary Dolibarr triggers. Every event carries the contract: a stable event id, its version, entity, case and invoice, stage, profile code, the case revision and the time it happened. It never carries email texts, recipients, bank data, reasons or documents.

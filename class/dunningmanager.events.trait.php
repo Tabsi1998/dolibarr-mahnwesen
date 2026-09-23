@@ -20,6 +20,7 @@ trait DunningManagerEvents
             'case_closed' => 'MAHNWESEN_CASE_CLOSED',
             'invoice_paid_fee_open' => 'MAHNWESEN_CASE_CLOSED',
             'case_reopened' => 'MAHNWESEN_CASE_REOPENED',
+            'case_handed_over' => 'MAHNWESEN_CASE_HANDED_OVER',
             'paused' => 'MAHNWESEN_CASE_PAUSED',
             'resumed' => 'MAHNWESEN_CASE_RESUMED',
             'auto_resumed' => 'MAHNWESEN_CASE_RESUMED',

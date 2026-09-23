@@ -194,7 +194,7 @@ $statusFilters = array(
     'due' => " AND c.status = 'open' AND c.paused = 0 AND ".$blockSum." = 0 AND c.next_action_at IS NOT NULL AND c.next_action_at <= ".$nowSql,
     'paused' => " AND c.status = 'open' AND c.paused = 1",
     'blocked' => " AND c.status = 'open' AND ".$blockSum." > 0",
-    'closed' => " AND c.status IN ('closed', 'fee_open')",
+    'closed' => " AND c.status IN ('closed', 'fee_open', 'handed_over')",
     'all' => '',
 );
 if (!isset($statusFilters[$searchStatus])) { $searchStatus = 'active'; }
@@ -344,7 +344,8 @@ foreach ($cases as $case) {
     print '<td>'.(!empty($case->next_action_at) ? dol_print_date($db->jdate($case->next_action_at), 'day') : '').'</td>';
     $block = $manager->blockFromRow($case);
     if ($case->status !== 'open') {
-        print '<td><span class="badge badge-status0">'.$langs->trans($case->status === 'fee_open' ? 'MahnwesenCaseFeeOpen' : 'CaseClosed').'</span></td>';
+        print '<td><span class="badge badge-status0">'.$langs->trans($case->status === 'fee_open' ? 'MahnwesenCaseFeeOpen'
+            : ($case->status === 'handed_over' ? 'MahnwesenCaseHandedOver' : 'CaseClosed')).'</span></td>';
     } elseif ($block !== null) {
         print '<td><span class="badge badge-status8 classfortooltip" title="'.dol_escape_htmltag(dol_string_nohtmltag($manager->describeBlock($block))).'">'.$langs->trans('MahnwesenBlocked').'</span>'
             .($block['reason'] !== '' ? ' <span class="small">'.dol_escape_htmltag($block['reason']).'</span>' : '').'</td>';

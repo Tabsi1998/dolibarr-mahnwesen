@@ -176,6 +176,7 @@ trait DunningManagerHistory
             'case_created' => 'HistoryActionCaseCreated',
             'case_reopened' => 'HistoryActionCaseReopened',
             'case_closed' => 'HistoryActionCaseClosed',
+            'case_handed_over' => 'HistoryActionCaseHandedOver',
             'level_changed' => 'HistoryActionLevelChanged',
             'paused' => 'HistoryActionPaused',
             'resumed' => 'HistoryActionResumed',

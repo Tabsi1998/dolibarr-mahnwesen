@@ -13,6 +13,11 @@ Dunning where you already work.
 
 ### Added
 
+- A case can be handed over to debt collection or a lawyer, with a reason. The
+  automation then sends nothing more for that invoice, and the whole file goes
+  into Dolibarr's document store under `ecm/mahnwesen/<invoice>`: the invoice,
+  every dunning letter that really went out, a summary with their checksums,
+  the open claims and the history (#40).
 - A retention in the general setup: after that many days the daily run deletes
   the stored mail texts and the copies of the attachments, and keeps date,
   recipient, subject, file name, size and checksum as evidence. Without a

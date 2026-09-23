@@ -22,6 +22,7 @@ require_once __DIR__.'/dunningmanager.attempts.trait.php';
 require_once __DIR__.'/dunningmanager.fees.trait.php';
 require_once __DIR__.'/dunningmanager.history.trait.php';
 require_once __DIR__.'/dunningmanager.events.trait.php';
+require_once __DIR__.'/dunningmanager.handover.trait.php';
 require_once __DIR__.'/dunningmanager.automation.trait.php';
 
 /**
@@ -33,7 +34,7 @@ require_once __DIR__.'/dunningmanager.automation.trait.php';
  */
 class DunningManager
 {
-    use DunningManagerAccess, DunningManagerScan, DunningManagerStages, DunningManagerProfiles, DunningManagerInterest, DunningManagerWorkflow, DunningManagerCases, DunningManagerAttempts, DunningManagerFees, DunningManagerHistory, DunningManagerEvents, DunningManagerAutomation;
+    use DunningManagerAccess, DunningManagerScan, DunningManagerStages, DunningManagerProfiles, DunningManagerInterest, DunningManagerWorkflow, DunningManagerCases, DunningManagerAttempts, DunningManagerFees, DunningManagerHistory, DunningManagerEvents, DunningManagerHandover, DunningManagerAutomation;
 
     /** @var DoliDB */
     public $db;

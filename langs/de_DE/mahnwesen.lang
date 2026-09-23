@@ -537,3 +537,17 @@ MahnwesenStatsCases=Fälle
 MahnwesenRetention=Mailtexte und Kopien aufbewahren
 MahnwesenRetentionHelp=Nach so vielen Tagen löscht der tägliche Lauf den gespeicherten Mailtext und die Kopien der Anhänge. Datum, Empfänger, Betreff, Dateiname, Größe und Prüfsumme bleiben als Nachweis erhalten. 0 bedeutet: nichts wird gelöscht.
 MahnwesenRetentionInvalid=Bitte eine Aufbewahrung zwischen 0 und 3650 Tagen eintragen.
+
+# Übergabe an Inkasso oder Anwalt (#40)
+MahnwesenHandover=An Inkasso oder Anwalt übergeben
+MahnwesenHandoverHelp=Beendet die Mahnung für diese Rechnung und legt die vollständige Akte in Dolibarrs Dokumentablage.
+MahnwesenHandoverConfirm=Diesen Fall übergeben? Danach sendet das Modul für diese Rechnung nichts mehr. Rechnung, Mahnschreiben, Prüfsummen, offene Forderungen und der Verlauf kommen als Akte in die Dokumentablage.
+MahnwesenHandoverReason=Grund und Empfänger der Übergabe
+MahnwesenHandoverReasonRequired=Bitte den Grund und den Empfänger der Übergabe eintragen.
+MahnwesenHandoverNotOpen=Dieser Fall ist nicht offen und kann nicht übergeben werden.
+MahnwesenHandoverDone=Der Fall wurde übergeben; %s Dateien liegen in der Dokumentablage.
+MahnwesenHandoverTitle=Mahnakte zur Rechnung
+MahnwesenHandoverFiles=Dateien der Akte
+MahnwesenHandoverFileDescription=Mahnakte zur Rechnung
+MahnwesenCaseHandedOver=Übergeben
+HistoryActionCaseHandedOver=An Inkasso oder Anwalt übergeben
