@@ -513,3 +513,10 @@ MahnwesenEventId=Event
 MahnwesenEventRevision=Case revision
 MahnwesenEventDelivered=reported
 MahnwesenEventPending=waiting, attempts
+
+# Customer tab and home page (#41)
+MahnwesenOpenCases=Open dunning cases
+MahnwesenBoxTitle=Dunning today
+MahnwesenBoxDue=Dunning steps due
+MahnwesenBoxUnresolved=Unresolved delivery attempts
+MahnwesenBoxClaims=Open fees and interest

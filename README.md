@@ -15,6 +15,7 @@ A custom Dolibarr module for controlled dunning workflows on overdue customer in
 - payments and invoice corrections re-evaluate the dunning case at once, through Dolibarr's own triggers
 - integration events for other modules (notice sent, last stage, paused, resumed, reopened, closed), recorded with the change and delivered after it
 - read-only REST API for the dunning status, with separate operations and customer views ([docs/API.md](docs/API.md))
+- a dunning tab on the customer and a box on Dolibarr's home page with what is due today
 - native Dolibarr HTML email templates
 - Sponge-aligned dunning PDF
 - manual and controlled automatic sending

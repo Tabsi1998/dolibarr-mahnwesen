@@ -7,6 +7,19 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-23
+
+Dunning where you already work.
+
+### Added
+
+- A tab *Mahnwesen* on the customer with all their dunning cases, the open
+  amount and the open fees and interest. It shows only cases the user may see
+  (#41).
+- A box on Dolibarr's home page with the dunning steps due today, the
+  unresolved delivery attempts and the open claims, counted exactly as the
+  dashboard counts them and limited to the user's own customers (#41).
+
 ## [1.4.3] - 2026-09-23
 
 The dunning status through Dolibarr's REST API.
@@ -615,7 +628,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.4.3...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.5.0
 [1.4.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.3
 [1.4.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.2
 [1.4.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.1

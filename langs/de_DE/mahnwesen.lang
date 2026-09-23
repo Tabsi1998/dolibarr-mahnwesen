@@ -514,3 +514,10 @@ MahnwesenEventId=Ereignis
 MahnwesenEventRevision=Fallstand
 MahnwesenEventDelivered=gemeldet
 MahnwesenEventPending=offen, Versuche
+
+# Kunden-Tab und Startseite (#41)
+MahnwesenOpenCases=Offene Mahnfälle
+MahnwesenBoxTitle=Mahnwesen heute
+MahnwesenBoxDue=Fällige Mahnschritte
+MahnwesenBoxUnresolved=Ungeklärte Versandversuche
+MahnwesenBoxClaims=Offene Spesen und Zinsen

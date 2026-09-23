@@ -1761,6 +1761,40 @@ def api(stack: Stack) -> str:
     return "own customer readable, foreign and unknown alike 404, operations view separate, reading changes nothing"
 
 
+def customer_tab(stack: Stack) -> str:
+    """The customer tab shows their cases only, and the box counts as the dashboard does (#41)."""
+    browser = stack.browser()
+    company = invoice(stack, "company_overdue")
+    private = invoice(stack, "private_overdue")
+    customer = stack.value(f"SELECT fk_soc FROM llx_facture WHERE rowid = {company['id']}")
+    card = page_ok(browser.get(f"/societe/card.php?socid={customer}"), "customer card")
+    expect(f"mahnwesen/customer.php?socid={customer}" in card.text, "the customer card has no dunning tab (#41)")
+
+    tab = page_ok(browser.get(f"/custom/mahnwesen/customer.php?socid={customer}"), "customer dunning tab")
+    refs = set(re.findall(r'<tr class="oddeven" data-case="\d+">\s*<td[^>]*><a [^>]*>([^<]+)</a>', tab.text))
+    expected = {row[0] for row in stack.sql("SELECT f.ref FROM llx_mahnwesen_case c JOIN llx_facture f ON f.rowid = c.fk_facture "
+                                            f"WHERE f.fk_soc = {customer}")}
+    expect(refs == expected and private["ref"] not in tab.text,
+           f"the customer tab shows {refs}, expected {expected} and nothing of another customer (#41)")
+
+    # A sales representative of another customer does not reach it.
+    other = stack.browser("rtother")
+    expect(other.get(f"/custom/mahnwesen/customer.php?socid={customer}").denied(),
+           "a user outside the customer scope opens the customer tab (#41)")
+
+    # The box counts what the dashboard counts.
+    home = page_ok(browser.get("/index.php"), "home page")
+    titles = translations("MahnwesenBoxTitle")
+    expect(any(title in html.unescape(home.text) for title in titles), "the home page does not show the dunning box (#41)")
+    due_box = re.search(r"(" + "|".join(re.escape(label) for label in translations("MahnwesenBoxDue")) + r")\s*</td>\s*<td[^>]*>\s*(\d+)",
+                        html.unescape(home.text))
+    expect(due_box is not None, "the dunning box does not count the steps due (#41)")
+    dashboard = page_ok(browser.get("/custom/mahnwesen/index.php?search_status=due&limit=100"), "dashboard, due cases")
+    listed = len(re.findall(r'<tr class="oddeven" data-case="\d+">', dashboard.text))
+    expect(int(due_box.group(2)) == listed, f"the box counts {due_box.group(2)} due, the dashboard lists {listed} (#41)")
+    return f"customer tab with {len(refs)} cases, closed to others, box and dashboard agree on {listed} due"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1797,6 +1831,7 @@ SCENARIOS = (
     ("payment-ways", "The letter offers a way to pay", payment_ways, ("interest",)),
     ("events", "Dunning changes are reported to other modules", events, ("dry-run",)),
     ("api", "The status API answers within its limits", api, ("synchronise",)),
+    ("customer-tab", "The customer tab and the home page box", customer_tab, ("synchronise",)),
 )
 
 
