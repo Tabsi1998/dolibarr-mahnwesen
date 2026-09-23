@@ -83,6 +83,11 @@ trait DunningManagerHistory
             return false;
         }
         unset($this->completedLevelsCache[(int) $caseId]);
+        // Other modules learn of the change through its event (#59).
+        $types = $this->getEventTypes();
+        if ($result === 'success' && isset($types[$action])) {
+            return $this->recordEvent((int) $entity, (int) $caseId, (int) $invoiceId, $types[$action], (int) $level, $user);
+        }
         return true;
     }
 

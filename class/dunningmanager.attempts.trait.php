@@ -303,6 +303,31 @@ trait DunningManagerAttempts
      * @param string $messageId Message-ID of the sent email
      * @return bool
      */
+    /**
+     * The events of a delivered notice: the notice itself, and the last stage
+     * of its profile when that was the one sent (#59).
+     *
+     * @param object $attempt Attempt row
+     * @param User $user Acting user
+     * @return bool
+     */
+    protected function recordNoticeEvents($attempt, $user)
+    {
+        $entity = (int) $attempt->entity;
+        $caseId = (int) $attempt->fk_case;
+        $invoiceId = (int) $attempt->fk_facture;
+        $level = (int) $attempt->level;
+        if (!$this->recordEvent($entity, $caseId, $invoiceId, 'MAHNWESEN_NOTICE_SENT', $level, $user)) {
+            return false;
+        }
+        $profileId = (int) $this->resolveProfile($invoiceId)['profile_id'];
+        $enabled = array_keys(array_filter($this->getEnabledLevels($profileId)));
+        if ($enabled && $level >= max($enabled)) {
+            return $this->recordEvent($entity, $caseId, $invoiceId, 'MAHNWESEN_CASE_FINAL_STAGE', $level, $user);
+        }
+        return true;
+    }
+
     public function finalizeNoticeAttempt($attemptId, $success, $message, $case, $user, $ambiguous = false, $messageId = '')
     {
         $this->db->begin();
@@ -341,6 +366,7 @@ trait DunningManagerAttempts
         unset($this->completedLevelsCache[(int) $attempt->fk_case]);
 
         if ($success) {
+            if (!$this->recordNoticeEvents($attempt, $user)) { $this->db->rollback(); return false; }
             $sqlCase = "UPDATE ".MAIN_DB_PREFIX."mahnwesen_case SET last_notice_at = '".$this->db->escape($this->db->idate(dol_now()))."', fk_user_modif = ".((is_object($user) && isset($user->id)) ? (int) $user->id : 0)." WHERE rowid = ".((int) $case['id']);
             if (!$this->db->query($sqlCase)) {
                 $this->error = $this->db->lasterror();
@@ -351,6 +377,10 @@ trait DunningManagerAttempts
         }
 
         $this->db->commit();
+        // Events and Agenda are projections: both after the authoritative
+        // transaction committed, so neither can roll back or duplicate the
+        // dunning workflow state (#59).
+        $this->dispatchEvents($user, 20);
         // Agenda is a user-facing projection only. Mirror after the authoritative
         // transaction committed so an Agenda problem can never roll back or
         // duplicate the dunning workflow state.
@@ -419,9 +449,11 @@ trait DunningManagerAttempts
             $sql = 'UPDATE '.MAIN_DB_PREFIX."mahnwesen_case SET last_notice_at = CASE WHEN last_notice_at IS NULL OR last_notice_at < '".$attemptedSql."' THEN '".$attemptedSql."' ELSE last_notice_at END, fk_user_modif = ".$uid.' WHERE rowid = '.((int) $attempt->fk_case);
             if (!$this->db->query($sql)) { $this->error = $this->db->lasterror(); $this->db->rollback(); return false; }
             if (!$this->bookNoticeFee($attempt, (int) $attemptId, $uid, $nowSql)) { $this->db->rollback(); return false; }
+            if (!$this->recordNoticeEvents($attempt, $user)) { $this->db->rollback(); return false; }
         }
         $this->db->commit();
         $this->syncHistoryToAgenda((int) $attempt->fk_facture, $user);
+        $this->dispatchEvents($user, 20);
         return true;
     }
 

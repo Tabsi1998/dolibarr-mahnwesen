@@ -217,6 +217,7 @@ trait DunningManagerCases
                 }
                 $this->db->commit();
                 $this->syncHistoryToAgenda((int) $invoiceId, $user);
+                $this->dispatchEvents($user, 20);
                 return 'closed';
             }
             $this->db->commit();

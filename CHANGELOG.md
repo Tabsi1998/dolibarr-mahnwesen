@@ -7,6 +7,25 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-09-23
+
+Other modules can react to dunning changes.
+
+### Added
+
+- The events `MAHNWESEN_NOTICE_SENT`, `MAHNWESEN_CASE_FINAL_STAGE`,
+  `MAHNWESEN_CASE_PAUSED`, `MAHNWESEN_CASE_RESUMED`,
+  `MAHNWESEN_CASE_REOPENED` and `MAHNWESEN_CASE_CLOSED` as ordinary Dolibarr
+  triggers. Each carries a stable event id, its contract version, entity, case
+  and invoice, stage, profile code, the case revision and the time it
+  happened, and nothing else: no email texts, recipients, bank data or
+  reasons (#59).
+- Every event is noted in the same transaction as the change it belongs to and
+  delivered only after that transaction is committed. A receiver that fails
+  leaves the event in the backlog with its attempt counted, and never rolls
+  back a change or causes a second notice. The page *Delivery attempts* shows
+  the events and what is still waiting (#59).
+
 ## [1.4.1] - 2026-09-23
 
 Ways to pay in the dunning letter.
@@ -570,7 +589,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.2
 [1.4.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.1
 [1.4.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.0
 [1.3.5]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.5

@@ -40,6 +40,10 @@ The four stages of each dunning profile: days after the due date, fee, payment p
 
 An open fee or interest claim can go on its own Dolibarr invoice. The claim then points at that invoice (`fk_claim_invoice`, status `invoiced`) and counts as paid once the invoice is paid; the daily job checks that (#34).
 
+### `llx_mahnwesen_event`
+
+The lasting note of every change of a case, written in the same transaction as the change: event id, type, entity, case and invoice, stage, profile code, case revision, contract version, and its delivery state. Delivery happens after the commit through Dolibarr's own trigger mechanism, so a receiver's failure can never roll back a change (#59).
+
 ### `llx_mahnwesen_interest_rate`
 
 The base rates with the day each starts to apply. A profile with the rule "base rate plus surcharge" counts every day with the rate of that day; days without a rate carry no interest (#33).

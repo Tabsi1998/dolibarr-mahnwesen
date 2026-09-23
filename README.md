@@ -13,6 +13,7 @@ A custom Dolibarr module for controlled dunning workflows on overdue customer in
 - late-payment interest per profile: a fixed rate or the base rate of each day plus a surcharge
 - open fees and interest as their own Dolibarr draft invoice, settled when that invoice is paid
 - payments and invoice corrections re-evaluate the dunning case at once, through Dolibarr's own triggers
+- integration events for other modules (notice sent, last stage, paused, resumed, reopened, closed), recorded with the change and delivered after it
 - native Dolibarr HTML email templates
 - Sponge-aligned dunning PDF
 - manual and controlled automatic sending

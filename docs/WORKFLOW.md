@@ -83,6 +83,12 @@ Every stage setting comes from the invoice's dunning profile (#32). The first ru
 
 The profile holds the interest rule: none, a fixed rate, or the base rate of each day plus a surcharge in percentage points. Interest is counted per day on the open amount, from the day after the due date up to today, and shown in the tab, the email and the letter. A delivered notice books it in the ledger, where a new interest claim replaces the open one of the same case, so nothing is counted twice. The Dolibarr invoice stays as it is (#33).
 
+## Events for other modules
+
+`MAHNWESEN_NOTICE_SENT`, `MAHNWESEN_CASE_FINAL_STAGE`, `MAHNWESEN_CASE_PAUSED`, `MAHNWESEN_CASE_RESUMED`, `MAHNWESEN_CASE_REOPENED` and `MAHNWESEN_CASE_CLOSED` are ordinary Dolibarr triggers. Every event carries the contract: a stable event id, its version, entity, case and invoice, stage, profile code, the case revision and the time it happened. It never carries email texts, recipients, bank data, reasons or documents.
+
+The note is written in the same transaction as the change, so there is no event without its change and no change without its event. Delivery happens after that transaction is committed, and only then: a receiver that fails leaves the event in the backlog with its attempt counted, and neither rolls back the change nor sends a notice twice. The same transition keeps its event id, so a receiver recognises a repeated delivery; delivery is at least once, and a receiver that arrives late reads the current state itself. An ambiguous send is not a `NOTICE_SENT`; only its controlled resolution is (#59).
+
 ## Payments and corrections
 
 Dolibarr's own triggers for customer payments and invoice changes re-evaluate the case of every invoice they touch, with the same evaluation the daily run uses. A part payment lowers the open amount, full payment closes the case (or leaves it with open fees), and a cancelled payment opens it again; stages that were already sent stay sent and are not repeated. A failure of the re-evaluation never rolls back the payment: the daily run repairs the case. Dolibarr announces a payment that is being removed before it is gone, so what is open is only final afterwards; that case is noted (`recheck`) and the next Mahnwesen page or the daily run evaluates it, with the same evaluation as everything else (#36).

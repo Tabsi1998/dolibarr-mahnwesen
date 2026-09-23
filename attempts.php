@@ -160,6 +160,31 @@ foreach ($attempts as $attempt) {
 }
 print '</table></div>';
 
+// What other modules were told, and what still waits (#59).
+$manager->dispatchEvents($user, 20);
+$events = $manager->getEvents(50);
+print '<br>'.load_fiche_titre($langs->trans('MahnwesenEvents'), '', 'technic');
+print '<div class="info">'.$langs->trans('MahnwesenEventsHelp', $manager->countPendingEvents()).'</div><br>';
+print '<div class="div-table-responsive"><table class="tagtable liste centpercent">';
+print '<tr class="liste_titre"><th>'.$langs->trans('MahnwesenEventId').'</th><th>'.$langs->trans('Type').'</th><th>'.$langs->trans('Invoice').'</th>'
+    .'<th>'.$langs->trans('MahnwesenEventRevision').'</th><th>'.$langs->trans('Date').'</th><th>'.$langs->trans('Status').'</th><th>'.$langs->trans('Error').'</th></tr>';
+if (empty($events)) {
+    print '<tr class="oddeven"><td colspan="7"><span class="opacitymedium">'.$langs->trans('None').'</span></td></tr>';
+}
+foreach ($events as $event) {
+    $eventInvoice = mw_attempts_get_invoice($db, (int) $event['fk_facture'], $invoiceCache);
+    if (!$eventInvoice || !mw_attempts_can_view_invoice($db, $user, $eventInvoice, $visibleSocCache)) { continue; }
+    print '<tr class="oddeven" data-event="'.dol_escape_htmltag((string) $event['event_type']).'">';
+    print '<td class="tdoverflowmax200"><span title="'.dol_escape_htmltag((string) $event['event_id']).'">'.dol_escape_htmltag((string) $event['event_id']).'</span></td>';
+    print '<td>'.dol_escape_htmltag((string) $event['event_type']).'</td><td>'.$eventInvoice->getNomUrl(1).'</td>';
+    print '<td>'.((int) $event['case_revision']).'</td><td>'.dol_print_date($db->jdate($event['occurred_at']), 'dayhour').'</td>';
+    print '<td>'.($event['status'] === 'delivered'
+        ? '<span class="badge badge-status4">'.$langs->trans('MahnwesenEventDelivered').'</span>'
+        : '<span class="badge badge-status1">'.$langs->trans('MahnwesenEventPending').'</span> '.((int) $event['attempts'])).'</td>';
+    print '<td class="tdoverflowmax200">'.dol_escape_htmltag((string) $event['last_error']).'</td></tr>';
+}
+print '</table></div>';
+
 $fees = $manager->getFeeClaims('', 300);
 print '<br>'.load_fiche_titre($langs->trans('MahnwesenFeeLedger'), '', 'payment');
 print '<div class="info">'.$langs->trans('MahnwesenFeeLedgerHelp').'</div><br>';
