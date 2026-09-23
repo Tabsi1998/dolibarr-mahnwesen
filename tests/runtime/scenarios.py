@@ -1730,6 +1730,22 @@ def api(stack: Stack) -> str:
     status, operations = request("operations", "/mahnwesen/status")
     expect(status == 200 and "automatic_sending" in operations and "open_cases" in operations,
            f"the operations user does not read the state of the entity: {status} {operations} (#57)")
+    # The archived letters of that invoice: only what really went out (#69).
+    status, documents = request("portal", f"/mahnwesen/invoices/{company['id']}/documents")
+    expect(status == 200 and documents.get("documents"), f"the sent letters of the invoice are {status} {documents} (#69)")
+    first = documents["documents"][0]
+    expect({"document_id", "attempt_id", "stage", "sent_at", "filename", "sha256", "size_bytes"} <= set(first),
+           f"a letter lacks fields of the contract: {sorted(first)} (#69)")
+    status, document = request("portal", f"/mahnwesen/documents/{first['document_id']}")
+    expect(status == 200 and document.get("encoding") == "base64" and document.get("sha256") == first["sha256"]
+           and document.get("sha256_now") == first["sha256"],
+           f"the archived letter does not match its recorded hash: {status} {str(document)[:200]} (#69)")
+    archived = base64.b64decode(document["content"])
+    expect(archived.startswith(b"%PDF") and hashlib.sha256(archived).hexdigest() == first["sha256"],
+           "the bytes handed out are not the archived ones (#69)")
+    status, foreign_document = request("portal", "/mahnwesen/documents/999999")
+    expect(status == 404, f"an unknown document answers {status} instead of 404 (#69)")
+
     status, listed = request("portal", f"/mahnwesen/thirdparties/{own['thirdparty_id']}?limit=2")
     expect(status == 200 and listed.get("limit") == 2 and listed.get("cases"),
            f"the list of a customer's cases is {status} {listed} (#57)")
