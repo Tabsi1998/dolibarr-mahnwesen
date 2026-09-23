@@ -27,6 +27,7 @@ if (!$res) { die('Include of main fails'); }
 require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
 require_once dol_buildpath('/mahnwesen/class/dunningmanager.class.php', 0);
 require_once dol_buildpath('/mahnwesen/class/dunningnotice.class.php', 0);
+require_once dol_buildpath('/mahnwesen/core/modules/mahnwesen/modules_mahnwesen.php', 0);
 
 $langs->loadLangs(array('admin', 'mails', 'mahnwesen@mahnwesen'));
 if (!$user->admin) { accessforbidden(); }
@@ -130,6 +131,8 @@ if ($action === 'save_general') {
     $includeDeposits = GETPOSTINT('include_deposits') > 0 ? 1 : 0;
     $letterQr = GETPOSTINT('letter_qr') > 0 ? 1 : 0;
     $retentionDays = GETPOSTINT('retention_days');
+    $layoutName = GETPOST('letter_layout', 'aZ09');
+    if (ModelePDFMahnwesen::load($layoutName) === null) { $errors[] = $langs->trans('MahnwesenLayoutInvalid'); }
     if ($retentionDays < 0 || $retentionDays > 3650) { $errors[] = $langs->trans('MahnwesenRetentionInvalid'); }
     $errors = array();
     if ($minAmount < 0) { $errors[] = $langs->trans('MinAmountInvalid'); }
@@ -140,7 +143,8 @@ if ($action === 'save_general') {
             && mw4_set_const($db, 'MAHNWESEN_MAX_SCAN', $maxScan, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_INCLUDE_DEPOSITS', $includeDeposits, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_LETTER_QR', $letterQr, $conf->entity)
-            && mw4_set_const($db, 'MAHNWESEN_RETENTION_DAYS', $retentionDays, $conf->entity);
+            && mw4_set_const($db, 'MAHNWESEN_RETENTION_DAYS', $retentionDays, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_ADDON_PDF', $layoutName, $conf->entity);
         if ($ok) { $db->commit(); setEventMessages($langs->trans('SetupSaved'), null, 'mesgs'); }
         else { $db->rollback(); setEventMessages($langs->trans('Error'), null, 'errors'); }
         mw4_redirect('general');
@@ -322,6 +326,16 @@ if ($tab === 'general') {
     print '<tr><td>'.$langs->trans('MaximumScan').'</td><td><input type="number" min="1" max="5000" class="width100" name="max_scan" value="'.((int) $maxScan).'"></td><td>'.$langs->trans('MaximumScanHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('IncludeDepositInvoices').'</td><td><input type="checkbox" name="include_deposits" value="1"'.($includeDeposits ? ' checked' : '').'></td><td>'.$langs->trans('IncludeDepositInvoicesHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('MahnwesenLetterQr').'</td><td><input type="checkbox" name="letter_qr" value="1"'.($letterQr ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenLetterQrHelp').'</td></tr>';
+    print '<tr><td><label for="letter_layout">'.$langs->trans('MahnwesenLayout').'</label></td><td><select name="letter_layout" id="letter_layout">';
+    $currentLayout = ModelePDFMahnwesen::selected();
+    foreach (ModelePDFMahnwesen::getModels() as $layoutKey => $layout) {
+        print '<option value="'.dol_escape_htmltag($layoutKey).'"'.($layoutKey === $currentLayout->name ? ' selected' : '').'>'.$langs->trans($layout->labelKey).'</option>';
+    }
+    print '</select></td><td>';
+    foreach (ModelePDFMahnwesen::getModels() as $layout) {
+        print '<div><strong>'.$langs->trans($layout->labelKey).':</strong> '.$langs->trans($layout->descriptionKey).'</div>';
+    }
+    print '</td></tr>';
     print '<tr><td>'.$langs->trans('MahnwesenRetention').'</td><td><input type="number" min="0" max="3650" class="width75" name="retention_days" value="'.((int) $retentionDays).'"> '.$langs->trans('Days').'</td><td>'.$langs->trans('MahnwesenRetentionHelp').'</td></tr>';
     print '</table><div class="center"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button></div></form>';
 }

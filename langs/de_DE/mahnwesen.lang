@@ -562,3 +562,13 @@ MahnwesenBulkNoLetters=Kein Brief erzeugt: Alle ausgewählten Kunden haben eine 
 MahnwesenBulkSkippedScope=Kunde außerhalb Ihres Bereichs
 MahnwesenBulkSkippedHasEmail=Kunde hat eine E-Mail-Adresse
 MahnwesenPostalRecipient=Postversand
+
+# Layouts des Mahnschreibens (#76)
+MahnwesenLayout=Layout des Mahnschreibens
+MahnwesenLayoutInvalid=Dieses Layout gibt es nicht.
+MahnwesenLayoutStandard=Standard
+MahnwesenLayoutStandardHelp=Beträge in einer Tabelle wie auf der Rechnung, darunter Summe, Zahlungsfrist und QR-Code.
+MahnwesenLayoutLetter=Schlichter Brief
+MahnwesenLayoutLetterHelp=Beträge als Textzeilen ohne Tabelle und ohne QR-Code, etwa für Vereine.
+MahnwesenLetterTotal=Zu zahlen insgesamt:
+MahnwesenLetterDeadline=Bitte zahlen Sie bis %s.

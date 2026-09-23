@@ -561,3 +561,13 @@ MahnwesenBulkNoLetters=No letter was built: every selected customer has an email
 MahnwesenBulkSkippedScope=customer outside your scope
 MahnwesenBulkSkippedHasEmail=customer has an email address
 MahnwesenPostalRecipient=postal delivery
+
+# Layouts of the dunning letter (#76)
+MahnwesenLayout=Layout of the dunning letter
+MahnwesenLayoutInvalid=This layout does not exist.
+MahnwesenLayoutStandard=Standard
+MahnwesenLayoutStandardHelp=Amounts in a table like on the invoice, with total, payment deadline and QR code below.
+MahnwesenLayoutLetter=Plain letter
+MahnwesenLayoutLetterHelp=Amounts as lines of text, without a table and without a QR code, for a club for example.
+MahnwesenLetterTotal=Total to pay:
+MahnwesenLetterDeadline=Please pay by %s.

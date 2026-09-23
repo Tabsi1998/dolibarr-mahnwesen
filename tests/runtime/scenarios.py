@@ -1937,6 +1937,42 @@ def bulk(stack: Stack) -> str:
     return "bulk send by email, letters of customers without one as one PDF, recorded as postal"
 
 
+def layouts(stack: Stack) -> str:
+    """Both layouts show invoice, amounts and address, the chosen one builds the letter (#76)."""
+    browser = stack.browser()
+    company = stack.php_fixture("payment")["invoice"]
+    dashboard = page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard")
+    page_ok(browser.submit(form_with_action(dashboard, "sync_cases", "dashboard")), "synchronise")
+    contact = str(stack.fixtures["contacts"]["billing"])
+    setup = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=general"), "general setup")
+    offered = set(re.findall(r'<option value="([a-z0-9]+)"[^>]*>', setup.text.split('name="letter_layout"', 1)[-1].split("</select>", 1)[0]))
+    expect({"standard", "letter"} <= offered, f"the setup offers the layouts {sorted(offered)} (#76)")
+
+    def letter(layout: str) -> str:
+        form = page_ok(browser.get("/custom/mahnwesen/admin/setup.php?tab=general"), "general setup")
+        page_ok(browser.submit(form_with_action(form, "save_general", "general setup"), {"letter_layout": layout}), f"choose {layout}")
+        expect(stack.const("MAHNWESEN_ADDON_PDF") == layout, f"the setup did not store the layout {layout} (#76)")
+        composer = page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={company['id']}"), "composer")
+        shown = page_ok(browser.submit(composer.form(name="mailform"), {"action": "generate_preview", "receiver[]": contact}), "preview")
+        section = shown.text.find('class="mahnwesen-document-preview"')
+        match = re.search(r'<iframe[^>]+src="([^"#]+)', shown.text[section:]) if section >= 0 else None
+        expect(match is not None, f"no preview with the layout {layout} (#76)")
+        pdf = browser.get(html.unescape(match.group(1))).body
+        expect(pdf.startswith(b"%PDF"), f"the preview with the layout {layout} is no PDF (#76)")
+        return pdf_text(pdf)
+
+    try:
+        table, plain = letter("standard"), letter("letter")
+    finally:
+        set_const(stack, "MAHNWESEN_ADDON_PDF", "standard")
+    for name, text in (("standard", table), ("letter", plain)):
+        missing = [part for part in (company["ref"], "48,00", "Kundenweg 7") if part not in text]
+        expect(not missing, f"the layout {name} lacks {missing} (#76)")
+    total = translations("MahnwesenLetterTotal")[0]
+    expect(total in plain and total not in table, "the two layouts are not different (#76)")
+    return "setup offers both layouts; each shows invoice, amount and address, and they differ"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1978,6 +2014,7 @@ SCENARIOS = (
     ("retention", "Mail texts and copies go after the retention", retention, ("stats",)),
     ("handover", "A handed over case ends the automation", handover, ("retention",)),
     ("bulk", "Several cases at once, by email and on paper", bulk, ("handover",)),
+    ("layouts", "The chosen layout builds the letter", layouts, ("bulk",)),
 )
 
 
