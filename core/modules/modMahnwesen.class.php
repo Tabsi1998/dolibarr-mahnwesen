@@ -36,7 +36,7 @@ class modMahnwesen extends DolibarrModules
         $this->descriptionlong = 'ModuleMahnwesenDescLong';
         $this->editor_name = 'Custom Dolibarr Module';
         $this->editor_url = '';
-        $this->version = '1.4.2';
+        $this->version = '1.4.3';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->picto = 'bill';
 
@@ -142,6 +142,21 @@ class modMahnwesen extends DolibarrModules
         $this->rights[$r][1] = 'Run the automatic dry run';
         $this->rights[$r][4] = 'automation';
         $this->rights[$r][5] = 'dryrun';
+        $r++;
+
+        // Reading the dunning state through Dolibarr's REST API (#57). Two
+        // separate rights: the whole entity, or only the customers a technical
+        // user is the sales representative of.
+        $this->rights[$r][0] = $this->numero.'15';
+        $this->rights[$r][1] = 'Read the dunning status of the whole entity through the API';
+        $this->rights[$r][4] = 'api';
+        $this->rights[$r][5] = 'operations';
+        $r++;
+
+        $this->rights[$r][0] = $this->numero.'16';
+        $this->rights[$r][1] = 'Read the dunning status of its own customers through the API';
+        $this->rights[$r][4] = 'api';
+        $this->rights[$r][5] = 'customer';
         $r++;
 
         // Menus.

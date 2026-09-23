@@ -13,6 +13,7 @@
  *   member   a member with a subscription whose invoice Dolibarr links to it (#58)
  *   payment  one overdue invoice of 40 for the payment checks (#36)
  *   bank     a bank account with IBAN and BIC, for the QR code on the letter (#35)
+ *   api      the API module, a portal user for its own customers, an operations user (#57)
  *
  * Passwords come from the environment only.
  */
@@ -385,6 +386,34 @@ if ($stage === 'member') {
         'subscription' => (int) $subscription->id,
         'invoice' => array('id' => (int) $invoice->id, 'ref' => (string) $invoice->ref),
     ), JSON_PRETTY_PRINT)."\n";
+    exit(0);
+}
+
+if ($stage === 'api') {
+    // Dolibarr's own REST API, a portal user tied to one customer, and an
+    // operations user that may read the whole entity (#57).
+    $result = activateModule('modApi');
+    if (!empty($result['errors'])) {
+        rt_fail('activating modApi failed: '.implode(' | ', (array) $result['errors']));
+    }
+    rt_const($db, 'API_PRODUCTION_MODE', '0');
+    $conf->setValues($db);
+    $admin->loadRights('', 1);
+    $portalPassword = (string) getenv('RT_OTHER_PASSWORD');
+    $portal = rt_user($db, $admin, 'rtportal', $portalPassword, array(array('societe', 'lire'), array('facture', 'lire'), array('mahnwesen', 'api', 'customer')));
+    $operations = rt_user($db, $admin, 'rtops', $portalPassword, array(array('societe', 'lire'), array('facture', 'lire'), array('mahnwesen', 'api', 'operations')));
+    // The portal user serves exactly one customer; Dolibarr's own assignment is the proof.
+    $company = new Societe($db);
+    if ($company->fetch(0, 'Runtime GmbH') <= 0 || $company->add_commercial($admin, $portal) < 0) {
+        rt_fail('sales representative for the portal user: '.$company->error);
+    }
+    $keys = array();
+    foreach (array('portal' => $portal, 'operations' => $operations) as $role => $id) {
+        $key = 'rt'.$role.md5('mahnwesen'.$role);
+        rt_exec($db, "UPDATE ".MAIN_DB_PREFIX."user SET api_key = '".$db->escape($key)."' WHERE rowid = ".((int) $id));
+        $keys[$role] = $key;
+    }
+    print json_encode(array('users' => array('portal' => $portal, 'operations' => $operations), 'keys' => $keys), JSON_PRETTY_PRINT)."\n";
     exit(0);
 }
 

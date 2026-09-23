@@ -1686,6 +1686,64 @@ def events(stack: Stack) -> str:
     return f"{len(after)} events of one case, each once, all delivered and visible"
 
 
+def api(stack: Stack) -> str:
+    """The status API answers for its own customers only, and keeps the operations view apart (#57)."""
+    data = stack.php_fixture("api")
+    keys = data["keys"]
+    company = invoice(stack, "company_overdue")
+    private = invoice(stack, "private_overdue")
+    browser = stack.browser()
+
+    def call(role: str, path: str) -> tuple:
+        page = browser.get(f"/api/index.php{path}", follow=False)
+        return page.status, page.text
+
+    def request(role: str, path: str) -> tuple:
+        import urllib.request
+        url = f"{stack.url}/api/index.php{path}"
+        req = urllib.request.Request(url, headers={"DOLAPIKEY": keys[role], "Accept": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as answer:
+                return answer.status, json.loads(answer.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            body = error.read().decode("utf-8", errors="replace")
+            try:
+                return error.code, json.loads(body)
+            except ValueError:
+                return error.code, body
+
+    status, own = request("portal", f"/mahnwesen/invoices/{company['id']}")
+    expect(status == 200 and own.get("invoice_ref") == company["ref"] and own.get("thirdparty_id"),
+           f"the portal user does not read its own customer's invoice: {status} {own} (#57)")
+    expect(set(own) >= {"case_revision", "invoice_open", "fee_open", "interest_open", "claims_on_own_invoice", "currency", "profile_code"},
+           f"the answer lacks fields of the contract: {sorted(own)} (#57)")
+    forbidden = {"note_private", "body_html", "recipient", "bcc", "subject", "message"}
+    expect(not (set(own) & forbidden), f"the answer carries internal fields: {sorted(set(own) & forbidden)} (#57)")
+
+    status, foreign = request("portal", f"/mahnwesen/invoices/{private['id']}")
+    expect(status == 404, f"the portal user reads an invoice of another customer: {status} {foreign} (#57)")
+    status, missing = request("portal", "/mahnwesen/invoices/999999")
+    expect(status == 404, f"an unknown invoice answers {status} instead of 404 (#57)")
+
+    status, denied = request("portal", "/mahnwesen/status")
+    expect(status == 401, f"the portal user reaches the operations view: {status} {denied} (#57)")
+    status, operations = request("operations", "/mahnwesen/status")
+    expect(status == 200 and "automatic_sending" in operations and "open_cases" in operations,
+           f"the operations user does not read the state of the entity: {status} {operations} (#57)")
+    status, listed = request("portal", f"/mahnwesen/thirdparties/{own['thirdparty_id']}?limit=2")
+    expect(status == 200 and listed.get("limit") == 2 and listed.get("cases"),
+           f"the list of a customer's cases is {status} {listed} (#57)")
+    expect(all(case["thirdparty_id"] == own["thirdparty_id"] for case in listed["cases"]),
+           "the list carries cases of another customer (#57)")
+
+    # Reading changes nothing.
+    before = stack.sql(f"SELECT status, current_level, revision FROM llx_mahnwesen_case WHERE fk_facture = {company['id']}")
+    request("operations", f"/mahnwesen/invoices/{company['id']}")
+    after = stack.sql(f"SELECT status, current_level, revision FROM llx_mahnwesen_case WHERE fk_facture = {company['id']}")
+    expect(before == after, f"reading the API changed the case: {before} -> {after} (#57)")
+    return "own customer readable, foreign and unknown alike 404, operations view separate, reading changes nothing"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1721,6 +1779,7 @@ SCENARIOS = (
     ("payment-trigger", "A payment reaches the case at once", payment_trigger, ("synchronise",)),
     ("payment-ways", "The letter offers a way to pay", payment_ways, ("interest",)),
     ("events", "Dunning changes are reported to other modules", events, ("dry-run",)),
+    ("api", "The status API answers within its limits", api, ("synchronise",)),
 )
 
 
