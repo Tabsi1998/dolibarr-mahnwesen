@@ -7,6 +7,22 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-23
+
+Ways to pay in the dunning letter.
+
+### Added
+
+- The dunning letter carries Dolibarr's own EPC QR code for a bank transfer of
+  the invoice amount, with a line that says what it covers: the whole open
+  amount, or the invoice amount only when fees and interest are extra. No QR
+  code without euro, without a bank account with IBAN and BIC, or when the new
+  setting *QR code for paying on the dunning letter* is off (#35).
+- `__MAHNWESEN_PAYMENT_URL__` and `__MAHNWESEN_PAYMENT_PARAGRAPH__` for the
+  email, filled only when Dolibarr has an online payment provider switched on.
+  The starter templates use the paragraph, which also names the amount the
+  link covers. Templates you wrote yourself are not touched (#35).
+
 ## [1.4.0] - 2026-09-22
 
 Payments reach the dunning case at once.
@@ -554,7 +570,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.1
 [1.4.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.0
 [1.3.5]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.5
 [1.3.4]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.3.4

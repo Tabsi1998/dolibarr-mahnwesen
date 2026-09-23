@@ -115,6 +115,105 @@ trait DunningManagerInterest
     }
 
     /**
+     * What a payment way covers, in plain words (#35).
+     *
+     * A payment way that belongs to the invoice pays the invoice amount. Fees
+     * and interest are claims of their own, so the text says so instead of
+     * naming a total the link does not settle.
+     *
+     * @param array $breakdown From getAmountBreakdown()
+     * @param Translate $outputlangs Language of the customer
+     * @return string Plain text
+     */
+    public function describeInvoicePaymentScope($breakdown, $outputlangs)
+    {
+        global $conf;
+        $amount = price((float) $breakdown['invoice'], 0, $outputlangs, 1, -1, -1, $conf->currency);
+        $extra = (float) $breakdown['fee'] + (float) $breakdown['interest'];
+        if ($extra > 0.000001) {
+            return $outputlangs->transnoentities('MahnwesenPaymentCoversInvoiceOnly', $amount,
+                price($extra, 0, $outputlangs, 1, -1, -1, $conf->currency));
+        }
+        return $outputlangs->transnoentities('MahnwesenPaymentCoversAll', $amount);
+    }
+
+    /**
+     * Dolibarr's own online payment link for an invoice, empty when no
+     * provider is switched on (#35).
+     *
+     * @param Facture $invoice Invoice
+     * @return string
+     */
+    public function getOnlinePaymentLink($invoice)
+    {
+        if (empty($invoice->ref) || !$this->hasOnlinePayment()) {
+            return '';
+        }
+        require_once DOL_DOCUMENT_ROOT.'/core/lib/payments.lib.php';
+        $url = getOnlinePaymentUrl(0, 'invoice', (string) $invoice->ref);
+        return is_string($url) ? $url : '';
+    }
+
+    /** Whether Dolibarr offers an online payment provider at all. */
+    public function hasOnlinePayment()
+    {
+        foreach (array('stripe', 'paypal', 'paybox', 'payzen', 'paymentbybanktransfer') as $module) {
+            if (isModEnabled($module)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The payment data for the EPC QR code of an invoice, or '' when a QR code
+     * would be wrong: another currency, no IBAN, or switched off (#35).
+     *
+     * Dolibarr builds the content itself, so the code holds exactly what its
+     * own invoices hold, for the remaining invoice amount.
+     *
+     * @param Facture $invoice Invoice
+     * @return string
+     */
+    public function getInvoiceQrPayload($invoice)
+    {
+        global $conf;
+        if (!getDolGlobalInt('MAHNWESEN_LETTER_QR', 1) || !method_exists($invoice, 'buildEPCQrCodeString')) {
+            return '';
+        }
+        if (strtoupper((string) $conf->currency) !== 'EUR') {
+            return '';
+        }
+        $payload = (string) $invoice->buildEPCQrCodeString();
+        $lines = explode("\n", $payload);
+        // Without a BIC or an IBAN the code cannot be paid; Dolibarr leaves them empty then.
+        if (count($lines) < 8 || trim($lines[4]) === '' || trim($lines[6]) === '') {
+            return '';
+        }
+        return $payload;
+    }
+
+    /**
+     * The amount an EPC QR code asks for, -1 when it names none (#35).
+     *
+     * Dolibarr builds the code, and older versions put the whole invoice amount
+     * into it instead of what is still open. The letter only shows a code whose
+     * amount is the one it names, so the text never promises something else.
+     *
+     * @param string $payload From getInvoiceQrPayload()
+     * @return float
+     */
+    public function getQrAmount($payload)
+    {
+        $lines = explode("\n", (string) $payload);
+        if (count($lines) < 8 || stripos($lines[7], 'EUR') !== 0) {
+            return -1.0;
+        }
+        $amount = trim(substr($lines[7], 3));
+        return is_numeric($amount) ? (float) $amount : -1.0;
+    }
+
+    /**
      * The interest of an invoice in one phrase, for the letter and the email.
      *
      * @param array $interest From calculateInterest()

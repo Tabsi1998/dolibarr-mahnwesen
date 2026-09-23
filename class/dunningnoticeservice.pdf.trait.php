@@ -152,6 +152,23 @@ trait DunningNoticeServicePdf
                 $pdf->Cell($amountW - 3, 4, dol_print_date($deadline, 'day', 'tzserver', $outputlangs), 0, 0, 'R');
             }
 
+            // A way to pay: Dolibarr's own EPC QR code for the invoice amount,
+            // with a line that says what it covers (#35).
+            $qrPayload = $this->manager->getInvoiceQrPayload($invoice);
+            // Only a code that asks for exactly the amount the letter names.
+            if ($qrPayload !== '' && abs($this->manager->getQrAmount($qrPayload) - (float) $breakdown['invoice']) > 0.005) {
+                $qrPayload = '';
+            }
+            if ($qrPayload !== '') {
+                $y += $rowH;
+                $pdf->SetFont('', '', $defaultFontSize - 1);
+                $pdf->write2DBarcode($qrPayload, 'QRCODE,M', $marginLeft, $y + 2, 22, 22, array(), 'N');
+                $pdf->SetXY($marginLeft + 25, $y + 4);
+                $pdf->MultiCell($pageWidth - $marginRight - $marginLeft - 27, 4,
+                    $outputlangs->transnoentities('MahnwesenPaymentQrTitle')."\n".$this->manager->describeInvoicePaymentScope($breakdown, $outputlangs), 0, 'L');
+                $y += 24;
+                $pdf->SetFont('', '', $defaultFontSize);
+            }
             // Printed letter body. The dedicated PDF cleanup removes email-only
             // signature graphics and supports an explicit PDF end marker.
             $pdf->SetY($y + $rowH + 8);

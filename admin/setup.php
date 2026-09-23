@@ -128,6 +128,7 @@ if ($action === 'save_general') {
     $minAmount = (float) price2num(GETPOST('min_amount', 'alpha'));
     $maxScan = GETPOSTINT('max_scan');
     $includeDeposits = GETPOSTINT('include_deposits') > 0 ? 1 : 0;
+    $letterQr = GETPOSTINT('letter_qr') > 0 ? 1 : 0;
     $errors = array();
     if ($minAmount < 0) { $errors[] = $langs->trans('MinAmountInvalid'); }
     if ($maxScan < 1 || $maxScan > 5000) { $errors[] = $langs->trans('MaxScanInvalid'); }
@@ -135,7 +136,8 @@ if ($action === 'save_general') {
         $db->begin();
         $ok = mw4_set_const($db, 'MAHNWESEN_MIN_AMOUNT', $minAmount, $conf->entity)
             && mw4_set_const($db, 'MAHNWESEN_MAX_SCAN', $maxScan, $conf->entity)
-            && mw4_set_const($db, 'MAHNWESEN_INCLUDE_DEPOSITS', $includeDeposits, $conf->entity);
+            && mw4_set_const($db, 'MAHNWESEN_INCLUDE_DEPOSITS', $includeDeposits, $conf->entity)
+            && mw4_set_const($db, 'MAHNWESEN_LETTER_QR', $letterQr, $conf->entity);
         if ($ok) { $db->commit(); setEventMessages($langs->trans('SetupSaved'), null, 'mesgs'); }
         else { $db->rollback(); setEventMessages($langs->trans('Error'), null, 'errors'); }
         mw4_redirect('general');
@@ -280,6 +282,7 @@ $nativeTemplates = $notice->getNativeTemplates();
 $minAmount = getDolGlobalString('MAHNWESEN_MIN_AMOUNT', '1.00');
 $maxScan = getDolGlobalInt('MAHNWESEN_MAX_SCAN', 500);
 $includeDeposits = getDolGlobalInt('MAHNWESEN_INCLUDE_DEPOSITS', 0);
+$letterQr = getDolGlobalInt('MAHNWESEN_LETTER_QR', 1);
 $fromEmail = getDolGlobalString('MAHNWESEN_FROM_EMAIL');
 $manual = getDolGlobalInt('MAHNWESEN_MANUAL_SEND_ENABLED', 0);
 $auto = getDolGlobalInt('MAHNWESEN_AUTO_SEND_ENABLED', 0);
@@ -314,6 +317,7 @@ if ($tab === 'general') {
     print '<tr><td class="titlefield">'.$langs->trans('MinimumOpenAmount').'</td><td><input class="width100" name="min_amount" value="'.dol_escape_htmltag(price((float) price2num($minAmount), 0, $langs, 0, -1, -1)).'"> '.$conf->currency.'</td><td>'.$langs->trans('MinimumOpenAmountHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('MaximumScan').'</td><td><input type="number" min="1" max="5000" class="width100" name="max_scan" value="'.((int) $maxScan).'"></td><td>'.$langs->trans('MaximumScanHelp').'</td></tr>';
     print '<tr><td>'.$langs->trans('IncludeDepositInvoices').'</td><td><input type="checkbox" name="include_deposits" value="1"'.($includeDeposits ? ' checked' : '').'></td><td>'.$langs->trans('IncludeDepositInvoicesHelp').'</td></tr>';
+    print '<tr><td>'.$langs->trans('MahnwesenLetterQr').'</td><td><input type="checkbox" name="letter_qr" value="1"'.($letterQr ? ' checked' : '').'></td><td>'.$langs->trans('MahnwesenLetterQrHelp').'</td></tr>';
     print '</table><div class="center"><button class="button button-save" type="submit">'.$langs->trans('Save').'</button></div></form>';
 }
 
@@ -524,6 +528,8 @@ if ($tab === 'templates' && isset($profiles[$profileId])) {
         '__MAHNWESEN_INTEREST__' => 'MahnwesenTokenInterestDesc',
         '__MAHNWESEN_INTEREST_PARAGRAPH__' => 'MahnwesenTokenInterestParagraphDesc',
         '__MAHNWESEN_INTEREST_DAYS__' => 'MahnwesenTokenInterestDaysDesc',
+        '__MAHNWESEN_PAYMENT_URL__' => 'MahnwesenTokenPaymentUrlDesc',
+        '__MAHNWESEN_PAYMENT_PARAGRAPH__' => 'MahnwesenTokenPaymentParagraphDesc',
         '{INVOICE_REF}' => 'MahnwesenTokenInvoiceRefDesc',
         '{CUSTOMER_NAME}' => 'MahnwesenTokenCustomerNameDesc',
         '{INVOICE_DATE}' => 'MahnwesenTokenInvoiceDateDesc',

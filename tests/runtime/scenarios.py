@@ -649,12 +649,17 @@ def manual_send(stack: Stack) -> str:
     stored = int(stack.value(f"SELECT LENGTH(body_html) FROM llx_mahnwesen_attempt WHERE rowid = {attempt_id}") or 0)
     expect(stored > 60000 and "ENDE-DES-HINWEISES" in sent_html,
            f"a reminder of {stored} bytes was not stored and sent in full (#20)")
-    deadline = container_date(stack, 10)
-    expect(f"Frist: {deadline} (10 Tage)" in sent_html,
-           f"the sent email does not name the payment deadline {deadline} (#64)")
+    sent_day = datetime.date.fromisoformat(stack.value(f"SELECT DATE(reserved_at) FROM llx_mahnwesen_attempt WHERE rowid = {attempt_id}"))
+    deadline_day = sent_day + datetime.timedelta(days=10)
+    deadline = deadline_day.strftime("%d.%m.%Y")
+    # The mailer may wrap a long line, so the text is compared without its line breaks.
+    sent_flat = re.sub(r"\s+", " ", sent_html)
+    expect(f"Frist: {deadline} (10 Tage)" in sent_flat,
+           f"the sent email does not name the payment deadline {deadline}, it says "
+           f"{(re.search(r'Frist:[^<]*', sent_flat) or re.search('$^', '')).group(0) if 'Frist:' in sent_flat else 'nothing'!r} (#64)")
     recorded_text = stack.value("SELECT message FROM llx_mahnwesen_history WHERE action = 'notice_sent' "
                                 f"AND level = 1 AND fk_facture = {company['id']}") or ""
-    expect(f"Payment deadline: {container_date(stack, 10, 'Y-m-d')}" in recorded_text,
+    expect(f"Payment deadline: {deadline_day.isoformat()}" in recorded_text,
            f"the history of the sent reminder does not record its payment deadline: {recorded_text!r} (#64)")
     letter = stack.value(f"SELECT rowid FROM llx_mahnwesen_attempt_file WHERE fk_attempt = {attempt_id} "
                          f"AND display_name = '{company['ref']}_Zahlungserinnerung.pdf'")
@@ -1597,6 +1602,53 @@ def payment_trigger(stack: Stack) -> str:
     return "payment, full payment and cancellation reach the case at once, without the daily run"
 
 
+def payment_ways(stack: Stack) -> str:
+    """The letter carries the QR code for the invoice amount and says what it covers (#35)."""
+    browser = stack.browser()
+    # A fresh overdue invoice of the company, so a notice is actually due; the
+    # bank account comes after it, so the invoice names it as Dolibarr 21 needs.
+    company = stack.php_fixture("payment")["invoice"]
+    stack.php_fixture("bank")
+    dashboard = page_ok(browser.get("/custom/mahnwesen/index.php"), "dashboard")
+    page_ok(browser.submit(form_with_action(dashboard, "sync_cases", "dashboard")), "synchronise")
+    contact = str(stack.fixtures["contacts"]["billing"])
+
+    def letter() -> bytes:
+        composer = page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={company['id']}"), "composer")
+        shown = page_ok(browser.submit(composer.form(name="mailform"),
+                                       {"action": "generate_preview", "receiver[]": contact}), "generate preview")
+        section = shown.text.find('class="mahnwesen-document-preview"')
+        match = re.search(r'<iframe[^>]+src="([^"#]+)', shown.text[section:]) if section >= 0 else None
+        expect(match is not None, "the composer shows no preview of the letter (#35)")
+        pdf = browser.get(html.unescape(match.group(1)))
+        expect(pdf.body.startswith(b"%PDF"), "the preview is no PDF (#35)")
+        return pdf.body
+
+    with_qr = letter()
+    text = pdf_text(with_qr)
+    title = translations("MahnwesenPaymentQrTitle")
+    # This case carries a fee, so the code must say that it covers the invoice amount only.
+    only = [line.split("%s")[0].strip() for line in translations("MahnwesenPaymentCoversInvoiceOnly")]
+    expect(any(label in text for label in title) and any(part and part in text for part in only),
+           f"the letter does not name the QR code and what it covers: {text[:300]!r} (#35)")
+    expect(b"/Image" in with_qr or b"/XObject" in with_qr, "the letter carries no QR code image (#35)")
+
+    set_const(stack, "MAHNWESEN_LETTER_QR", "0")
+    try:
+        without = pdf_text(letter())
+        expect(not any(label in without for label in title), "the letter still shows the QR code although it is switched off (#35)")
+    finally:
+        set_const(stack, "MAHNWESEN_LETTER_QR", "1")
+
+    # Without an online payment provider the email says nothing about paying online.
+    composer = page_ok(browser.get(f"/custom/mahnwesen/notice.php?id={company['id']}"), "composer")
+    body = html.unescape(composer.text)
+    link = [line.split("%s")[0].strip() for line in translations("MahnwesenPaymentLinkParagraph")]
+    expect(not any(part and part in body for part in link),
+           "the email offers online payment although no provider is switched on (#35)")
+    return "QR code for the invoice amount with its scope named, switchable, and no invented online payment"
+
+
 SCENARIOS = (
     ("upgrade", "An installation of the previous release upgrades to this package", upgrade, ()),
     ("deploy", "The package deploys through Deploy an external module", deploy, ("upgrade",)),
@@ -1630,6 +1682,7 @@ SCENARIOS = (
     ("claim-invoice", "Open fees and interest as their own invoice", claim_invoice, ("interest",)),
     ("membership", "A dues invoice is known by its subscription", membership, ("claim-invoice",)),
     ("payment-trigger", "A payment reaches the case at once", payment_trigger, ("synchronise",)),
+    ("payment-ways", "The letter offers a way to pay", payment_ways, ("interest",)),
 )
 
 

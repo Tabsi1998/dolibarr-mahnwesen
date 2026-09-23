@@ -495,3 +495,13 @@ MahnwesenProfileMembership=Membership fee invoices
 MahnwesenProfileMembershipHelp=Applies to invoices Dolibarr links to a membership fee. Only that link counts as proof; a sale to a member stays an ordinary sale. Only one profile can have it.
 MahnwesenProfileReasonMembership=the invoice belongs to a membership fee
 MahnwesenMembership=Membership
+
+# Payment ways (#35)
+MahnwesenLetterQr=QR code for paying on the dunning letter
+MahnwesenLetterQrHelp=Prints Dolibarr's EPC QR code for a bank transfer of the invoice amount on the dunning letter. Only for euro and a bank account with IBAN and BIC.
+MahnwesenPaymentQrTitle=Pay with the QR code
+MahnwesenPaymentCoversAll=The code covers the whole open amount of %s.
+MahnwesenPaymentCoversInvoiceOnly=The code covers the invoice amount of %s only. Dunning fees and interest of %s are not included and stay open.
+MahnwesenPaymentLinkParagraph=You can also pay online: %s
+MahnwesenTokenPaymentUrlDesc=Link for paying online, empty when Dolibarr offers none
+MahnwesenTokenPaymentParagraphDesc=A full sentence about paying online, saying which amount it covers
