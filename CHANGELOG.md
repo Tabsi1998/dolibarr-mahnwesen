@@ -13,6 +13,11 @@ Dunning where you already work.
 
 ### Added
 
+- A page *Kennzahlen*: per stage the notices sent, the days from the due date
+  to sending and how many of those invoices are paid by now, plus the open
+  fees and interest, the open cases per customer and per dunning profile.
+  Everything from the stored cases and the ledger, limited to the customers
+  the user may see (#43).
 - A tab *Mahnwesen* on the customer with all their dunning cases, the open
   amount and the open fees and interest. It shows only cases the user may see
   (#41).

@@ -520,3 +520,14 @@ MahnwesenBoxTitle=Dunning today
 MahnwesenBoxDue=Dunning steps due
 MahnwesenBoxUnresolved=Unresolved delivery attempts
 MahnwesenBoxClaims=Open fees and interest
+
+# Dunning figures (#43)
+MahnwesenStats=Figures
+MahnwesenStatsIntro=Every figure comes from the stored dunning cases and the ledger. They show only customers you may see.
+MahnwesenStatsStages=Per dunning stage
+MahnwesenStatsNotices=Notices sent
+MahnwesenStatsDaysToNotice=Days from due date to sending
+MahnwesenStatsPaidShare=Of those paid by now
+MahnwesenStatsCustomers=Open cases per customer
+MahnwesenStatsProfiles=Open cases per dunning profile
+MahnwesenStatsCases=Cases

@@ -189,6 +189,21 @@ class modMahnwesen extends DolibarrModules
         $this->menu[$r++] = array(
             'fk_menu' => 'fk_mainmenu=mahnwesen',
             'type' => 'left',
+            'titre' => 'MahnwesenStats',
+            'mainmenu' => 'mahnwesen',
+            'leftmenu' => 'mahnwesen_stats',
+            'url' => '/mahnwesen/stats.php',
+            'langs' => 'mahnwesen@mahnwesen',
+            'position' => 1000 + $r,
+            'enabled' => 'isModEnabled("mahnwesen")',
+            'perms' => '$user->hasRight("mahnwesen", "dashboard", "read")',
+            'target' => '',
+            'user' => 2,
+        );
+
+        $this->menu[$r++] = array(
+            'fk_menu' => 'fk_mainmenu=mahnwesen',
+            'type' => 'left',
             'titre' => 'MahnwesenSendAttempts',
             'mainmenu' => 'mahnwesen',
             'leftmenu' => 'mahnwesen_attempts',
