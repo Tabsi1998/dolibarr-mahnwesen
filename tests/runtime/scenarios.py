@@ -1666,7 +1666,7 @@ def events(stack: Stack) -> str:
         return [row[0] for row in stack.sql(f"SELECT event_type FROM llx_mahnwesen_event WHERE fk_case = {case} ORDER BY rowid")]
 
     before = types()
-    tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={company['id']}"), "dunning tab")
+    tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={company['id']}&edit=pause"), "dunning tab, pause form")
     page_ok(browser.submit(form_with_action(tab, "pause_case", "dunning tab"), {"pause_reason": "Runtime events"}), "pause the case")
     tab = page_ok(browser.get(f"/custom/mahnwesen/invoice.php?id={company['id']}"), "dunning tab")
     page_ok(browser.submit(form_with_action(tab, "resume_case", "dunning tab")), "resume the case")
