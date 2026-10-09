@@ -1,11 +1,10 @@
 # CLAUDE.md
 
-Notes for Claude Code sessions on dolibarr-mahnwesen: how the local checks are
-set up and how to extend them. Answer the owner (Tabsi1998) in German. Commits
-and PR titles stay English, in the conventional style of the history
-(`feat:`, `fix:`, `chore:`, `release:`). The module rules in `CONTRIBUTING.md`
-apply to every change: invoice data stays read-only, automatic sending stays
-off by default, German and English language keys change together.
+Notes for everyone working on dolibarr-mahnwesen, including Claude Code. The
+module rules in `CONTRIBUTING.md` apply to every change: invoice data stays
+read-only, automatic sending stays off by default, German and English
+language keys change together. Commits and PR titles are English, in the
+style of the history (`feat:`, `fix:`, `chore:`, `release:`, `docs:`).
 
 ## Local first, GitHub second
 
@@ -19,84 +18,33 @@ python scripts/local_check.py --only package,runtime --keep-services   # leave t
 python scripts/local_check.py --list          # the steps, without running them
 ```
 
-Results: `.local-testing/local-check.json`, logs in `.local-testing/logs/`,
-live progress in `.local-testing/local-check.progress.json`. All of it is
-ignored by Git.
+Results: `.local-testing/local-check.json`, logs in `.local-testing/logs/`.
+Tools: Docker Desktop, Git for Windows, gitleaks; a missing tool skips its steps.
 
-| Group | Mirrors | Runs |
-| --- | --- | --- |
-| repository | - | every `*.sh` parses, no CRLF in the index, `git diff --check` over every tracked line, Gitleaks over the history and over uncommitted files |
-| php | ci.yml `php-lint` matrix | `scripts/check-module.sh` in `php:7.4-cli` to `php:8.4-cli`, and proof that its lint, policy tests, language keys and contracts really ran (it skips them silently without php); PHPStan level 3 (`scripts/phpstan.neon`, pinned phar in `~/.local-toolchain`) with the PHP and code of the Dolibarr image, through the ratchet |
-| dolibarr | ci.yml `dolibarr-api` matrix | `scripts/check-dolibarr-api.sh` for 21.0, 22.0, 23.0 and 24.0 |
-| package | ci.yml `package` | `scripts/build_release.py` from the working copy and from the snapshot, byte for byte identical, verified file by file |
-| release | ci.yml `package`, release-verify.yml | `scripts/release.py --metadata`: version, dated changelog section with link, support matrix (descriptor, `PHP_VERSIONS`, `DOLIBARR_VERSIONS`, `check-dolibarr-api.sh`, ci.yml, README tables); any tag matches; a package changed since the newest release needs a new version |
-| runtime | ci.yml `runtime` | the package installed through Dolibarr's own installer in a running Dolibarr 21.0, 22.0, 23.0 and 24.0 (official images, MariaDB, Mailpit), upgraded from the previous release, driven through its pages and the Dolibarr cron; needs the package step; see below |
-| extra | - | PHP 8.4 deprecations and warnings in `tests/run.php`, printf placeholders that differ between de_DE and en_US, ShellCheck, OSV |
-
-Tools the checks expect: Docker Desktop, Git for Windows, gitleaks. A missing
-tool skips its steps with a hint.
-
-The php, dolibarr, package and runtime steps run against
-`.local-testing/snapshot`, a copy of what Git would commit with LF line endings,
-as the Linux runner checks it out.
+| Group | Runs |
+| --- | --- |
+| repository | shell scripts parse, no CRLF, `git diff --check`, Gitleaks |
+| php | `scripts/check-module.sh` in PHP 7.4 to 8.4, PHPStan level 3 (`scripts/phpstan.neon`) |
+| dolibarr | `scripts/check-dolibarr-api.sh` for 21.0, 22.0, 23.0, 24.0 |
+| package | `scripts/build_release.py` twice, byte for byte identical |
+| release | `scripts/release.py --metadata`: version, changelog section, support matrix |
+| runtime | the package installed through Dolibarr's installer in Dolibarr 21-24 (Docker, MariaDB, Mailpit), upgraded from the previous release, driven through its pages and the cron |
+| extra | PHP 8.4 deprecations, placeholders de/en, ShellCheck, OSV |
 
 ## Runtime checks
 
-`tests/runtime/` holds a real Dolibarr test. For every version in
-`RUNTIME_IMAGES` (header of `scripts/local_check.py`) the check starts, all at
-once, a `dolibarr/dolibarr` container, a MariaDB and a Mailpit, each on its own
-network. `custom/` starts empty and writable; `tests/runtime` of the snapshot is
-mounted read-only at `/opt/mahnwesen-tests`, outside the web root. Database,
-documents and `custom/` live in tmpfs, passwords are new each run, and
-everything is removed afterwards. Ports: web 18021-18024, Mailpit 18121-18124.
-
-The module arrives the way an administrator installs it. The package step
-builds `module_mahnwesen-x.y.z.zip`, and from the tag of the newest earlier
-release (`git archive`) the previous package. The first scenarios then:
-
-1. `upgrade`: for the newest earlier release and for `UPGRADE_TAGS`
-   (v1.0.0, v0.5.4-test.1) one after the other: deploy that package through
-   *Deploy an external module*, enable it, synchronise with its own code (the
-   `legacy` fixture), set stage settings where that version keeps them; deploy
-   the new package, disable and enable it, and find cases, history and starter
-   templates unchanged, the stage settings moved into the stage table, the old
-   constants gone and every setting of the new descriptor present. The `reset`
-   fixture then removes the module's tables, settings, templates and cron job.
-   After each upload the check waits for PHP's opcode cache to see the new
-   files. PHP messages of the old versions do not count.
-2. `deploy`: upload the new package; the files in `custom/mahnwesen` must be
-   exactly those of the ZIP.
-3. `enable`: enable it from the module list, then the `enabled` fixture.
-
-- `fixtures.php` runs with the PHP CLI in the container, in stages. `base`:
-  company in Austria, SMTP to Mailpit, modules Societe/Facture/Agenda/Cron, a
-  company with a BILLING contact, a private customer and four validated overdue
-  invoices with PDFs - one of them renamed the way other PDF models name files.
-  `enabled`: manual sending on, a sales representative `rtsales` for the
-  company customer, a second representative `rtother` without customers, the
-  cron job. `reset`: see above. Each stage prints its ids as JSON.
-  `bootstrap.php` refuses to run outside the CLI.
-- `scenarios.py` drives the pages with `dolibarr_http.py` (sessions, CSRF
-  tokens, forms submitted as a browser submits them - an unticked checkbox is
-  not sent), reads Mailpit's API and the database, and runs the Dolibarr cron
-  runner. Each entry of `SCENARIOS` becomes one step per version; `needs`
-  keeps their order.
-- `php-check.ini` logs every PHP message; the `php-messages` step collects
-  those from module code through the ratchet (`runtime-php-<version>`).
-
-With `--keep-services` the stacks stay up and
-`.local-testing/runtime-<version>-access.json` holds the URL, the Mailpit URL
-and the throwaway passwords. A bug fix gets a scenario that fails before the
-fix; a new Dolibarr major gets a line in `RUNTIME_IMAGES`, `DOLIBARR_VERSIONS`,
-`scripts/check-dolibarr-api.sh` and the CI matrix.
+`tests/runtime/`: `fixtures.php` builds test data in stages (PHP CLI in the
+container), `scenarios.py` drives the pages like a browser and reads Mailpit
+and the database, `dolibarr_http.py` holds the session and form helpers. Each
+entry of `SCENARIOS` is one step per Dolibarr version; `needs` keeps the
+order. Ports: web 18021-18024, Mailpit 18121-18124. A bug fix gets a scenario
+that fails before the fix.
 
 ## Releases
 
-Every merged pull request that changes the package is released as "Mahnwesen
-vX.Y.Z", the same scheme as dolibarr-vereine. Such a pull request raises
-`$this->version` and turns its changelog entries into `## [x.y.z] - YYYY-MM-DD`
-with a link at the bottom; the local release step fails otherwise. After
-Fabian's merge Claude runs, on an up-to-date `main`:
+A pull request that changes the package raises `$this->version` in
+`core/modules/modMahnwesen.class.php` and adds `## [x.y.z] - YYYY-MM-DD` with
+its link to `CHANGELOG.md`. After the merge, on an up-to-date `main`:
 
 ```bash
 python scripts/local_check.py
@@ -104,52 +52,18 @@ python scripts/release.py --check
 python scripts/release.py
 ```
 
-`release-verify.yml` then rebuilds the tag and compares the published ZIP byte
-for byte. Details: `docs/RELEASES.md`. The package name must stay
-`module_mahnwesen-x.y.z.zip`; Dolibarr's installer derives the module folder
-from it.
+Details: `docs/RELEASES.md`. The package name stays
+`module_mahnwesen-x.y.z.zip`.
 
 ## Keep in step
 
-- Raising the PHP or Dolibarr minimum means changing `phpmin` or
-  `need_dolibarr_version`, the matrix in `.github/workflows/ci.yml`, and
-  `PHP_VERSIONS` or `DOLIBARR_VERSIONS` (with `RUNTIME_IMAGES`) in the header of
-  `scripts/local_check.py` together; the release check fails otherwise.
-- `scripts/check-module.sh` holds static contracts. A contract that only greps
-  the start of a call proves nothing: the one for `restrictedArea()` did so and
-  kept every user locked out until the runtime checks ran (#44).
-- `build_release.py` packs every tracked file outside `EXCLUDED_TOP`. A new
-  developer-only top-level file or folder needs an entry there.
-
-## Ratchet
-
-The extra group and the whitespace check compare against
-`scripts/ci-baseline.json`: known findings are debt, new ones fail. After
-paying debt down, run `python scripts/local_check.py --all --record` and commit
-the baseline. Since 1.0.4 the baseline holds no debt: the last whitespace
-error in `admin/setup.php` and the ShellCheck finding are gone.
-
-## Extending the checks
-
-`scripts/local_check.py` has three parts:
-
-1. **Header** - paths, groups, the PHP and Dolibarr matrices, package rules.
-2. **Shared core** - `Step`, `Context`, the runner, the ratchet, Gitleaks, OSV,
-   ShellCheck. OmniFM, IT-Tabelander and THE-LION_SQUAD-eSPORT-Webseite carry
-   the same copy; a fix here is worth porting there.
-3. **dolibarr steps** and `plan()`.
-
-A step is a function `(context) -> str`. It returns its one-line result,
-raises `StepFailed` with the reason and how to fix it, or `StepSkipped` when it
-cannot run on this machine. Register it with
-`Step(group, name, describe, action, needs)`; `needs` names steps of the same
-group, or `group/name` across groups. `in_php(context, version, script)` runs a
-bash script inside a PHP image against the snapshot. A gate that counts
-findings goes through `ratchet(context, key, found, what)`.
-
-## Machine-local helpers (not in Git)
-
-- `.ci-panel/test_checks.py` with `.vscode/settings.json`: every step in the VS
-  Code Testing panel through pytest. Hidden through `.git/info/exclude`.
-- `C:\Programmieren\check-all.py --serve`: live dashboard over all
-  repositories. `C:\Programmieren\Programmieren.code-workspace` opens all five.
+- PHP or Dolibarr minimum: `phpmin`/`need_dolibarr_version`, the matrix in
+  `.github/workflows/ci.yml`, `PHP_VERSIONS`/`DOLIBARR_VERSIONS`/
+  `RUNTIME_IMAGES` in `scripts/local_check.py` and the README tables.
+- A new top-level developer file needs an entry in `EXCLUDED_TOP` of
+  `scripts/build_release.py`.
+- Known findings live in `scripts/ci-baseline.json` (ratchet); new ones fail.
+  After paying debt down: `python scripts/local_check.py --all --record`.
+- A new check step: `Step(group, name, describe, action, needs)` in
+  `scripts/local_check.py`; it returns its result line or raises
+  `StepFailed`/`StepSkipped`.

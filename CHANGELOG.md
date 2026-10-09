@@ -7,6 +7,15 @@ The section of a version is the text of its GitHub release.
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-09
+
+Documentation only; the module behaves exactly as in 1.5.0.
+
+### Removed
+
+- `ROADMAP.md`: it described the state before 1.1 and is replaced by the
+  milestones on GitHub and the changelog (#96).
+
 ## [1.5.0] - 2026-09-23
 
 Dunning where you already work.
@@ -664,7 +673,8 @@ version of its own, built locally and verified by GitHub.
 
 - Initial read-only overdue invoice scan for Dolibarr 22.
 
-[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/Tabsi1998/dolibarr-mahnwesen/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.5.1
 [1.5.0]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.5.0
 [1.4.3]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.3
 [1.4.2]: https://github.com/Tabsi1998/dolibarr-mahnwesen/releases/tag/v1.4.2
