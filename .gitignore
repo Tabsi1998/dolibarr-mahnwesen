@@ -13,3 +13,6 @@
 /.venv/
 __pycache__/
 .pytest_cache/
+
+# Machine-local notes for Claude Code (project knowledge lives in the vault)
+/CLAUDE.local.md

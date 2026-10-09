@@ -48,7 +48,7 @@ Time alone does not skip a required stage. The stable workflow uses this sequent
 
 If, for example, the 1st dunning notice has never actually been sent, a later date threshold must **not** silently jump to the 2nd notice. A stage advances after the required previous stage is successfully sent. The architecture also reserves an audited explicit waiver/skip state for a future authorized UI. Automatic sending follows the same eligibility guard as manual sending. Configured spacing between stages is also preserved after a late send, preventing several escalation notices from being sent on consecutive cron runs merely because their original invoice-date thresholds already passed.
 
-See [docs/WORKFLOW.md](docs/WORKFLOW.md) and [ROADMAP.md](ROADMAP.md).
+See [docs/WORKFLOW.md](docs/WORKFLOW.md).
 
 
 ## Invoice integration
@@ -101,7 +101,6 @@ Mahnwesen writes its workflow state only to module-owned tables. Sending is gate
 ## Project documentation
 
 - [German README](README-DE.md)
-- [Roadmap](ROADMAP.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Workflow / sequential escalation](docs/WORKFLOW.md)
 - [Compatibility](docs/COMPATIBILITY.md)

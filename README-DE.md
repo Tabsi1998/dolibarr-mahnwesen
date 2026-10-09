@@ -157,7 +157,6 @@ Das Projekt wird nicht auf eine einzelne Dolibarr-Version gebrandet. Zielmatrix 
 
 ## Dokumentation
 
-- [Roadmap](ROADMAP.md)
 - [Architektur](docs/ARCHITECTURE.md)
 - [Mahnworkflow](docs/WORKFLOW.md)
 - [Kompatibilität](docs/COMPATIBILITY.md)
